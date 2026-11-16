@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
-import type { CollectionID, GroupID, ProjectID, Scope, SkillID } from "@bindings/internal/library";
+import type { CollectionID, GroupID, ProjectID, Scope, Skill, SkillID } from "@bindings/internal/library";
 import { forgetLibraryCaches, queryClient, scopeDirectoryQuery, snapshotQuery, useLoadedSnapshot, type Snapshot } from "./library";
 import {
   agentsIn,
@@ -153,11 +153,11 @@ export const closeDrawer = () => set({ drawer: null });
 // openPage 换到技能库或更新页;左栏上次要跳到的那一节作废，回到技能库页时不再滚过去。
 export const openPage = (page: Page) => goTo(page);
 
-// goTo 换页：勾选的技能只对当前页有效，换到别的页时清空;左栏要跳到的那一节、要闪的那一行作废。
+// goTo 换页：勾选的技能只对当前页有效，换到别的页时清空;左栏要跳到的那一节、要闪的那几行作废。
 function goTo(page: Page, extra: Partial<ViewState> = {}) {
   const changed = !samePage(get().page, page);
   if (changed) pickRound++;
-  set({ page, jump: null, flash: null, ...(changed ? { picked: new Set(), anchor: null } : {}), ...extra });
+  set({ page, jump: null, flash: null, fresh: null, ...(changed ? { picked: new Set(), anchor: null } : {}), ...extra });
 }
 
 // openGraph 打开集合或组的关系图页(节标题上的「关系图」、左栏右键菜单);记下现在在哪一页、列表滚到了哪里、搜索与勾选，
@@ -194,7 +194,19 @@ export function forgetLibrary(): Promise<void> {
 // flashSkill 让刚入库的未纳管技能那一行(这时已是库里技能的一行)滚到看得见的地方闪一下;doneFlash 是闪过了，之后再渲染不再闪。
 export const flashSkill = (skill: SkillID, scope: ScopeKey) => set((v) => ({ flash: { skill, scope, n: (v.flash?.n ?? 0) + 1 } }));
 export const doneFlash = (n: number) => set((v) => (v.flash?.n === n ? { flash: null } : {}));
-export const markFresh = (ids: SkillID[]) => set((v) => ({ fresh: { ids: new Set(ids), n: (v.fresh?.n ?? 0) + 1 } }));
+// markFresh 标出刚入库的几个技能(在技能库页上调用):清掉搜索、展开它们所在的节(按集合是那个集合或「没有来源」,
+// 按组是「没有归组」——刚入库的还不在任何组里),好让这几行都画出来。
+export function markFresh(skills: Pick<Skill, "id" | "collection_id">[]) {
+  const keys = new Set([
+    ...skills.map((x) => (x.collection_id ? sectionKey("collection", x.collection_id) : sectionKey("rest", "collection"))),
+    sectionKey("rest", "group"),
+  ]);
+  set((v) => ({
+    search: "",
+    flipped: new Set([...v.flipped].filter((k) => !keys.has(k))),
+    fresh: { ids: new Set(skills.map((x) => x.id)), n: (v.fresh?.n ?? 0) + 1 },
+  }));
+}
 export const doneFresh = (n: number) => set((v) => (v.fresh?.n === n ? { fresh: null } : {}));
 
 // togglePick 勾选或取消一行的技能。rows 是按住 Shift 点的：列表里各行从上到下，

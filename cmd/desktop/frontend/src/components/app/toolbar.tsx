@@ -30,7 +30,9 @@ export function Toolbar() {
   const back = useView((v) => v.back);
   const tt = useT();
   const t = tt.toolbar;
-  const showTitle = !s || (!left && (page.kind === "all" || page.kind === "updates" || page.kind === "graph"));
+  // 作用域页、项目页的摘要标题不吸顶：右栏收起时(看不到选中的那一行)也写在顶栏。
+  const showTitle =
+    !s || (!left && (page.kind === "all" || page.kind === "updates" || page.kind === "graph")) || (!right && (page.kind === "scope" || page.kind === "project"));
 
   // ⌘K(Windows、Linux 上是 Ctrl+K)聚焦搜索框。
   useEffect(() => {
@@ -60,7 +62,7 @@ export function Toolbar() {
           )}
           <span className="tb-crumb ml-1 inline-flex min-w-0 items-center gap-1.5 text-body font-semibold whitespace-nowrap">
             {/* 同一个信息一屏只出现一次：左栏开着时技能库、更新页、关系图的名字和个数就在左栏选中的那一行上;作用域页、项目页的摘要标题已经写了。
-                只有左栏收起时才写在顶栏。 */}
+                只有它们看不到时(左栏收起;作用域页、项目页的右栏收起)才写在顶栏。 */}
             {showTitle && (
               <>
                 <b className="truncate">{s ? pageTitle(s, page) : "Mechbox"}</b>

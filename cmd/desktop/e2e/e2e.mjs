@@ -381,7 +381,7 @@ await step("入库对话框只有一个输入框，没有来源标签", async ()
   assert((await btn(modal(), "选择…").count()) === 1, "应保留「选择…」按钮");
   assert((await modal().getByText("仓库内目录").count()) === 0, "不应有仓库内目录输入框");
   // 分支下拉一直占着位置(取回列表时下面的按钮不挪),不是 Git 仓库时点不了。
-  assert((await modal().locator('.fetch-refs[data-state="hidden"] .refs-trigger[disabled]').count()) === 1, "没有输入时分支下拉点不了");
+  assert((await modal().locator('.fetch-refs[data-state="none"] .refs-trigger[disabled]').count()) === 1, "没有输入时分支下拉点不了");
   await modal().getByRole("button", { name: "取消" }).click();
 });
 
@@ -484,11 +484,11 @@ await step("本地路径与 zip 链接不显示分支下拉，不取列表", asy
   const before = refsCalls;
   await input.fill(SK);
   await page.waitForTimeout(1000);
-  assert.equal(await modal().locator('.fetch-refs:not([data-state="hidden"])').count(), 0, "本地路径的分支下拉点不了");
+  assert.equal(await modal().locator('.fetch-refs:not([data-state="none"])').count(), 0, "本地路径的分支下拉点不了");
   assert.equal(refsCalls - before, 0, "本地路径不应取分支列表");
   await input.fill(ZIP_URL);
   await page.waitForTimeout(1200);
-  assert.equal(await modal().locator('.fetch-refs:not([data-state="hidden"])').count(), 0, "zip 链接的分支下拉点不了");
+  assert.equal(await modal().locator('.fetch-refs:not([data-state="none"])').count(), 0, "zip 链接的分支下拉点不了");
   await modal().getByRole("button", { name: "取消" }).click();
 });
 

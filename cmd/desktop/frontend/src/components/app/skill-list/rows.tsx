@@ -6,12 +6,12 @@
 // 技能库页、作用域页与项目页的行开头有勾选框，勾选的几个技能用底部的操作栏一起操作，拖勾选着的一行就是拖它们全部。
 import { useEffect, useRef } from "react";
 import { AppService } from "@bindings/cmd/desktop";
-import { SkillScopeStatus, UpdateCheckStatus, type Skill, type SkillID, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
+import { SkillScopeStatus, type Skill, type SkillID, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
 import { useT, type Messages } from "@/lib/i18n";
 import { foundSource, useFoundSources, useSnapshot } from "@/lib/library";
 import {
   identicalIn,
-  isLocal,
+  localChanged,
   notTakenOver,
   deletedInSource,
   folderNotes,
@@ -29,7 +29,6 @@ import {
   sameNameInLibrary,
   sameNameNote,
   scopeKey,
-  scopeLabel,
   skillSameNameNote,
   shortPath,
   skillScopeIn,
@@ -55,38 +54,38 @@ import { useDnD } from "@/components/app/dnd";
 import { Icon } from "@/components/ui/icon";
 import { Truncated } from "@/components/app/parts";
 import { PickBox } from "./pick";
-import { sameNameAlert } from "./same-name";
+import { sameNameAlert, sameNameCopiesAlert, useSameNameCopies } from "./same-name";
 import { flash } from "./flash";
 
 // 列宽：技能库页是 名字 | 描述 | 装在哪 | 状态(要处理的事);作用域页是 开关 | 名字 | 描述 | 在这里的状态。
 // 能勾选的行(更新页以外)前面多一列勾选框。
-// 列表窄了(开着技能详情)时每行两层：描述挪到名字下面;技能库页的装在哪和状态上下叠在最后一列(where、date),
+// 列表窄了(开着技能详情)时每行两层：描述挪到名字下面;技能库页的装在哪和状态上下叠在最后一列(where、status),
 // 作用域页的状态跨两层。名字、装在哪(在这里的状态)和状态仍然看得全;列表的宽度按 .a-list 这个容器算。
-// 各列宽下 desc、where、date 是窄的时候它们放的格子，勾选框和开关跨两层、上下居中(span)。
+// 各列宽下 desc、where、status 是窄的时候它们放的格子，勾选框和开关跨两层、上下居中(span)。
 const layouts = {
   library: {
     cols: "grid-cols-[minmax(140px,220px)_minmax(0,1fr)_minmax(80px,180px)_minmax(96px,170px)] @max-[600px]/list:grid-cols-[minmax(0,1fr)_minmax(110px,170px)]",
     desc: "@max-[600px]/list:col-start-1 @max-[600px]/list:row-start-2",
     where: "@max-[600px]/list:col-start-2 @max-[600px]/list:row-start-1",
-    date: "@max-[600px]/list:col-start-2 @max-[600px]/list:row-start-2 @max-[600px]/list:justify-start",
+    status: "@max-[600px]/list:col-start-2 @max-[600px]/list:row-start-2 @max-[600px]/list:justify-start",
   },
   pickLibrary: {
     cols: "grid-cols-[14px_minmax(140px,220px)_minmax(0,1fr)_minmax(80px,180px)_minmax(96px,170px)] @max-[600px]/list:grid-cols-[14px_minmax(0,1fr)_minmax(110px,170px)]",
     desc: "@max-[600px]/list:col-start-2 @max-[600px]/list:row-start-2",
     where: "@max-[600px]/list:col-start-3 @max-[600px]/list:row-start-1",
-    date: "@max-[600px]/list:col-start-3 @max-[600px]/list:row-start-2 @max-[600px]/list:justify-start",
+    status: "@max-[600px]/list:col-start-3 @max-[600px]/list:row-start-2 @max-[600px]/list:justify-start",
   },
   scope: {
     cols: "grid-cols-[30px_minmax(140px,220px)_minmax(0,1fr)_minmax(90px,180px)] @max-[600px]/list:grid-cols-[30px_minmax(0,1fr)_minmax(80px,140px)]",
     desc: "@max-[600px]/list:col-start-2 @max-[600px]/list:row-start-2",
     where: "@max-[600px]/list:row-span-2",
-    date: "",
+    status: "",
   },
   pickScope: {
     cols: "grid-cols-[14px_30px_minmax(140px,220px)_minmax(0,1fr)_minmax(90px,180px)] @max-[600px]/list:grid-cols-[14px_30px_minmax(0,1fr)_minmax(80px,140px)]",
     desc: "@max-[600px]/list:col-start-3 @max-[600px]/list:row-start-2",
     where: "@max-[600px]/list:row-span-2",
-    date: "",
+    status: "",
   },
 };
 // 技能名那条线离行的左边多远，记在列表容器的 --name-indent 上(nameIndentVars),一页里所有文字都从这条线开始:
@@ -136,6 +135,8 @@ export function SkillRow(props: {
   // 这里的那一份提交在项目仓库里或链到 Agent 目录以外：归团队、归作者自己管，只是内容和库里的一样。
   // 行上不带库里这个技能的组和提醒，免得看上去像是库装过来的那一份;只留这个文件夹自己的同名提醒。
   const foreign = !!identical && !notTakenOver(identical);
+  // 这一份不是库装的、同一层的别处有同名不同内容的：和「不在技能库里」的行一样说出来。
+  const elsewhere = useSameNameCopies(identical ? scope : undefined).copies.get(identical?.folder ?? "");
   const groups = foreign ? [] : s.groups.filter((g) => g.members?.includes(skill.id) && g.id !== props.hideGroup);
   const twins = sameNameInLibrary(s, skill);
   const translated = translatedDescription(skill);
@@ -146,8 +147,9 @@ export function SkillRow(props: {
   const placeAlerts: Alert[] = scope
     ? [place && needsReinstall(place) && (skillScopeStatus(place.status, place.source_latest) as Alert)].filter((x): x is Alert => !!x)
     : reinstallAlerts(s, skill.id);
-  const alerts: Alert[] = (foreign ? [same && sameNameAlert(same, t.list.sameName)] : [
+  const alerts: Alert[] = (foreign ? [same && sameNameAlert(same, t.list.sameName), sameNameCopiesAlert(t.list, skill.name, elsewhere)] : [
     same && sameNameAlert(same, t.list.sameName),
+    sameNameCopiesAlert(t.list, skill.name, elsewhere),
     ...placeAlerts.map((x) => ({ ...x, onClick: x.tone === "update" ? plan : undefined })),
     // 作者从来源里删掉了它：不是新版本，是一条提示。
     deletedInSource(skill) && !skill.kept_deleted && { tone: "info" as const, label: t.list.deleted, tip: t.list.deletedTitle },
@@ -161,7 +163,7 @@ export function SkillRow(props: {
     pending(skill) &&
       hasUpdate(skill) &&
       (renamedTo(skill)
-        ? { tone: "rename" as const, label: t.list.maybeRenamedTo(renamedTo(skill)), tip: t.list.renamedTitle(renamedTo(skill)), onClick: plan }
+        ? { tone: "rename" as const, label: t.drawer.maybeRenamedTo(renamedTo(skill)), tip: t.list.renamedTitle(renamedTo(skill)), onClick: plan }
         : { tone: "update" as const, label: t.list.newVersion, tip: t.list.availableTitle, onClick: plan }),
     // 本地目录来源：目录里的这个技能改过了(读目录时比出来的),在详情里或集合的「…」里重新读取。
     localChanged(skill) && { tone: "update" as const, label: t.list.localChanged, tip: t.list.localChangedTitle, className: "local-changed" },
@@ -264,7 +266,7 @@ export function SkillRow(props: {
       {scope ? (
         <div className={cn("flex min-w-0", layout.where)}>
           {identical ? (
-            <IdenticalState identical={identical} skill={skill} alerts={alerts} />
+            <IdenticalState identical={identical} skill={skill} alerts={alerts} foreign={foreign} />
           ) : (
             <RowState alerts={alerts} plain={scopePlain(t.list, place, via, !!props.fromGlobal)} className="skill-state" />
           )}
@@ -274,7 +276,7 @@ export function SkillRow(props: {
           <div className={cn("flex min-w-0", layout.where)}>
             <Where skill={skill} />
           </div>
-          <div className={cn("flex min-w-0", layout.date)}>
+          <div className={cn("flex min-w-0", layout.status)}>
             <RowState alerts={alerts} plain={keptDeleted} className="skill-status" />
           </div>
         </>
@@ -340,11 +342,6 @@ function scopePlain(t: Messages["list"], place: SkillScopeInspection | undefined
   return { text: t.hereState(place.direct, via) };
 }
 
-// localChanged 是本地目录来源的技能在目录里改过了：读目录时(见 features/update/check 的 checkLocalDirectories)比出来和库里的当前版本不一样。
-function localChanged(skill: Skill): boolean {
-  return isLocal(skill.source) && skill.last_update_check?.status === UpdateCheckStatus.UpdateAvailable;
-}
-
 // TakeOverButton 是和库里技能一模一样、不是库装的那一处的"入库":入库只补记安装，文件夹原样不动。
 // 提交在项目仓库里、指向 Agent 目录以外的默认不入库，按钮是普通的灰底。
 function TakeOverButton({ identical, name }: { identical: UnmanagedSkill; name: string }) {
@@ -352,8 +349,8 @@ function TakeOverButton({ identical, name }: { identical: UnmanagedSkill; name: 
   return (
     <Button
       size="sm"
-      variant={notTakenOver(identical) ? "pill" : "default"}
-      className={cn("take-over", !notTakenOver(identical) && "rounded-pill px-3")}
+      variant={notTakenOver(identical) ? "pill" : "pillQuiet"}
+      className="take-over"
       title={t.identicalHereTitle(name)}
       onClick={() => void fetchUnmanaged(identical)}
     >
@@ -364,7 +361,8 @@ function TakeOverButton({ identical, name }: { identical: UnmanagedSkill; name: 
 
 // IdenticalState 是那一处的最后一列：不是 app 装的，接着写归谁管、是不是指向 Agent 目录以外(folderNotes);
 // 和库里的旧版本一样时标出来，下面是在文件管理器中显示。
-function IdenticalState({ identical, skill, alerts }: { identical: UnmanagedSkill; skill: Skill; alerts: Alert[] }) {
+// foreign(提交在项目仓库里、链到 Agent 目录以外)的那一份不跟库里的版本走，和旧版本一样也不提醒。
+function IdenticalState({ identical, skill, alerts, foreign }: { identical: UnmanagedSkill; skill: Skill; alerts: Alert[]; foreign: boolean }) {
   const { common, list } = useT();
   const stale = skillScopeStatus(SkillScopeStatus.SkillScopeStale);
   const state = identicalState(skill, identical, useSnapshot().info.home_dir);
@@ -375,7 +373,7 @@ function IdenticalState({ identical, skill, alerts }: { identical: UnmanagedSkil
       <span className="skill-state identical-state min-w-0 truncate text-caption text-muted-foreground" title={title}>
         {state.text}
       </span>
-      <AlertIcon items={[...(state.stale ? [{ tone: stale.tone as Mark, label: stale.label }] : []), ...alerts]} />
+      <AlertIcon items={[...(state.stale && !foreign ? [{ tone: stale.tone as Mark, label: stale.label }] : []), ...alerts]} />
       <RevealButton
         label={common.reveal()}
         onClick={(e) => {
@@ -403,7 +401,7 @@ function RevealButton({ label, onClick }: { label: string; onClick: (e: React.Mo
 // 最后一列写"不在技能库里"(headed:作用域页"不在技能库里"一节里的，节标题已经写了，不再写;fromGlobal:"来自全局"一节里的，先写"来自全局"),
 // 提交在项目仓库里、记在 skills-lock.json 里、指向 Agent 目录以外的接着写出来，下面是在文件管理器中显示;符号链接在描述下写出指向哪里。
 // 不能拖动、不打开详情。
-// copies 是同一层的别处同名、内容不同的几份(见 model 的 sameNameCopies):不合成一个技能，行上说出来。
+// copies 是同一层的别处同名、内容不同的那几处的地名(见 same-name 的 useSameNameCopies):不合成一个技能，行上说出来。
 export function UnmanagedRow({
   skill,
   fromGlobal = false,
@@ -413,7 +411,7 @@ export function UnmanagedRow({
   skill: UnmanagedSkill;
   fromGlobal?: boolean;
   headed?: boolean;
-  copies?: UnmanagedSkill[];
+  copies?: string[];
 }) {
   const s = useSnapshot();
   const { list: t, common } = useT();
@@ -462,8 +460,8 @@ export function UnmanagedRow({
           // 提交在项目仓库里、指向 Agent 目录以外的默认不入库(归团队管、作者留在自己目录里改):按钮是普通的灰底，不推用户去入库。
           <Button
             size="sm"
-            variant={notTakenOver(skill) ? "pill" : "default"}
-            className={cn("fetch-unmanaged", !notTakenOver(skill) && "rounded-pill px-3")}
+            variant={notTakenOver(skill) ? "pill" : "pillQuiet"}
+            className="fetch-unmanaged"
             title={t.fetchTitle}
             onClick={() => void fetchUnmanaged(skill)}
           >
@@ -497,11 +495,13 @@ export function UnmanagedRow({
           labeled={!state.length}
           items={[
             same && sameNameAlert(same, t.sameName),
-            !!copies?.length && {
-              tone: "warn",
-              label: t.sameNameCopies,
-              tip: t.sameNameCopiesTitle(skill.name, [...new Set(copies.map((x) => scopeLabel(s, x.scope)))]),
-              className: "same-name-copies",
+            sameNameCopiesAlert(t, skill.name, copies),
+            // 库里有同名的技能，而这里和它的哪个版本都不一样(一样的会认成那个技能):入库后会多出一个同名的。
+            !library && !newer && sameNameInLibrary(s, { id: 0, name: skill.name }).length > 0 && {
+              tone: "info",
+              label: t.twinsShort,
+              tip: t.libraryTwinTitle(skill.name),
+              className: "library-twin",
             },
           ]}
         />

@@ -7,14 +7,10 @@
 // - 关系图(这些技能之间谁提到谁):一个集合或组的技能画成一张图，见 mention-graph。
 // 搜索只在当前页里找，顶上写出搜的是什么、几个结果。
 import { useEffect, useLayoutEffect, useRef } from "react";
-import { useQuery } from "@tanstack/react-query";
-import type { UnmanagedSkill } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
-import { sameNameCopiesQuery, useSnapshot } from "@/lib/library";
+import { useSnapshot } from "@/lib/library";
 import { cn } from "@/lib/utils";
 import {
-  sameNameCopies,
-  sameNameScopes,
   agentNameIn,
   parseScope,
   placeOf,
@@ -44,6 +40,7 @@ import { nameIndent, nameIndentVars, pickColumn, SkillRow, UnmanagedRow } from "
 import { CollectionSection, GroupSection, PlainHead, Section, SkillRows } from "./sections";
 import { UpdatesHead } from "./updates-head";
 import { flash } from "./flash";
+import { useSameNameCopies } from "./same-name";
 
 // notBlank 是列表里不算空白的地方：技能行、节标题、作用域页与项目页顶部的摘要条，以及各种控件。
 // 列表里新加能点的东西要用按钮、链接或带 role 的元素(或加进这里),否则点它也会关上技能详情。
@@ -274,11 +271,8 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
   const inUse = l.hereSections.length > 0 || l.hereUnmanaged.length > 0 || (project && global > 0);
   const empty = !inUse && !l.notHereSkills.length;
   // 这里的未纳管技能在同一层的别处有同名、内容不同的：行上和整批入库的确认里都说出来。
-  const plan = useQuery(sameNameCopiesQuery(sameNameScopes(s, scope))).data;
-  const copies = plan ? sameNameCopies(plan, scope) : new Map<string, UnmanagedSkill[]>();
-  const elsewhere = new Map<string, string[]>(
-    l.hereUnmanaged.flatMap((u): [string, string[]][] => (copies.has(u.folder) ? [[u.name, [...new Set(copies.get(u.folder)!.map((x) => scopeLabel(s, x.scope)))]]] : [])),
-  );
+  // 还在比内容时，整批入库的入口先等着：确认要和行上一样写出同名不同内容的几份。
+  const same = useSameNameCopies(scope);
   return (
     <>
       <ScopeSummary scope={scope} directory={directory} sees={page.total} global={page.global} />
@@ -307,7 +301,9 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
                     variant="ghost"
                     className="fetch-all-unmanaged shrink-0"
                     title={t.fetchAllTitle}
-                    onClick={() => void offerFetchUnmanaged(s.agents, [parseScope(scope)], { kind: "scope", label: scopeLabel(s, parseScope(scope)), elsewhere }, false)}
+                    loading={same.pending}
+                    disabled={same.pending}
+                    onClick={() => void offerFetchUnmanaged(s.agents, [parseScope(scope)], { kind: "scope", label: scopeLabel(s, parseScope(scope)), elsewhere: same.copies }, false)}
                   >
                     {t.fetchAll}
                   </Button>
@@ -315,7 +311,7 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
               }
             >
               {l.hereUnmanaged.map((u) => (
-                <UnmanagedRow key={u.folder} skill={u} headed copies={copies.get(u.folder)} />
+                <UnmanagedRow key={u.folder} skill={u} headed copies={same.copies.get(u.folder)} />
               ))}
             </Section>
           )}

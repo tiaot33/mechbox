@@ -17,6 +17,7 @@ import { FieldError, Hint } from "@/components/ui/field";
 import { PathWhere, Tipped } from "@/components/app/parts";
 import { Input } from "@/components/ui/input";
 import { Notice } from "@/components/ui/notice";
+import { MarkIcon } from "@/components/ui/badge";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import { FetchReview } from "./fetch-review";
@@ -204,10 +205,10 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
   );
 }
 
-// RefsState 是分支下拉的状态:hidden 不显示(本地路径、技能库认不出是 Git 类来源),loading 正在读取，
+// RefsState 是分支下拉的状态:none 是输入不是 Git 仓库(还没输入、本地路径、技能库认不出是 Git 类来源),下拉占着位置、点不了;loading 正在读取，
 // failed 取不到列表(显示原因，入库预览照常可用)。
 type RefsState =
-  | { status: "hidden" }
+  | { status: "none" }
   | { status: "loading" }
   | { status: "ready"; refs: SourceRefs }
   | { status: "failed"; reason: string };
@@ -216,17 +217,17 @@ type RefsState =
 // 本地路径不取;技能库认不出是 Git 类来源时报 InvalidArgument,下拉不显示。
 // 第二个返回值等这次输入的列表取回(还在防抖就马上取),取不到或不是 Git 类来源时为 null。
 function useSourceRefs(source: string): [RefsState, () => Promise<SourceRefs | null>] {
-  const [state, setState] = useState<RefsState>({ status: "hidden" });
+  const [state, setState] = useState<RefsState>({ status: "none" });
   const request = useRef<{ start: () => void; result: Promise<SourceRefs | null> } | null>(null);
   useEffect(() => {
     if (!source || source.startsWith("/")) {
-      setState({ status: "hidden" });
+      setState({ status: "none" });
       request.current = null;
       return;
     }
-    // 下拉已经显示着(从一个 Git 类输入改成另一个)时直接换成正在读取，旧列表不留在新输入下面;
-    // 没显示时等请求慢于 150ms 再显示，认不出的输入不会闪一下下拉。
-    setState((cur) => (cur.status === "hidden" ? cur : { status: "loading" }));
+    // 下拉已经可用(从一个 Git 类输入改成另一个)时直接换成正在读取，旧列表不留在新输入下面;
+    // 还点不了时等请求慢于 150ms 再写正在读取，认不出的输入不会闪一下。
+    setState((cur) => (cur.status === "none" ? cur : { status: "loading" }));
     let live = true;
     let call: CancellablePromise<SourceRefs> | undefined;
     let slow: number | undefined;
@@ -247,7 +248,7 @@ function useSourceRefs(source: string): [RefsState, () => Promise<SourceRefs | n
             settle(null);
             const e = toLibraryError(err);
             if (!live || e.code === ErrorCode.Canceled) return;
-            setState(e.code === ErrorCode.InvalidArgument ? { status: "hidden" } : { status: "failed", reason: describeError(e) });
+            setState(e.code === ErrorCode.InvalidArgument ? { status: "none" } : { status: "failed", reason: describeError(e) });
           },
         )
         .finally(() => window.clearTimeout(slow));
@@ -356,14 +357,16 @@ function RefPicker({
         {t.refs}
       </span>
       {refs.status === "failed" ? (
-        <Notice alert className="refs-failure whitespace-pre-line">
-          {t.refsFailed(refs.reason)}
-        </Notice>
+        // 和下拉一样高、一行写完(原因长时截断，悬停看全):取不到列表时下面的按钮也不挪位置。
+        <div className="refs-failure flex h-6 w-72 max-w-full min-w-0 items-center gap-1.5 text-caption text-foreground-secondary" title={t.refsFailed(refs.reason)}>
+          <MarkIcon tone="warn" />
+          <span className="min-w-0 truncate">{t.refsFailed(refs.reason).replace("\n", " ")}</span>
+        </div>
       ) : (
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild disabled={!ready || locked}>
             <Button id={triggerId} aria-labelledby={`${labelId} ${triggerId}`} className="refs-trigger w-72 max-w-full justify-between px-3 font-normal">
-              {refs.status === "hidden" ? (
+              {refs.status === "none" ? (
                 <span className="truncate">{t.refsNotGit}</span>
               ) : ready ? (
                 <span className="truncate font-mono">{selected || t.defaultBranch}</span>

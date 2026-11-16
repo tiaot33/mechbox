@@ -24,6 +24,7 @@ import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { Diagnostics } from "@/components/app/parts";
 import { LeftDialog } from "./fetch-unmanaged-left";
+import { markFresh, useView } from "@/lib/view";
 import {
   SameNameInLibrary,
   fetchedMessage,
@@ -43,7 +44,7 @@ export type Where =
   | { kind: "first-open" }
   | { kind: "everywhere"; projects: RegisteredProject[] }
   | { kind: "project"; project: RegisteredProject }
-  // elsewhere:这个作用域里的技能在同一层的别处有同名、内容不同的，按技能名列出那几处。
+  // elsewhere:这个作用域里的技能在同一层的别处有同名、内容不同的，按这里的文件夹列出那几处的地名。
   | { kind: "scope"; label: string; elsewhere?: Map<string, string[]> };
 
 // offerFirstOpen 在这台机器上第一次打开 app 时，把用户带到各 Agent 全局目录里不是库装的技能;没有就什么都不做。
@@ -203,6 +204,8 @@ function FetchUnmanagedDialog({
     if (lost.length === 0) {
       close();
       ui.toast(fetchedMessage(done));
+      // 在技能库页上时，刚入库的几行展开、滚到、闪一下(和入库预览入库后一样)。
+      if (useView.getState().page.kind === "all") markFresh(done.flatMap((d) => (d.skill?.id ? [d.skill] : [])));
       return;
     }
     setLeft({ fetched: done, failed: lost });
@@ -304,7 +307,7 @@ function FetchUnmanagedDialog({
                     onToggle={() => toggle(i)}
                     home={home}
                     sameNameInLibrary={library.has(plan[i].name)}
-                    elsewhere={where.kind === "scope" ? where.elsewhere?.get(plan[i].name) : undefined}
+                    elsewhere={where.kind === "scope" ? elsewhereOf(where.elsewhere, plan[i]) : undefined}
                     agents={agentNames(plan[i])}
                     edit={edit(i)}
                   />
@@ -394,4 +397,10 @@ function GroupToggle({ label, on, of, onToggle }: { label: string; on: number; o
       onChange={onToggle}
     />
   );
+}
+
+// elsewhereOf 是计划里一条在同一层的别处有同名、内容不同的那几处(按这一条的文件夹查，文件夹名和技能名可以不同)。
+function elsewhereOf(elsewhere: Map<string, string[]> | undefined, planned: PlannedUnmanagedSkill): string[] | undefined {
+  const places = [...new Set((planned.folders ?? []).flatMap((f) => elsewhere?.get(f.folder) ?? []))];
+  return places.length ? places : undefined;
 }

@@ -30,6 +30,7 @@ import {
   lostEdits,
   overwriteKey,
   planReinstall,
+  reinstallsNothing,
   refreshRequests,
   reinstallTargets,
   toggleFetchGroup,
@@ -189,6 +190,14 @@ describe("重新安装", () => {
     expect(r.uninstalls).toEqual([]);
     expect(r.keptModified).toBe(1);
     expect(r.keptMissing).toBe(1);
+  });
+
+  it("只剩被改过的、文件夹不在了的，一处都没选要动时什么都不做(确认点不了);有版本落后的照样要做", () => {
+    const { targets } = reinstallTargets([modified, missing], false);
+    expect(reinstallsNothing(targets, false, nothingChosen())).toBe(true);
+    expect(reinstallsNothing(targets, false, { overwrite: new Set([overwriteKey(modified)]), missing: new Map() })).toBe(false);
+    expect(reinstallsNothing(targets, false, { overwrite: new Set(), missing: new Map([[folderKey(missing), "uninstall"]]) })).toBe(false);
+    expect(reinstallsNothing(reinstallTargets(inspected, false).targets, false, nothingChosen())).toBe(false);
   });
 
   it("在 app 外更新到作者新版的那一处，勾上覆盖时照样带覆盖：重新安装是换回库里的版本", () => {

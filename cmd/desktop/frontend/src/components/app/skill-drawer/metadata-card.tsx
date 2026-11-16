@@ -8,6 +8,7 @@ import {
   collectionSkills,
   installedWhere,
   isLocal,
+  localChanged,
   noSource,
   pending,
   revisionSummary,
@@ -104,12 +105,12 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
           )}
         </dd>
         {/* 本地目录来源：目录里改过时写出来(读目录时比出来的),在上面「重新读取」。 */}
-        {isLocal(skill.source) && skill.last_update_check?.status === UpdateCheckStatus.UpdateAvailable && (
+        {localChanged(skill) && (
           <>
             <dt>{d.updateCheck}</dt>
             <dd>
-              <Badge tone="update" title={messages().list.localChangedTitle}>
-                {messages().list.localChanged}
+              <Badge tone="update" title={t.list.localChangedTitle}>
+                {t.list.localChanged}
               </Badge>
             </dd>
           </>

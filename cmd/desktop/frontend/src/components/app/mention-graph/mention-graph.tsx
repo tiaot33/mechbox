@@ -104,13 +104,13 @@ function JudgeLine({ judging, unjudged, retry }: { judging: Judging; unjudged: n
       [text, reason, action] = [t.unjudgedShort(judging.count), t.unjudged(judging.count), { label: t.setUpAI, run: () => openSettings("ai"), away: true }];
       break;
     case "stopped":
-      [text, reason] = [judging.fix === "settings" ? t.judgeNeedsSettings(unjudged) : t.judgeStopped(unjudged), judging.reason];
+      [text, reason] = [t.judgeStoppedShort(unjudged), [judging.fix === "settings" ? t.judgeNeedsSettings(unjudged) : t.judgeStopped(unjudged), judging.reason].filter(Boolean).join("\n")];
       action = judging.fix === "settings" ? { label: t.setUpAI, run: () => openSettings("ai"), away: true } : { label: t.retry, run: retry };
       break;
     case "done": {
       if (!judging.failed?.length) return null;
       const names = judging.failed.map((f) => s.skills.find((x) => x.id === f.skill_id)?.name ?? `#${f.skill_id}`);
-      [text, reason] = [t.judgeSkipped(names), judging.reason];
+      [text, reason] = [t.judgeSkippedShort(names.length), [t.judgeSkipped(names), judging.reason].filter(Boolean).join("\n")];
       break;
     }
     default:
@@ -143,7 +143,9 @@ function Centered({ children }: { children: React.ReactNode }) {
 // Loose 是图下方的一行：和这里的技能都没有连线的，点了同样打开详情。
 function Loose({ skills }: { skills: Skill[] }) {
   const t = useT().graph;
+  const s = useSnapshot();
   const search = useView((v) => v.search);
+  const installed = new Set(s.skillScopes.map((p) => p.skill_id));
   return (
     <div className="graph-loose flex max-h-[30%] min-w-0 flex-wrap items-center gap-1.5 overflow-y-auto text-caption text-muted-foreground">
       <span className="shrink-0">{t.loose(skills.length)}</span>
@@ -155,9 +157,12 @@ function Loose({ skills }: { skills: Skill[] }) {
             "graph-loose-skill rounded-control border border-border bg-panel px-2 py-0.5 text-foreground-secondary hover:bg-fill hover:text-foreground",
             !matches(search, x) && "opacity-35",
           )}
+          data-installed={installed.has(x.id) || undefined}
           onClick={() => toggleDrawer(x.id)}
           title={x.description}
         >
+          {/* 和图里的圆点一样：装了的实心，没装的空心。 */}
+          <i className={cn("mr-1.5 inline-block size-[7px] rounded-full border-[1.5px] border-foreground-secondary align-middle", installed.has(x.id) ? "bg-foreground-secondary" : "bg-transparent")} />
           {x.name}
         </button>
       ))}
@@ -509,15 +514,16 @@ function Canvas({ graph }: { graph: MentionGraph }) {
                   onMouseLeave={() => setHoverNode(null)}
                 >
                   {isSelected && <circle r={r + 4} fill="none" stroke="var(--color-primary)" strokeWidth={2} />}
-                  {!n.outside && !installed.has(id) && <circle r={r} fill="var(--color-panel)" />}
+                  {/* 已安装的实心，没装的淡色;本集合或组以外的另用虚线边(装了的照样实心)。 */}
+                  <circle r={r} fill="var(--color-panel)" />
                   <circle
                     className="graph-node-dot"
-                    data-installed={n.outside || installed.has(id) || undefined}
+                    data-installed={installed.has(id) || undefined}
                     r={r}
-                    fill={n.outside ? "var(--color-panel)" : color}
-                    fillOpacity={n.outside || installed.has(id) ? 1 : 0.28}
+                    fill={color}
+                    fillOpacity={installed.has(id) ? 1 : n.outside ? 0 : 0.28}
                     stroke={n.outside || !installed.has(id) ? color : "var(--color-panel)"}
-                    strokeWidth={n.outside ? 1.6 : installed.has(id) ? 2 : 1.6}
+                    strokeWidth={n.outside || !installed.has(id) ? 1.6 : 2}
                     strokeDasharray={n.outside ? "3 2" : undefined}
                   />
                   {showName && (

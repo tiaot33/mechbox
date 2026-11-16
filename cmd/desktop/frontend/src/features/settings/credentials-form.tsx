@@ -82,18 +82,14 @@ type SyncField = Exclude<keyof SyncSettings, "keep" | "auto_push">;
 type SyncInput = { key: SyncField; label: string; secret?: boolean };
 
 // 同步设置里常填的连接项排在外面;文件夹、Session Token 和保留份数(在 SyncForm 里)收在「高级」里。
-const syncFields = (): SyncInput[][] => {
+const syncFields = (): SyncInput[] => {
   const t = messages().credentials;
   return [
-    [{ key: "endpoint", label: t.endpoint }],
-    [
-      { key: "bucket", label: t.bucket },
-      { key: "region", label: t.region },
-    ],
-    [
-      { key: "access_key_id", label: t.accessKeyId },
-      { key: "secret_access_key", label: t.secretAccessKey, secret: true },
-    ],
+    { key: "endpoint", label: t.endpoint },
+    { key: "bucket", label: t.bucket },
+    { key: "region", label: t.region },
+    { key: "access_key_id", label: t.accessKeyId },
+    { key: "secret_access_key", label: t.secretAccessKey, secret: true },
   ];
 };
 
@@ -133,7 +129,7 @@ function SyncForm({ saved }: { saved: SyncSettings }) {
   const [draft, setDraft] = useState<SyncSettings>(saved);
   const value = (s: SyncSettings, key: SyncField) => s[key] ?? "";
   const dirty =
-    [...fields.flat(), ...advanced].some(({ key }) => value(draft, key) !== value(saved, key)) ||
+    [...fields, ...advanced].some(({ key }) => value(draft, key) !== value(saved, key)) ||
     (draft.keep ?? 0) !== (saved.keep ?? 0) ||
     (draft.auto_push ?? "") !== (saved.auto_push ?? "");
   const intervals = [
@@ -164,7 +160,7 @@ function SyncForm({ saved }: { saved: SyncSettings }) {
       }}
       footer={<SyncStatusLine folder={saved.folder ?? ""} />}
     >
-      {fields.flatMap(row)}
+      {row(fields)}
       <FormRow label={<Tipped tip={t.autoPushHint}>{t.autoPush}</Tipped>}>
         <NativeSelect
           className="max-w-none"

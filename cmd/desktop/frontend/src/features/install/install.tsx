@@ -383,8 +383,8 @@ export async function installGroup(groupID: GroupID, scope: Scope) {
   }
 }
 
-// confirm 为 true 时(节标题上组安装的标签点 ×)总是先确认，写出会从这里卸载几个技能：那里一点就卸载整组，容易误点。
-export async function uninstallGroup(groupID: GroupID, scope: Scope, { confirm = false }: { confirm?: boolean } = {}) {
+// 卸载整组的组安装总是先确认，写出会从这里卸载几个技能(组的节标题上的 ×、作用域页摘要里的组开关都是一点就卸载整组，容易误点)。
+export async function uninstallGroup(groupID: GroupID, scope: Scope) {
   const s = await inspectedSnapshot({});
   if (!s) return;
   const t = messages().actions;
@@ -405,30 +405,26 @@ export async function uninstallGroup(groupID: GroupID, scope: Scope, { confirm =
       return !others.some((g) => memberOf(g.group_id, p.skill_id));
     });
   const removed = gone.filter((p) => sharedWithNote(p).length);
+  // 要删的文件夹被别处的符号链接指着、被手动改过时，确认里一并列出(DeleteNotes)。
   const deleted = folderPlaces(s, gone);
-  const detached = detachedBy(deleted);
-  // 要删的文件夹被手动改过时，修改会一起删掉，先列出是哪几处。
-  const lost = lostEdits(deleted);
-  if (confirm || removed.length || detached.length || lost.length) {
-    const ok = await ui.confirm({
-      title: t.groupUninstallTitle(groupName(s, groupID), scopeLabel(s, scope)),
-      body: (
-        <>
-          <p>{t.groupUninstallBody(mergeProjectPlaces(s, gone).length, scopeLabel(s, scope))}</p>
-          {removed.length > 0 && (
-            <>
-              <Notice alert>{t.groupUninstallShared(removed.length)}</Notice>
-              <SharedFolders places={removed} />
-            </>
-          )}
-          <DeleteNotes deleted={deleted} />
-        </>
-      ),
-      confirm: t.uninstall,
-      danger: true,
-    });
-    if (!ok) return;
-  }
+  const ok = await ui.confirm({
+    title: t.groupUninstallTitle(groupName(s, groupID), scopeLabel(s, scope)),
+    body: (
+      <>
+        <p>{t.groupUninstallBody(mergeProjectPlaces(s, gone).length, scopeLabel(s, scope))}</p>
+        {removed.length > 0 && (
+          <>
+            <Notice alert>{t.groupUninstallShared(removed.length)}</Notice>
+            <SharedFolders places={removed} />
+          </>
+        )}
+        <DeleteNotes deleted={deleted} />
+      </>
+    ),
+    confirm: t.uninstall,
+    danger: true,
+  });
+  if (!ok) return;
   await ui.run(() => LibraryService.UninstallGroup(groupID, scope), {
     success: t.groupUninstalled(groupName(s, groupID), scopeLabel(s, scope)),
   });

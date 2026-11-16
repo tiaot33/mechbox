@@ -351,12 +351,19 @@ export function sameNameScopes(s: Snapshot, key: ScopeKey): Scope[] {
 }
 
 // sameNameCopies 从技能库比出的计划里取出同名不同内容的几份：按这个作用域里的文件夹，列出别处内容不同的同名文件夹。
+// 计划里同名的几条都标 conflict,但 conflict 也包括同一个作用域里内容一样的另一个文件夹(一处只能记一个安装，拆成两条);
+// 所以只把作用域不在这一条里的那几条算作内容不同：内容一样的别处已经和这里合在同一条里了。
 export function sameNameCopies(plan: PlannedUnmanagedSkill[], key: ScopeKey): Map<string, UnmanagedSkill[]> {
   const result = new Map<string, UnmanagedSkill[]>();
   const conflicted = plan.filter((p) => p.conflict && !p.error);
   for (const p of conflicted) {
-    const others = conflicted.filter((x) => x !== p && x.name === p.name).flatMap((x) => (x.folders ?? []).filter((f) => scopeKey(f.scope) !== key));
-    for (const f of p.folders ?? []) if (scopeKey(f.scope) === key && others.length) result.set(f.folder, others);
+    const mine = new Set((p.folders ?? []).map((f) => scopeKey(f.scope)));
+    if (!mine.has(key)) continue;
+    const others = conflicted
+      .filter((x) => x !== p && x.name === p.name)
+      .flatMap((x) => (x.folders ?? []).filter((f) => !mine.has(scopeKey(f.scope))));
+    if (!others.length) continue;
+    for (const f of p.folders ?? []) if (scopeKey(f.scope) === key) result.set(f.folder, others);
   }
   return result;
 }
@@ -638,6 +645,14 @@ export function updateAvailable(skill: Skill): boolean {
   return !isLocal(skill.source) && skill.last_update_check?.status === UpdateCheckStatus.UpdateAvailable;
 }
 
+// localChanged 是本地目录来源的技能在目录里改过了：读目录时比出来和库里的当前版本不一样(见 features/update/check 的 checkLocalDirectories)。
+// 回滚掉的那份(跳过)不算，等目录里再改过才重新标出;库里的当前版本是用 Agent 目录里的修改更新进来的(edited)也不算——
+// 那是用户特意留下的修改，「重新读取」会把它换回目录里的内容。
+export function localChanged(skill: Skill): boolean {
+  const check = skill.last_update_check;
+  return isLocal(skill.source) && check?.status === UpdateCheckStatus.UpdateAvailable && !check.skipped && !skill.edited;
+}
+
 // renamedTo 是推测这个技能在来源里改成的新名字;没有推测时为空。
 export function renamedTo(skill: Skill): string {
   return skill.last_update_check?.renamed_to ?? "";
@@ -720,7 +735,7 @@ export function pageSkills(s: Snapshot, page: Page): Set<SkillID> {
 export function sortSkills(s: Snapshot, skills: Skill[]): Skill[] {
   const at = new Map(s.collections.map((c, i) => [c.id, i]));
   const source = (x: Skill) => (noSource(x.source) ? Infinity : (at.get(x.collection_id) ?? s.collections.length));
-  const time = (x: Skill) => changedAt(x)?.date.getTime() ?? 0;
+  const time = (x: Skill) => changedAt(x)?.getTime() ?? 0;
   return [...skills].sort(
     (a, b) =>
       source(a) - source(b) ||
@@ -1024,12 +1039,9 @@ export function installedSummary(s: Snapshot, skillID: SkillID): { text: string;
 }
 
 // changedAt 是技能最近一次变化：更新带来新版本的时间，从没更新过时是入库时间。Go 的零值时间当作没有。
-export function changedAt(skill: Skill): { kind: "updated" | "fetched"; date: Date } | undefined {
+export function changedAt(skill: Skill): Date | undefined {
   const valid = (v: string | undefined) => (v && new Date(v).getFullYear() > 1 ? new Date(v) : undefined);
-  const updated = valid(skill.updated_at);
-  if (updated) return { kind: "updated", date: updated };
-  const fetched = valid(skill.fetched_at);
-  return fetched ? { kind: "fetched", date: fetched } : undefined;
+  return valid(skill.updated_at) ?? valid(skill.fetched_at);
 }
 
 // ---------- 作用域页 ----------

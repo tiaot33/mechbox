@@ -18,18 +18,25 @@ import {
   ContextMenuSubTrigger,
 } from "@/components/ui/context-menu";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
+import { Icon } from "@/components/ui/icon";
+import { cn } from "@/lib/utils";
 
-// MenuEntry 是菜单里的一项:"separator" 是分隔线;有 sub 的是子菜单;note 是写在选项右边的淡色说明(如「已在组里」)。
+// MenuEntry 是菜单里的一项:"separator" 是分隔线;有 sub 的是子菜单;note 是写在选项右边的淡色说明(如「已在组里」),
+// title 是悬停提示，className 是测试钩子。
 export type MenuEntry =
   | "separator"
   | { label: string; sub: MenuEntry[] }
-  | { label: string; onSelect: () => void; disabled?: boolean; note?: string };
+  | { label: string; onSelect: () => void; disabled?: boolean; note?: string; title?: string; className?: string };
 
 // useCollectionMenu 是一个集合的菜单：关系图(graph 为 true 时)、检查更新与更新(本地目录来源换成重新读取整个目录)、看来源里的其他技能、更新历史、加入组。
 export function useCollectionMenu(c: Collection, { graph }: { graph: boolean }): MenuEntry[] {
@@ -97,7 +104,7 @@ function Entries({ entries, kit }: { entries: MenuEntry[]; kit: (typeof kits)[ke
         </SubContent>
       </Sub>
     ) : (
-      <Item key={i} disabled={m.disabled} onSelect={m.onSelect}>
+      <Item key={i} disabled={m.disabled} onSelect={m.onSelect} title={m.title} className={m.className}>
         {m.note ? <span className="min-w-0 grow truncate">{m.label}</span> : m.label}
         {m.note && <span className="shrink-0 text-caption text-muted-foreground">{m.note}</span>}
       </Item>
@@ -113,4 +120,20 @@ export function ContextMenuEntries({ entries }: { entries: MenuEntry[] }) {
 // DropdownMenuEntries 把菜单项画进下拉菜单(DropdownMenuContent 里)。
 export function DropdownMenuEntries({ entries }: { entries: MenuEntry[] }) {
   return <Entries entries={entries} kit={kits.dropdown} />;
+}
+
+// MoreMenu 是「⋯」按钮加下拉菜单(节标题、技能详情安装表的一处)。
+export function MoreMenu({ entries, label, className, align }: { entries: MenuEntry[]; label: string; className?: string; align?: "start" | "end" }) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon-sm" className={cn("shrink-0", className)} title={label} aria-label={label}>
+          <Icon name="more" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align={align}>
+        <DropdownMenuEntries entries={entries} />
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }

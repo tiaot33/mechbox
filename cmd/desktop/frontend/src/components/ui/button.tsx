@@ -2,6 +2,8 @@
 // 按轻重分四档，一个页面或弹窗里从上到下最多各用到一次主要和强调:
 // - 主要(primary):实心绿底白字，一屏或一个弹窗里只有一个;
 // - 绿胶囊(pill):实心绿底白字、胶囊形。只给「更新」和「入库」:它们在列表里反复出现，是这个应用最常做的两件事，要一眼认出来;
+//   灰胶囊(pillQuiet):同样的胶囊形、普通的灰底，给默认不入库的那几行的「入库」(提交在项目仓库里、链到 Agent 目录以外):
+//   和一列绿胶囊排在一起时对得齐，又不推用户去做默认不做的事;
 // - 强调(accent):和普通按钮一样的灰底，字是半粗的绿色。给一块区域里最要紧的那个动作(技能详情的「安装」);
 // - 普通(default):灰底、主要档的字。常用但不抢眼的动作;
 // - 轻(ghost):没有底、次要档的灰字，悬停才铺灰底。顶栏、列表行内，以及不常用的动作(「更新历史」「添加备注」「跳过」「不感兴趣」)。
@@ -24,6 +26,7 @@ const buttonVariants = cva(
           "bg-control text-foreground hover:bg-control-hover active:bg-control-active disabled:text-subtle disabled:hover:bg-control",
         primary: "bg-primary text-on-primary hover:brightness-110 active:brightness-95 disabled:opacity-45 disabled:hover:brightness-100",
         pill: "rounded-pill bg-primary px-3 text-on-primary hover:brightness-110 active:brightness-95 disabled:opacity-45 disabled:hover:brightness-100",
+        pillQuiet: "rounded-pill bg-control px-3 text-foreground hover:bg-control-hover active:bg-control-active disabled:text-subtle disabled:hover:bg-control",
         accent:
           "bg-control font-semibold text-on-primary-soft hover:bg-control-hover active:bg-control-active disabled:font-normal disabled:text-subtle disabled:hover:bg-control",
         solid: "bg-solid text-on-solid hover:bg-solid/85 disabled:opacity-45 disabled:hover:bg-solid",

@@ -21,7 +21,7 @@ import {
   type UnmanagedSkill,
   type UpdatePlan,
 } from "@bindings/internal/library";
-import { canInstall, folderKey, needsReinstall, notTakenOver, scopeKey } from "./model";
+import { canInstall, editedHere, folderKey, needsReinstall, notTakenOver, scopeKey } from "./model";
 
 // placeKey 标识一处安装：哪个技能装在哪个作用域。
 export const placeKey = (p: { skill_id: SkillID; scope: Scope }) => `${p.skill_id}|${scopeKey(p.scope)}`;
@@ -40,8 +40,8 @@ export function defaultSkills(plan: UpdatePlan, select?: SkillID[]): Set<SkillID
 
 export { canInstall } from "./model";
 
-// edited 是用户在这里改过的一处：被改过、又不是在 app 外更新到了作者的新版(source_latest)。
-const edited = (p: SkillScopeInspection) => p.status === SkillScopeStatus.SkillScopeModified && !p.source_latest;
+// edited 是用户在这里改过的一处，和界面上说「被手动改过」的是同一批(model 的 editedHere)。
+const edited = editedHere;
 
 // defaultInstallOn 是装出去的地方的默认勾选：用户改过的、文件夹不在了的(可能是用户有意删掉的)不勾，勾上才覆盖、才装回去。
 // 在 app 外已经更新到作者新版的照常勾上：库换成这一版之后它就是当前版本，不会被覆盖。
@@ -120,6 +120,12 @@ export function reinstallTargets(inspected: SkillScopeInspection[], single: bool
 
 // planReinstall 按确认框里的选择算出要重新安装的几处与要卸载的文件夹:被改过的只覆盖勾上的，文件夹不在了的默认不动，
 // 选"装回去"的才装回去、选"卸载"的才卸载(共用一个文件夹的几处只卸载一处)。kept* 是保持原样的数目，完成提示里说。
+// reinstallsNothing 是确认框里这样选下去什么都不会做：没有要重新安装的，也没有要卸载的(确认按钮点不了)。
+export function reinstallsNothing(targets: SkillScopeInspection[], single: boolean, chosen: ReinstallChoices): boolean {
+  const r = planReinstall(targets, single, chosen);
+  return !r.requests.length && !r.uninstalls.length;
+}
+
 export function planReinstall(targets: SkillScopeInspection[], single: boolean, chosen: ReinstallChoices) {
   const choice = (p: SkillScopeInspection) => chosen.missing.get(folderKey(p)) ?? "keep";
   const wanted = (p: SkillScopeInspection) => {

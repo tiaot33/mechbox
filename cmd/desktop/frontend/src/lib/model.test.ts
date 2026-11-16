@@ -7,6 +7,7 @@ import {
   ScopeKind,
   SkillScopeStatus,
   SourceType,
+  UpdateCheckStatus,
   type Agent,
   type Collection,
   type Group,
@@ -30,6 +31,7 @@ import {
   folderPresent,
   homePath,
   installedSummary,
+  localChanged,
   isDefaultOrder,
   needsRepair,
   needsReinstall,
@@ -783,5 +785,31 @@ describe("同名不同内容的几份", () => {
     const copies = sameNameCopies(plan, "claude-code@0");
     expect([...copies.keys()]).toEqual([here.folder]);
     expect(copies.get(here.folder)).toEqual([there]);
+  });
+
+  it("同一个作用域里内容一样的另一个文件夹也标 conflict,但不算内容不同", () => {
+    // Claude Code 全局有 pdf 和 pdf-copy,Codex 全局有一份 pdf,三份一样：计划拆成两条(一处只能记一个安装)。
+    const pdf = u("pdf", "claude-code", "/home/.claude/skills/pdf");
+    const copy = u("pdf", "claude-code", "/home/.claude/skills/pdf-copy");
+    const codex = u("pdf", "codex", "/home/.agents/skills/pdf");
+    const plan = [
+      { name: "pdf", conflict: true, folders: [pdf, codex] },
+      { name: "pdf", conflict: true, folders: [copy] },
+    ] as PlannedUnmanagedSkill[];
+    expect(sameNameCopies(plan, "codex@0").size).toBe(0);
+  });
+});
+
+describe("localChanged", () => {
+  const local = (check: Partial<Skill["last_update_check"]>, edited = false) =>
+    ({ id: 1, name: "foo", edited, source: { type: SourceType.SourceLocal, label: "/home/code/x" }, last_update_check: { status: UpdateCheckStatus.UpdateAvailable, ...check } }) as Skill;
+
+  it("本地目录来源目录里改过时标出来", () => {
+    expect(localChanged(local({}))).toBe(true);
+  });
+
+  it("回滚掉的(跳过)、库里有用户修改的不标：重新读取会换掉它们", () => {
+    expect(localChanged(local({ skipped: true }))).toBe(false);
+    expect(localChanged(local({}, true))).toBe(false);
   });
 });

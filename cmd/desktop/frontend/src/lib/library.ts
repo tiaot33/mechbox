@@ -173,11 +173,6 @@ export function currentSnapshot(): Snapshot {
   return s;
 }
 
-// currentSnapshotOrNull 是已读到的快照;还没读到时为 undefined。
-export function currentSnapshotOrNull(): Snapshot | undefined {
-  return queryClient.getQueryData(snapshotQuery.queryKey);
-}
-
 // ---------- 其他只读数据 ----------
 
 // configQuery 是 GitHub 令牌与同步设置有没有配置;设置页保存后经 reloadLibrary 或 invalidateConfig 重读。

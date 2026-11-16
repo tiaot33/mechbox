@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { messages } from "./i18n";
-import { insideHome, resolveFetchInput, resolveLocalPath, wslLocation } from "./paths";
+import { insideHome, pathParts, resolveFetchInput, resolveLocalPath, wslLocation } from "./paths";
 
 const wslHome = "\\\\wsl.localhost\\Ubuntu\\home\\me";
 const windowsHome = "C:\\Users\\me";
@@ -78,5 +78,17 @@ describe("insideHome", () => {
     expect(insideHome("C:\\Users\\me\\.x\\skills", windowsHome)).toBe(true);
     expect(insideHome("C:\\Users\\me", windowsHome)).toBe(false);
     expect(insideHome("/Users/me/.x", "/Users/me")).toBe(true);
+  });
+});
+
+describe("pathParts", () => {
+  it("在分隔符后面切开，分隔符留在前一段的末尾，拼回去和原路径一样", () => {
+    expect(pathParts("/Users/me/.dev/seed/library.db")).toEqual(["/", "Users/", "me/", ".dev/", "seed/", "library.db"]);
+    expect(pathParts("C:\\Users\\me\\library.db")).toEqual(["C:\\", "Users\\", "me\\", "library.db"]);
+    expect(pathParts("dir/").join("")).toBe("dir/");
+  });
+
+  it("源码里不用后行断言(旧版 WebKit 不认)", () => {
+    expect(pathParts.toString()).not.toContain("(?<=");
   });
 });

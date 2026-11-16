@@ -141,19 +141,24 @@ export async function rereadSkill(skill: Skill) {
 }
 
 // rereadDirectory 是本地目录来源整个目录的"重新读取":目录里改过的技能都读出当前内容成为新版本，并换到装过它们的地方
-// (用户改过的、文件夹不在了的地方不动);和逐个技能的重新读取一样是一次更新，有版本历史、可以回滚。都没改过时只提示一句。
+// (用户改过的、文件夹不在了的地方不动);和逐个技能的重新读取一样是一次更新，有版本历史、可以回滚。
+// 默认读进来的照更新计划的默认勾选：回滚掉的(跳过)、库里有用户修改的不读。还有要用户拿主意的(目录里删掉或改了名、
+// 会换掉库里用户修改的)时打开更新计划，由用户在那里勾选、确认改名;目录和库里完全一样时只提示一句。
 export async function rereadDirectory(collectionID: CollectionID) {
   const s = currentSnapshot();
   const t = messages().update;
   const label = collectionName(s, collectionID);
   const plan = await ui.run(() => LibraryService.PlanUpdate(collectionID));
   if (!plan) return;
-  const changed = new Set((plan.skills ?? []).filter((p) => p.change === PlannedChange.PlannedChanged).map((p) => p.skill.id));
-  if (!changed.size) {
-    ui.toast(t.directoryUnchanged(label));
+  const items = plan.skills ?? [];
+  const decide = items.some((p) => p.change === PlannedChange.PlannedDeleted || !!p.renamed_to || (p.edited && p.change === PlannedChange.PlannedChanged));
+  if (decide) return openUpdate(collectionID);
+  const checked = defaultSkills(plan);
+  if (!checked.size) {
+    ui.toast(items.some((p) => p.change !== PlannedChange.PlannedUnchanged) ? t.directoryNothingDefault(label) : t.directoryUnchanged(label));
     return;
   }
-  const o = await runUpdate(plan, label, changed, defaultInstallOn, undefined, true);
+  const o = await runUpdate(plan, label, checked, defaultInstallOn, undefined, true);
   if (o === "conflict") ui.toast(t.directoryMoved, "error");
   else if (o) await reportUpdates([o]);
 }

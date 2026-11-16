@@ -76,11 +76,12 @@ type Alert = { tone: Mark; label: string; tip?: string; className?: string; onCl
 
 // AlertIcon 把一处的一条或几条提醒合成一个图标：图标按最重的一级画，鼠标停住时从重到轻逐条列出(图标 + 一句话 + 说明)。
 // 提示里的每一条同时留在 DOM 里(读屏和测试读到的和提示里显示的是同一份),界面上不占地方。
-// 有带 onClick 的一条时整个图标是按钮，点它(或聚焦后按回车、空格)做那件事。
+// 排在最前的那一条带 onClick 时整个图标是按钮，点它(或聚焦后按回车、空格)做那件事。
 function AlertIcon({ items, className, labeled = false }: { items: (Alert | false | null | undefined | "")[]; className?: string; labeled?: boolean }) {
   const alerts = items.filter((x): x is Alert => !!x).sort((a, b) => (labeled ? byUrgency : byLevel)(a.tone, b.tone));
   if (!alerts.length) return null;
-  const act = alerts.find((x) => x.onClick)?.onClick;
+  // 只有排在最前、画出来的那一条能直接做事时才是按钮：点下去做的就是看到的那一条(文件夹不在了 +1 不会点开更新计划)。
+  const act = alerts[0].onClick;
   const box = labeled
     ? cn("relative flex h-6 max-w-full min-w-0 items-center gap-1.5 rounded-control px-1 -mx-1 text-left text-caption outline-none", className)
     : cn("relative inline-grid size-4 shrink-0 place-items-center rounded-full outline-none", className);

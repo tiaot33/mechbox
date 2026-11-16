@@ -7,7 +7,6 @@ import {
   agentNameIn,
   groupStateIn,
   editedHere,
-  needsReinstall,
   needsRepair,
   reinstallLevel,
   skillScopeIn,
@@ -68,8 +67,8 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
         <b className="scope-sees min-w-0 grow truncate text-heading">
           {sc.project_id ? t.scopeSeesProject(agent, projectName(s, sc.project_id), sees) : t.scopeSeesGlobal(agent, sees)}
         </b>
-        {/* 被手动改过的也能在这里一次覆盖(确认里默认不勾),所以只要有和当前版本不一样的就给这个入口。 */}
-        {installed.some(needsReinstall) && (
+        {/* 要重新安装的，和被手动改过的(确认里默认不覆盖，勾上才覆盖)都从这里一次处理;只有在 app 外更新到作者新版的不给(该做的是更新)。 */}
+        {(issues > 0 || edited > 0) && (
           <Button className="shrink-0" onClick={() => reinstall({ scope: sc }, scopeLabel(s, sc))}>
             <Icon name="refresh" />
             {t.reinstallAll}
@@ -105,7 +104,8 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
             const state = groupStateIn(s, g, scope);
             const on = state === "on";
             const size = g.members?.length ?? 0;
-            // 组在这里的情况直接写出来：组安装了写「已组安装」;没有时写成员里装在这里的有几个(直接安装的也算)。
+            // 组在这里的情况直接写出来：组安装了写「已组安装」,有成员没装上(被占用时跳过)时写出装上了几个;
+            // 没有组安装时写成员里装在这里的有几个(直接安装的也算)。
             const here = (g.members ?? []).filter((id) => !!skillScopeIn(s, id, scope)).length;
             return (
               <button
@@ -117,12 +117,12 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
                   "gchip inline-flex h-[22px] shrink-0 items-center gap-1.5 rounded-control border border-tag-border bg-tag px-2 text-caption text-foreground-secondary transition-colors hover:bg-fill",
                   on && "text-foreground",
                 )}
-                onClick={() => (on ? uninstallGroup(g.id, sc, { confirm: true }) : installGroup(g.id, sc))}
+                onClick={() => (on ? uninstallGroup(g.id, sc) : installGroup(g.id, sc))}
                 title={t.groupChipTitle(g.name, on)}
               >
                 <i className={cn("size-[7px] rounded-full border-[1.5px] border-muted-foreground", on && "border-primary bg-primary")} />
                 {g.name}
-                <span className="gchip-state text-caption text-muted-foreground">{on ? t.groupInstalledHere(size) : t.groupMembersHere(here, size)}</span>
+                <span className="gchip-state text-caption text-muted-foreground">{on ? t.groupInstalledHere(here, size) : t.groupMembersHere(here, size)}</span>
               </button>
             );
           })}

@@ -4,14 +4,15 @@
 // 节标题上只常驻名字、统计和要处理的事(集合的更新、来源里的新技能，组安装于哪些作用域);关系图、看来源里的其他技能、历史、
 // 组的重命名与删除这类不常用的收在标题右边的「⋯」里，右键节标题是同一个菜单。
 // 节标题和技能行对齐：标题的图标在行首勾选框那一列(鼠标移上去或勾了技能以后换成这一节的勾选框),标题的名字和行里的技能名在同一条线上;
-// 名字和后面的数字说明按基线对齐;收起箭头在最右边，和行尾的日期右对齐。
-import { UpdateCheckStatus, type Collection, type Group, type Skill, type SkillID } from "@bindings/internal/library";
+// 名字和后面的数字说明按基线对齐;收起箭头在最右边，和行尾右对齐。
+import type { Collection, Group, Skill, SkillID } from "@bindings/internal/library";
 import { useEffect } from "react";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import {
   collectionSkills,
   hasUpdate,
+  localChanged,
   isLocal,
   placeOf,
   scopeLabel,
@@ -30,8 +31,7 @@ import { uninstallGroup } from "@/features/install/install";
 import { openUpdate, rereadDirectory } from "@/features/update/update";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { ContextMenuEntries, DropdownMenuEntries, useCollectionMenu, useGroupMenu, type MenuEntry } from "@/components/app/menus";
+import { ContextMenuEntries, MoreMenu, useCollectionMenu, useGroupMenu, type MenuEntry } from "@/components/app/menus";
 import { useCollectionDrop, useDnD, useGroupDrop } from "@/components/app/dnd";
 import { Icon } from "@/components/ui/icon";
 import { SourceIcon } from "@/components/app/icons";
@@ -133,18 +133,7 @@ export function Section({
 // SectionMenu 是节标题右边的「⋯」:点开是这一节不常用的动作，和右键节标题的菜单一样。
 function SectionMenu({ entries }: { entries: MenuEntry[] }) {
   const t = useT().list;
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-sm" className="section-more" title={t.sectionMore} aria-label={t.sectionMore}>
-          <Icon name="more" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent>
-        <DropdownMenuEntries entries={entries} />
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
+  return <MoreMenu entries={entries} label={t.sectionMore} className="section-more" />;
 }
 
 // Counts 是节标题上淡色的数字说明。
@@ -190,7 +179,7 @@ export function CollectionSection({
   const changed = skills.filter(updateAvailable).length;
   const local = isLocal(collection.source);
   // 本地目录来源：目录里改过的技能(读目录时比出来的),右边是「重新读取」,一次读进整个目录的修改。
-  const edited = local ? skills.filter((x) => x.last_update_check?.status === UpdateCheckStatus.UpdateAvailable).length : 0;
+  const edited = skills.filter(localChanged).length;
   const label = sourceLabel(s, collection.source);
   const facts = [revisionText(revisionSummary(skills)), changed ? t.drawer.changedCount(changed) : "", edited ? t.list.localChangedCount(edited) : ""].filter(Boolean);
   const menu = useCollectionMenu(collection, { graph: showGraph });
@@ -302,7 +291,7 @@ export function GroupSection({
             {t.list.groupInstalledIn}
             {scopes.map((sc) => (
               // 写全哪个 Agent 的哪一处(和作用域页的标题一样);× 卸载这一处的整组安装，总是先确认。
-              <Chip key={scopeKey(sc)} small removeTitle={t.list.uninstallGroupHere} onRemove={() => uninstallGroup(group.id, sc, { confirm: true })}>
+              <Chip key={scopeKey(sc)} small removeTitle={t.list.uninstallGroupHere} onRemove={() => uninstallGroup(group.id, sc)}>
                 <PlaceAgentMark code={sc.agent} place={placeOf(sc)} />
                 {scopeLabel(s, sc)}
               </Chip>

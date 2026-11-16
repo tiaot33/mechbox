@@ -4,7 +4,7 @@ import type { CollectionID } from "@bindings/internal/library";
 import { create } from "zustand";
 import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
-import { currentSnapshot, currentSnapshotOrNull, reloadLibrary } from "@/lib/library";
+import { currentSnapshot, queryClient, reloadLibrary, snapshotQuery } from "@/lib/library";
 import { deletedInSource, isLocal, pending, renamedTo, sourceLabel, updateAvailable } from "@/lib/model";
 import { ui } from "@/lib/ui";
 import { showResults } from "@/components/app/results";
@@ -66,14 +66,14 @@ export async function checkUpdates(collections: CollectionID[], origin: CheckOri
 let localChecking = false;
 export async function checkLocalDirectories() {
   if (localChecking) return;
-  const ids = currentSnapshotOrNull()?.collections.filter((c) => isLocal(c.source)).map((c) => c.id) ?? [];
+  const s = queryClient.getQueryData(snapshotQuery.queryKey);
+  const ids = s?.collections.filter((c) => isLocal(c.source)).map((c) => c.id) ?? [];
   if (!ids.length) return;
   localChecking = true;
   try {
-    const checks = await LibraryService.CheckUpdates(ids);
-    const s = currentSnapshotOrNull();
-    const before = new Map((s?.skills ?? []).map((x) => [x.id, x.last_update_check?.status]));
-    if ((checks ?? []).some((c) => (c.skills ?? []).some((x) => before.get(x.id) !== x.last_update_check?.status))) await reloadLibrary();
+    // 结论写在技能上，目录里新加、去掉的技能写在集合上(新技能):读完总要重读一次快照。
+    await LibraryService.CheckUpdates(ids);
+    await reloadLibrary();
   } catch {
     // 目录读不成(移走了、没权限)时列表上照旧，用户点「重新读取」时再说原因。
   } finally {

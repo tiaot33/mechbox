@@ -100,7 +100,7 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
     setFetching("done");
     await new Promise((r) => window.setTimeout(r, MARK_DRAWN_MS + 100));
     onClose();
-    if (here) markFresh(ids);
+    if (here) markFresh(fetched);
   };
 
   const groups = new Map<string, Candidate[]>();

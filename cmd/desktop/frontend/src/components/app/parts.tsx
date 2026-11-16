@@ -12,7 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useT } from "@/lib/i18n";
 import { useHasWSL, useSnapshot } from "@/lib/library";
 import { agentName, projectFolderNote, projectNamed, type Place } from "@/lib/model";
-import { wslLocation } from "@/lib/paths";
+import { pathParts, wslLocation } from "@/lib/paths";
 import { platform } from "@/lib/platform";
 import { useBusyMarkRunning, useSettled } from "@/lib/ui";
 import { cn } from "@/lib/utils";
@@ -211,11 +211,11 @@ export function Summary({ className, children }: { className?: string; children:
   );
 }
 
-// PathText 是可以折行的路径：只在路径分隔符(/ 和 \\)后面折行，不在一段名字中间断开;一段长到一行放不下时才在段里折。
+// PathText 是可以折行的路径：只在路径分隔符(/ 和 \\)后面折行，不在一段名字中间断开(一段长到一行放不下时溢出，不硬断)。
 export function PathText({ path, className }: { path: string; className?: string }) {
-  const parts = path.split(/(?<=[\\/])/);
+  const parts = pathParts(path);
   return (
-    <span className={cn("break-words", className)}>
+    <span className={className}>
       {parts.map((part, i) => (
         <Fragment key={i}>
           {part}
