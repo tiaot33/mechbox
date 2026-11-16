@@ -9,6 +9,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/tiaot33/mechbox/internal/library/internal/agentsettings"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 )
 
@@ -82,12 +83,13 @@ const skillQuery = `
 			WHERE description_translations.skill_id = skills.id AND description_translations.description = current_version.description
 		),
 		ifnull((
-			SELECT substr(blobs.content, 1, 65536) FROM version_files JOIN blobs ON blobs.fingerprint = version_files.fingerprint
-			WHERE version_files.version_id = current_version.id AND version_files.path = 'SKILL.md'
+			SELECT blobs.content FROM version_files JOIN blobs ON blobs.fingerprint = version_files.fingerprint
+			WHERE version_files.version_id = current_version.id AND lower(version_files.path) = 'skill.md'
+			ORDER BY version_files.path != 'SKILL.md' LIMIT 1
 		), x''),
 		ifnull((
-			SELECT substr(blobs.content, 1, 65536) FROM version_files JOIN blobs ON blobs.fingerprint = version_files.fingerprint
-			WHERE version_files.version_id = current_version.id AND version_files.path = 'agents/openai.yaml'
+			SELECT blobs.content FROM version_files JOIN blobs ON blobs.fingerprint = version_files.fingerprint
+			WHERE version_files.version_id = current_version.id AND version_files.path = '` + agentsettings.CodexFile + `'
 		), x'')
 	FROM skills
 	LEFT JOIN sources ON sources.id = skills.source_id

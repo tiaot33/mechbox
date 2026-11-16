@@ -76,6 +76,8 @@ func TestParseClaudeIgnoresDefaultsAndBrokenFrontmatter(t *testing.T) {
 		"invalid yaml":        "---\ndisable-model-invocation: [true\n---\n",
 		"unknown boolean":     "---\ndisable-model-invocation: maybe\n---\n",
 		"hooks not a mapping": "---\nhooks: ./run.sh\n---\n",
+		"unknown hook type":   "---\nhooks:\n  Stop:\n    - hooks:\n        - type: typo\n          command: ./x.sh\n---\n",
+		"hook missing field":  "---\nhooks:\n  Stop:\n    - hooks:\n        - type: command\n---\n",
 	} {
 		if got, ok := ParseClaude([]byte(content)); ok {
 			t.Errorf("%s: ParseClaude = %+v, want no settings", name, got)

@@ -133,7 +133,9 @@ export function SkillRow(props: {
   const twins = sameNameInLibrary(s, skill);
   const translated = translatedDescription(skill);
   // 作用域页、项目页上：这个技能对读这里的 Agent 声明的调用方式(只能手动调用等)，和默认一样时不写。
-  const invocation = scope ? invocationNote(skill.agent_settings, scopeReaders(s, parseScope(scope)), skill.name) : undefined;
+  // 这里那一份不是库装的(和库里某个版本一样)时按那一份的内容;来自全局的按全局那一处的 Agent。
+  const readers = scope ? scopeReaders(s, props.fromGlobal && place ? place.scope : parseScope(scope)) : [];
+  const invocation = scope ? invocationNote(identical ? identical.agent_settings : skill.agent_settings, readers, skill.name) : undefined;
   const ref = useFlash(skill.id, scope);
   const plan = () => void openUpdate(skill.collection_id, { focus: skill.id });
   // 这一行的状态：技能本身的、它装出去的几处(技能库页)或这一处(作用域页)的提醒与更新，在最后一列只写最要紧的一条，

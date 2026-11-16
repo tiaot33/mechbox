@@ -1,6 +1,12 @@
 package agentdir
 
-import "context"
+import (
+	"context"
+
+	"github.com/tiaot33/mechbox/internal/library/internal/agentsettings"
+)
+
+const codexMetadataFile = agentsettings.CodexFile
 
 type Folder struct {
 	Name          string
@@ -10,10 +16,7 @@ type Folder struct {
 	CodexMetadata []byte
 }
 
-const (
-	maxSkillMD        = 1 << 20
-	codexMetadataFile = "agents/openai.yaml"
-)
+const maxSkillMD = 1 << 20
 
 func List(directory string) ([]Folder, error) {
 	return on(directory).list(directory)

@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
-import { isRiskNotice, riskLabel } from "./risks";
+import { isRiskNotice, riskItems, riskLabel } from "./risks";
+import { agentName } from "@/lib/model";
 import { Summary } from "@/components/app/parts";
 
 // Risks 是更新计划最先给的：新增或改动的脚本、新增的可执行文件、技能放宽了对 Agent 声明的权限，点一条看那个文件的差异。
@@ -43,18 +44,43 @@ export function Risks({ risks, onView }: { risks: { p: PlannedSkill; r: UpdateRi
 
 // RiskLine 是一条风险：技能名(更新单个技能时不写)、是什么风险，后面是文件路径;技能对 Agent 声明的设置写新增或改动的那几项，悬停看全。
 export function RiskLine({ name, risk, onClick }: { name?: string; risk: UpdateRisk; onClick: () => void }) {
-  const detail = risk.items?.length ? risk.items.join(", ") : risk.path;
+  const s = useSnapshot();
+  const items = riskItems(risk);
   return (
     <button
       type="button"
       className="update-risk flex min-w-0 items-center gap-2 text-left hover:underline"
-      title={risk.items?.length ? `${risk.path}\n${risk.items.join("\n")}` : undefined}
+      title={items.length ? `${risk.path}\n${items.join("\n")}` : undefined}
       onClick={onClick}
     >
       {name && <b className="shrink-0 font-semibold">{name}</b>}
-      <span className="shrink-0">{riskLabel(risk)}</span>
-      <span className="min-w-0 truncate font-mono text-caption">{detail}</span>
+      <span className="shrink-0">{riskLabel(risk, risk.agent ? agentName(s, risk.agent) : "")}</span>
+      <span className="min-w-0 truncate font-mono text-caption">{items.length ? items.join(", ") : risk.path}</span>
     </button>
+  );
+}
+
+// RiskList 是更新单个技能的几条风险(「用目录里的修改更新」):风险一块，提示级的另一块、不带「注意」的图标。
+export function RiskList({ risks, onView }: { risks: UpdateRisk[]; onView: (path: string) => void }) {
+  const alerts = risks.filter((r) => !isRiskNotice(r));
+  const notices = risks.filter(isRiskNotice);
+  return (
+    <>
+      {alerts.length > 0 && (
+        <Notice alert className="flex flex-col gap-0.5">
+          {alerts.map((r) => (
+            <RiskLine key={`${r.kind}|${r.path}`} risk={r} onClick={() => onView(r.path)} />
+          ))}
+        </Notice>
+      )}
+      {notices.length > 0 && (
+        <Notice className="flex flex-col gap-0.5">
+          {notices.map((r) => (
+            <RiskLine key={`${r.kind}|${r.path}`} risk={r} onClick={() => onView(r.path)} />
+          ))}
+        </Notice>
+      )}
+    </>
   );
 }
 

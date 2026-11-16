@@ -1,14 +1,15 @@
 // 更新计划里一个技能的文件差异：上面列出改了的文件，下面是选中文件的逐行比较(左右对比或行内对比)。
 import { useMemo } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
-import type { PlannedSkill, UpdatePlan, VersionDiff } from "@bindings/internal/library";
+import type { PlannedSkill, UpdatePlan, UpdateRisk, VersionDiff } from "@bindings/internal/library";
 import { changedFiles } from "@/lib/diff";
 import { useT } from "@/lib/i18n";
-import type { LibraryError } from "@/lib/library";
+import { useSnapshot, type LibraryError } from "@/lib/library";
+import { agentName } from "@/lib/model";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ChangedFiles, FileDiff, type FileReaders } from "./file-diff";
-import { riskLabel } from "./risks";
+import { fileRiskBadge } from "./risks";
 import { openCompare } from "./version-compare";
 
 // SkillDiff 是一个技能这次改了哪些文件，点文件看内容差异:库里一侧读当前版本，来源一侧读更新计划。
@@ -40,13 +41,23 @@ export function SkillDiff({
     }),
     [versionID, plan.id, item.skill.id],
   );
-  // 同一个文件可能有几条(SKILL.md 里 Claude Code 的几种设置):合成一个标签。
+  // 同一个文件可能有几条(SKILL.md 里 Claude Code 的几种设置):合成一个短标签，悬停逐条列出。
+  const s = useSnapshot();
   const risk = useMemo(() => {
-    const labels = new Map<string, string[]>();
-    for (const r of item.risks ?? []) labels.set(r.path, [...(labels.get(r.path) ?? []), riskLabel(r)]);
-    return new Map([...labels].map(([p, l]) => [p, l.join(" · ")]));
-  }, [item.risks]);
-  const badge = (p: string) => risk.has(p) && <Badge tone="warn">{risk.get(p)}</Badge>;
+    const byPath = new Map<string, UpdateRisk[]>();
+    for (const r of item.risks ?? []) byPath.set(r.path, [...(byPath.get(r.path) ?? []), r]);
+    return new Map([...byPath].map(([p, list]) => [p, fileRiskBadge(list, (r) => (r.agent ? agentName(s, r.agent) : ""))]));
+  }, [item.risks, s]);
+  const badge = (p: string) => {
+    const b = risk.get(p);
+    return (
+      b && (
+        <Badge tone={b.notice ? undefined : "warn"} title={b.title}>
+          {b.label}
+        </Badge>
+      )
+    );
+  };
   const title = t.changesOf(item.renamed_to ? `${item.skill.name} → ${item.renamed_to}` : item.skill.name);
   const enlarge = (diff: VersionDiff, origin: Element) =>
     openCompare({

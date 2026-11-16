@@ -97,11 +97,12 @@ const (
 	RiskScriptChanged   UpdateRiskKind = "script_changed"   // 改动的脚本
 	// RiskAllowedToolsAdded 是 Claude Code 不用确认就能用的工具(allowed-tools)多了,Items 是新增的几项。
 	RiskAllowedToolsAdded UpdateRiskKind = "allowed_tools_added"
-	// RiskHooksChanged 是 Claude Code 的 hooks 新增或改动了,Items 是新的或改过的几个,写成「事件 (匹配): 做什么」。只删掉 hook 不算。
+	// RiskHooksChanged 是 Claude Code 的 hooks 新增或改动了(事件、匹配、种类、做什么任一项不同都算),Hooks 是新的或改过的几个。只删掉 hook 不算。
 	RiskHooksChanged UpdateRiskKind = "hooks_changed"
-	// RiskToolsAdded 是 Codex 要接入的工具(dependencies.tools)多了或改了启动命令、地址,Items 是这几个,写成「名字: 命令或地址」。
+	// RiskToolsAdded 是 Codex 要接入的工具(dependencies.tools)新增或改动了(种类、名字、连接方式、启动命令、地址任一项不同都算),
+	// Tools 是新的或改过的几个。只改说明、只删掉工具不算。
 	RiskToolsAdded UpdateRiskKind = "tools_added"
-	// RiskAutoInvocationEnabled 是提示级的:原来只能手动调用,这次 Agent 会自动调用它了。Items 为空。
+	// RiskAutoInvocationEnabled 是提示级的:原来关掉了自动调用,这次 Agent 会自动调用它了。
 	RiskAutoInvocationEnabled UpdateRiskKind = "auto_invocation_enabled"
 )
 
@@ -111,8 +112,12 @@ type UpdateRisk struct {
 	Path string         `json:"path"` // 技能内斜杠分隔的相对路径;技能对 Agent 声明的设置是写着它的文件(SKILL.md 或 agents/openai.yaml)
 	// Agent 是技能对 Agent 声明的设置那几种风险说的是哪个 Agent;脚本与可执行文件为空。
 	Agent AgentCode `json:"agent,omitempty"`
-	// Items 是这几种设置里新增或改动的那几项,原样写出;脚本与可执行文件、RiskAutoInvocationEnabled 为空。
+	// Items 是 RiskAllowedToolsAdded 新增的那几项工具,原样写出;其他种类为空。
 	Items []string `json:"items,omitempty"`
+	// Hooks 是 RiskHooksChanged 新的或改过的 hooks;其他种类为空。
+	Hooks []ClaudeCodeHook `json:"hooks,omitempty"`
+	// Tools 是 RiskToolsAdded 新的或改过的要接入的工具;其他种类为空。
+	Tools []CodexTool `json:"tools,omitempty"`
 }
 
 const planTTL = 30 * time.Minute

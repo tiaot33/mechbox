@@ -426,8 +426,9 @@ export const zh = {
     riskOther: "需要看一眼",
     riskAllowedTools: (agent: string) => `${agent} 里不用确认就能用的工具多了`,
     riskHooks: (agent: string) => `${agent} 的 hooks 新增或改动了`,
-    riskTools: (agent: string) => `${agent} 要接入的工具多了`,
-    riskAutoInvocation: (agent: string) => `${agent} 会自动调用它了（原来只能手动调用）`,
+    riskTools: (agent: string) => `${agent} 要接入的工具新增或改动了`,
+    riskAutoInvocation: (agent: string) => `${agent} 会自动调用它了（原来关掉了自动调用）`,
+    riskLooser: "放宽了 Agent 权限",
     riskSummary: (executables: number, scriptsAdded: number, scriptsChanged: number, settings: number) =>
       [
         executables && `新增 ${executables} 个可执行文件`,
@@ -668,6 +669,9 @@ export const zh = {
           ? `SKILL.md 里写了 user-invocable: false：它不在 / 菜单里，用 /${name} 也调不出来，只由 Claude Code 自动调用`
           : "SKILL.md 里既关掉了自动调用（disable-model-invocation: true），又关掉了手动调用（user-invocable: false）：Claude Code 用不上它",
     codexInvocationTitle: (name: string) => `agents/openai.yaml 里写了 allow_implicit_invocation: false：Codex 不会自动调用它，要用 $${name} 手动调用`,
+    codexProductsTitle: (products: string) => `agents/openai.yaml 的 policy.products 只写了 ${products}：Codex 不会加载它`,
+    codexNeither: "调用不了：policy.products 里没有 Codex，Codex 不会加载它",
+    list: (items: string[]) => items.join("、"),
     title: "在 Agent 里怎样用",
     note: "技能自己声明的",
     noteTitle: "取自 SKILL.md 的 frontmatter（Claude Code）和 agents/openai.yaml（Codex），只列和默认不同的。Agent 实际怎样做还取决于它自己的设置和版本",
@@ -1246,6 +1250,7 @@ export const zh = {
   },
 
   review: {
+    wellKnownNoSettings: "这类站点入库前读不到技能对 Agent 声明的权限（不用确认就能用的工具、hooks、要接入的工具），入库后在技能详情里看。",
     mentionsUnpicked: (names: string[]) => `提到 ${names.join("、")} · 一起勾上`,
     mentionsUnpickedTitle: (names: string[]) => `它的 SKILL.md 提到了「${names.join("」「")}」，这几个还没勾;点一下一起勾上`,
     kindGitHub: "GitHub 仓库",

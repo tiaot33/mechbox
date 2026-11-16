@@ -2890,9 +2890,19 @@ export interface UpdateRisk {
     "agent"?: AgentCode;
 
     /**
-     * Items 是这几种设置里新增或改动的那几项,原样写出;脚本与可执行文件、RiskAutoInvocationEnabled 为空。
+     * Items 是 RiskAllowedToolsAdded 新增的那几项工具,原样写出;其他种类为空。
      */
     "items"?: string[] | null;
+
+    /**
+     * Hooks 是 RiskHooksChanged 新的或改过的 hooks;其他种类为空。
+     */
+    "hooks"?: ClaudeCodeHook[] | null;
+
+    /**
+     * Tools 是 RiskToolsAdded 新的或改过的要接入的工具;其他种类为空。
+     */
+    "tools"?: CodexTool[] | null;
 }
 
 /**
@@ -2927,17 +2937,18 @@ export enum UpdateRiskKind {
     RiskAllowedToolsAdded = "allowed_tools_added",
 
     /**
-     * RiskHooksChanged 是 Claude Code 的 hooks 新增或改动了,Items 是新的或改过的几个,写成「事件 (匹配): 做什么」。只删掉 hook 不算。
+     * RiskHooksChanged 是 Claude Code 的 hooks 新增或改动了(事件、匹配、种类、做什么任一项不同都算),Hooks 是新的或改过的几个。只删掉 hook 不算。
      */
     RiskHooksChanged = "hooks_changed",
 
     /**
-     * RiskToolsAdded 是 Codex 要接入的工具(dependencies.tools)多了或改了启动命令、地址,Items 是这几个,写成「名字: 命令或地址」。
+     * RiskToolsAdded 是 Codex 要接入的工具(dependencies.tools)新增或改动了(种类、名字、连接方式、启动命令、地址任一项不同都算),
+     * Tools 是新的或改过的几个。只改说明、只删掉工具不算。
      */
     RiskToolsAdded = "tools_added",
 
     /**
-     * RiskAutoInvocationEnabled 是提示级的:原来只能手动调用,这次 Agent 会自动调用它了。Items 为空。
+     * RiskAutoInvocationEnabled 是提示级的:原来关掉了自动调用,这次 Agent 会自动调用它了。
      */
     RiskAutoInvocationEnabled = "auto_invocation_enabled",
 };

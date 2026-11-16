@@ -139,9 +139,9 @@ hooks:
 	}
 	want := []library.UpdateRisk{
 		{Kind: library.RiskAllowedToolsAdded, Path: "SKILL.md", Agent: library.AgentClaudeCode, Items: []string{"Bash(*)"}},
-		{Kind: library.RiskHooksChanged, Path: "SKILL.md", Agent: library.AgentClaudeCode, Items: []string{"PreToolUse (Bash): ./scripts/check.sh --fix"}},
+		{Kind: library.RiskHooksChanged, Path: "SKILL.md", Agent: library.AgentClaudeCode, Hooks: []library.ClaudeCodeHook{{Event: "PreToolUse", Matcher: "Bash", Type: "command", Detail: "./scripts/check.sh --fix"}}},
 		{Kind: library.RiskAutoInvocationEnabled, Path: "SKILL.md", Agent: library.AgentClaudeCode},
-		{Kind: library.RiskToolsAdded, Path: "agents/openai.yaml", Agent: library.AgentCodex, Items: []string{"shell: npx shell-server"}},
+		{Kind: library.RiskToolsAdded, Path: "agents/openai.yaml", Agent: library.AgentCodex, Tools: []library.CodexTool{{Type: "mcp", Value: "shell", Command: "npx shell-server"}}},
 		{Kind: library.RiskAutoInvocationEnabled, Path: "agents/openai.yaml", Agent: library.AgentCodex},
 	}
 	if len(plan.Skills) != 1 || !reflect.DeepEqual(plan.Skills[0].Risks, want) {
@@ -162,5 +162,48 @@ hooks:
 	}
 	if len(plan.Skills) != 1 || plan.Skills[0].Change != library.PlannedChanged || plan.Skills[0].Risks != nil {
 		t.Fatalf("tightened plan = %#v, want a change without risks", plan.Skills)
+	}
+}
+
+// 只改 hook 的种类、只改工具的地址(同时写着启动命令)也算改动。
+func TestUpdatePlanShowsChangedHookTypeAndToolURL(t *testing.T) {
+	t.Parallel()
+	lib := openTestLibrary(t)
+	source := filepath.Join(t.TempDir(), "review")
+	write := func(hookType, url string) {
+		writeFile(t, filepath.Join(source, "SKILL.md"), []byte("---\nname: review\ndescription: Review\nhooks:\n  Stop:\n    - hooks:\n        - type: "+hookType+"\n          prompt: check the work\n---\n# review\n"), 0o644)
+		writeFile(t, filepath.Join(source, "agents", "openai.yaml"), []byte("dependencies:\n  tools:\n    - type: mcp\n      value: docs\n      command: docs-server\n      url: "+url+"\n"), 0o644)
+	}
+	write("prompt", "https://a.example.com/mcp")
+	skill, err := fetchLocalDir(t.Context(), lib, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write("agent", "https://b.example.com/mcp")
+	plan, err := lib.PlanUpdate(t.Context(), skill.CollectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []library.UpdateRisk{
+		{Kind: library.RiskHooksChanged, Path: "SKILL.md", Agent: library.AgentClaudeCode, Hooks: []library.ClaudeCodeHook{{Event: "Stop", Type: "agent", Detail: "check the work"}}},
+		{Kind: library.RiskToolsAdded, Path: "agents/openai.yaml", Agent: library.AgentCodex, Tools: []library.CodexTool{{Type: "mcp", Value: "docs", Command: "docs-server", URL: "https://b.example.com/mcp"}}},
+	}
+	if len(plan.Skills) != 1 || !reflect.DeepEqual(plan.Skills[0].Risks, want) {
+		t.Fatalf("risks = %#v, want %#v", plan.Skills, want)
+	}
+}
+
+// 来源里写成小写 skill.md 的也读得出。
+func TestAgentSettingsFromLowercaseSkillMD(t *testing.T) {
+	t.Parallel()
+	lib := openTestLibrary(t)
+	source := filepath.Join(t.TempDir(), "lower")
+	writeFile(t, filepath.Join(source, "skill.md"), []byte("---\nname: lower\ndescription: Lower\ndisable-model-invocation: true\n---\n# lower\n"), 0o644)
+	if _, err := fetchLocalDir(t.Context(), lib, source); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := lib.ListSkills(t.Context())
+	if err != nil || len(listed) != 1 || listed[0].AgentSettings == nil || !listed[0].AgentSettings.ClaudeCode.ModelInvocationDisabled {
+		t.Fatalf("ListSkills() = %#v, %v, want manual-only settings", listed, err)
 	}
 }

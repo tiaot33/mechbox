@@ -4,7 +4,7 @@ import { AgentCode, type Skill } from "@bindings/internal/library";
 import { settingSections } from "@/lib/agent-settings";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import { parseScope, scopeReaders } from "@/lib/model";
+import { agentName, parseScope, scopeReaders } from "@/lib/model";
 import { useView } from "@/lib/view";
 import { cn } from "@/lib/utils";
 import { Card, CardHeader } from "@/components/ui/card";
@@ -19,7 +19,7 @@ export function AgentSettingsCard({ skill }: { skill: Skill }) {
   const first = page.kind === "scope" ? scopeReaders(s, parseScope(page.scope)).find((code) => builtIn.includes(code)) : undefined;
   const sections = settingSections(skill.agent_settings, skill.name, first);
   if (!sections.length) return null;
-  const name = (code: AgentCode) => s.agents.find((a) => a.code === code)?.name ?? code;
+  const name = (code: AgentCode) => agentName(s, code);
   return (
     <Card className="agent-settings-card">
       <CardHeader title={t.title} note={<span title={t.noteTitle}>{t.note}</span>} />

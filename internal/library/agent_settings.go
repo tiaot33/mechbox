@@ -1,8 +1,8 @@
 package library
 
 import (
-	"cmp"
 	"slices"
+	"strings"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentsettings"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
@@ -81,26 +81,33 @@ type parsedSettings struct {
 	codex     agentsettings.Codex
 	hasClaude bool
 	hasCodex  bool
+	skillMD   string
 }
 
 func parseSettings(skillMD, codex []byte) parsedSettings {
-	var parsed parsedSettings
+	parsed := parsedSettings{skillMD: "SKILL.md"}
 	parsed.claude, parsed.hasClaude = agentsettings.ParseClaude(skillMD)
 	parsed.codex, parsed.hasCodex = agentsettings.ParseCodex(codex)
 	return parsed
 }
 
 func parseFileSettings(files []skillfile.File) parsedSettings {
-	var skillMD, codex []byte
-	for _, file := range files {
-		switch file.Path {
-		case "SKILL.md":
-			skillMD = file.Content
-		case agentsettings.CodexFile:
+	var manifest *skillfile.File
+	var codex []byte
+	for i, file := range files {
+		switch {
+		case file.Path == "SKILL.md" || manifest == nil && strings.EqualFold(file.Path, "SKILL.md"):
+			manifest = &files[i]
+		case file.Path == agentsettings.CodexFile:
 			codex = file.Content
 		}
 	}
-	return parseSettings(skillMD, codex)
+	if manifest == nil {
+		return parseSettings(nil, codex)
+	}
+	parsed := parseSettings(manifest.Content, codex)
+	parsed.skillMD = manifest.Path
+	return parsed
 }
 
 func agentSettingsOf(skillMD, codex []byte) *AgentSettings {
@@ -119,6 +126,7 @@ func (p parsedSettings) public() *AgentSettings {
 			UserInvocationDisabled:  c.UserInvocationDisabled,
 			AllowedTools:            c.AllowedTools,
 			DisallowedTools:         c.DisallowedTools,
+			Hooks:                   publicHooks(c.Hooks),
 			Paths:                   c.Paths,
 			WhenToUse:               c.WhenToUse,
 			ArgumentHint:            c.ArgumentHint,
@@ -128,51 +136,47 @@ func (p parsedSettings) public() *AgentSettings {
 			Agent:                   c.Agent,
 			Shell:                   c.Shell,
 		}
-		for _, hook := range c.Hooks {
-			result.ClaudeCode.Hooks = append(result.ClaudeCode.Hooks, ClaudeCodeHook(hook))
-		}
 	}
 	if p.hasCodex {
 		c := p.codex
-		result.Codex = &CodexSettings{ImplicitInvocationDisabled: c.ImplicitInvocationDisabled, Products: c.Products}
-		for _, tool := range c.Tools {
-			result.Codex.Tools = append(result.Codex.Tools, CodexTool(tool))
-		}
+		result.Codex = &CodexSettings{ImplicitInvocationDisabled: c.ImplicitInvocationDisabled, Products: c.Products, Tools: publicTools(c.Tools)}
 	}
 	return &result
+}
+
+func publicHooks(hooks []agentsettings.Hook) []ClaudeCodeHook {
+	var result []ClaudeCodeHook
+	for _, hook := range hooks {
+		result = append(result, ClaudeCodeHook(hook))
+	}
+	return result
+}
+
+func publicTools(tools []agentsettings.Tool) []CodexTool {
+	var result []CodexTool
+	for _, tool := range tools {
+		result = append(result, CodexTool(tool))
+	}
+	return result
 }
 
 func settingsRisks(from, to []skillfile.File) []UpdateRisk {
 	old, latest := parseFileSettings(from), parseFileSettings(to)
 	var risks []UpdateRisk
-	if added := missingFrom(latest.claude.AllowedTools, old.claude.AllowedTools); len(added) > 0 {
-		risks = append(risks, UpdateRisk{Kind: RiskAllowedToolsAdded, Path: "SKILL.md", Agent: AgentClaudeCode, Items: added})
+	if added := addedItems(latest.claude.AllowedTools, old.claude.AllowedTools, func(a, b string) bool { return a == b }); len(added) > 0 {
+		risks = append(risks, UpdateRisk{Kind: RiskAllowedToolsAdded, Path: latest.skillMD, Agent: AgentClaudeCode, Items: added})
 	}
-	hook := func(h agentsettings.Hook) string {
-		item := h.Event
-		if h.Matcher != "" {
-			item += " (" + h.Matcher + ")"
-		}
-		if h.Detail != "" {
-			item += ": " + h.Detail
-		}
-		return item
+	if added := addedItems(latest.claude.Hooks, old.claude.Hooks, func(a, b agentsettings.Hook) bool { return a == b }); len(added) > 0 {
+		risks = append(risks, UpdateRisk{Kind: RiskHooksChanged, Path: latest.skillMD, Agent: AgentClaudeCode, Hooks: publicHooks(added)})
 	}
-	if added := missingFrom(mapped(latest.claude.Hooks, hook), mapped(old.claude.Hooks, hook)); len(added) > 0 {
-		risks = append(risks, UpdateRisk{Kind: RiskHooksChanged, Path: "SKILL.md", Agent: AgentClaudeCode, Items: added})
+	sameTool := func(a, b agentsettings.Tool) bool {
+		return a.Type == b.Type && a.Value == b.Value && a.Transport == b.Transport && a.Command == b.Command && a.URL == b.URL
 	}
-	tool := func(t agentsettings.Tool) string {
-		item := t.Value
-		if detail := cmp.Or(t.Command, t.URL); detail != "" {
-			item += ": " + detail
-		}
-		return item
-	}
-	if added := missingFrom(mapped(latest.codex.Tools, tool), mapped(old.codex.Tools, tool)); len(added) > 0 {
-		risks = append(risks, UpdateRisk{Kind: RiskToolsAdded, Path: agentsettings.CodexFile, Agent: AgentCodex, Items: added})
+	if added := addedItems(latest.codex.Tools, old.codex.Tools, sameTool); len(added) > 0 {
+		risks = append(risks, UpdateRisk{Kind: RiskToolsAdded, Path: agentsettings.CodexFile, Agent: AgentCodex, Tools: publicTools(added)})
 	}
 	if old.claude.ModelInvocationDisabled && !latest.claude.ModelInvocationDisabled {
-		risks = append(risks, UpdateRisk{Kind: RiskAutoInvocationEnabled, Path: "SKILL.md", Agent: AgentClaudeCode})
+		risks = append(risks, UpdateRisk{Kind: RiskAutoInvocationEnabled, Path: latest.skillMD, Agent: AgentClaudeCode})
 	}
 	if old.codex.ImplicitInvocationDisabled && !latest.codex.ImplicitInvocationDisabled {
 		risks = append(risks, UpdateRisk{Kind: RiskAutoInvocationEnabled, Path: agentsettings.CodexFile, Agent: AgentCodex})
@@ -180,20 +184,13 @@ func settingsRisks(from, to []skillfile.File) []UpdateRisk {
 	return risks
 }
 
-func missingFrom(items, existing []string) []string {
-	var added []string
+func addedItems[T any](items, existing []T, same func(a, b T) bool) []T {
+	var added []T
 	for _, item := range items {
-		if !slices.Contains(existing, item) && !slices.Contains(added, item) {
+		found := func(x T) bool { return same(x, item) }
+		if !slices.ContainsFunc(existing, found) && !slices.ContainsFunc(added, found) {
 			added = append(added, item)
 		}
 	}
 	return added
-}
-
-func mapped[T any](items []T, f func(T) string) []string {
-	result := make([]string, len(items))
-	for i, item := range items {
-		result[i] = f(item)
-	}
-	return result
 }

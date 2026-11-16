@@ -64,7 +64,7 @@ func ParseClaude(skillMD []byte) (Claude, bool) {
 	result.AllowedTools = tools(fields["allowed-tools"])
 	result.DisallowedTools = tools(fields["disallowed-tools"])
 	result.Hooks = hooks(fields["hooks"])
-	result.Paths = list(fields["paths"], func(r rune) bool { return r == ',' })
+	result.Paths = list(fields["paths"])
 	result.WhenToUse = text(fields["when_to_use"])
 	result.ArgumentHint = text(fields["argument-hint"])
 	if result.Model = text(fields["model"]); result.Model == "inherit" {
@@ -135,19 +135,10 @@ func text(value any) string {
 }
 
 func tools(value any) []string {
-	switch v := value.(type) {
-	case string:
+	if v, ok := value.(string); ok {
 		return splitTools(v)
-	case []any:
-		var result []string
-		for _, item := range v {
-			if s := text(item); s != "" {
-				result = append(result, s)
-			}
-		}
-		return result
 	}
-	return nil
+	return list(value)
 }
 
 func splitTools(value string) []string {
@@ -176,26 +167,25 @@ func splitTools(value string) []string {
 	return result
 }
 
-func list(value any, separator func(rune) bool) []string {
+func list(value any) []string {
+	var items []string
 	switch v := value.(type) {
 	case string:
-		var result []string
-		for _, item := range strings.FieldsFunc(v, separator) {
-			if item = strings.TrimSpace(item); item != "" {
-				result = append(result, item)
-			}
+		for _, item := range strings.Split(v, ",") {
+			items = append(items, strings.TrimSpace(item))
 		}
-		return result
 	case []any:
-		var result []string
 		for _, item := range v {
-			if s := text(item); s != "" {
-				result = append(result, s)
-			}
+			items = append(items, text(item))
 		}
-		return result
 	}
-	return nil
+	var result []string
+	for _, item := range items {
+		if item != "" {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 func hooks(value any) []Hook {
@@ -219,37 +209,42 @@ func hooks(value any) []Hook {
 					continue
 				}
 				kind := text(h["type"])
-				if kind == "" {
+				detail, ok := hookDetail(kind, h)
+				if !ok {
 					continue
 				}
-				result = append(result, Hook{Event: event, Matcher: matcher, Type: kind, Detail: hookDetail(kind, h)})
+				result = append(result, Hook{Event: event, Matcher: matcher, Type: kind, Detail: detail})
 			}
 		}
 	}
 	return result
 }
 
-func hookDetail(kind string, h map[string]any) string {
+func hookDetail(kind string, h map[string]any) (string, bool) {
 	switch kind {
 	case "command":
-		parts := []string{text(h["command"])}
+		command := text(h["command"])
+		if command == "" {
+			return "", false
+		}
+		parts := []string{command}
 		if args, ok := h["args"].([]any); ok {
 			for _, arg := range args {
 				parts = append(parts, text(arg))
 			}
 		}
-		return strings.TrimSpace(strings.Join(parts, " "))
+		return strings.TrimSpace(strings.Join(parts, " ")), true
 	case "http":
-		return text(h["url"])
+		url := text(h["url"])
+		return url, url != ""
 	case "mcp_tool":
 		server, tool := text(h["server"]), text(h["tool"])
-		if server == "" || tool == "" {
-			return server + tool
-		}
-		return server + "/" + tool
-	default:
-		return text(h["prompt"])
+		return server + "/" + tool, server != "" && tool != ""
+	case "prompt", "agent":
+		prompt := text(h["prompt"])
+		return prompt, prompt != ""
 	}
+	return "", false
 }
 
 func sortedKeys(m map[string]any) []string {

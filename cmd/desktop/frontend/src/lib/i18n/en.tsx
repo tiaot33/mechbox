@@ -460,8 +460,9 @@ export const en = {
     riskOther: "Worth a look",
     riskAllowedTools: (agent: string) => `More tools usable without asking in ${agent}`,
     riskHooks: (agent: string) => `New or changed ${agent} hooks`,
-    riskTools: (agent: string) => `More tools for ${agent} to connect`,
-    riskAutoInvocation: (agent: string) => `${agent} now invokes it automatically (was manual only)`,
+    riskTools: (agent: string) => `New or changed tools for ${agent} to connect`,
+    riskAutoInvocation: (agent: string) => `${agent} now invokes it automatically (automatic invocation was off)`,
+    riskLooser: "Looser agent permissions",
     riskSummary: (executables: number, scriptsAdded: number, scriptsChanged: number, settings: number) =>
       [
         executables && `${count(executables, "new executable")}`,
@@ -706,6 +707,9 @@ export const en = {
           ? `SKILL.md sets user-invocable: false: it's not in the / menu and /${name} won't run it; only Claude Code invokes it automatically`
           : "SKILL.md turns off both automatic invocation (disable-model-invocation: true) and manual invocation (user-invocable: false): Claude Code can't use it",
     codexInvocationTitle: (name: string) => `agents/openai.yaml sets allow_implicit_invocation: false: Codex won't invoke it automatically; use $${name} to invoke it`,
+    codexProductsTitle: (products: string) => `policy.products in agents/openai.yaml lists only ${products}: Codex won't load it`,
+    codexNeither: "Can't be invoked: policy.products doesn't include Codex, so Codex won't load it",
+    list: (items: string[]) => items.join(", "),
     title: "How agents use it",
     note: "Declared by the skill",
     noteTitle: "From the SKILL.md frontmatter (Claude Code) and agents/openai.yaml (Codex); only what differs from the defaults. What the agent actually does also depends on its own settings and version",
@@ -1313,6 +1317,7 @@ export const en = {
   },
 
   review: {
+    wellKnownNoSettings: "Permissions these skills declare for agents (tools usable without asking, hooks, tools to connect) can't be read before fetching; check the skill details after fetching.",
     mentionsUnpicked: (names: string[]) => `Mentions ${names.join(", ")} · Check too`,
     mentionsUnpickedTitle: (names: string[]) => `Its SKILL.md mentions ${quoted(names)}, not checked yet; click to check them too`,
     kindGitHub: "GitHub repo",

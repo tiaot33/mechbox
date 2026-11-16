@@ -32,6 +32,13 @@ describe("invocationNote", () => {
     expect(note?.title).toContain("$deploy");
   });
 
+  it("policy.products 不含 codex 时 Codex 调用不了", () => {
+    const note = invocationNote({ codex: { products: ["chatgpt"] } }, [codex], "deploy");
+    expect(note?.text).toBe("调用不了");
+    expect(note?.title).toContain("ChatGPT");
+    expect(invocationNote({ codex: { products: ["codex", "chatgpt"] } }, [codex], "deploy")).toBeUndefined();
+  });
+
   it("只能自动调用、都关掉", () => {
     expect(invocationNote({ claude_code: { user_invocation_disabled: true } }, [claude], "x")?.text).toBe("只能自动调用");
     expect(invocationNote({ claude_code: { user_invocation_disabled: true, model_invocation_disabled: true } }, [claude], "x")?.text).toBe("调用不了");

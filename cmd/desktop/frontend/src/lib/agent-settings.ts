@@ -15,8 +15,9 @@ export function claudeInvocation(c: ClaudeCodeSettings | null | undefined): Invo
   return undefined;
 }
 
-// codexInvocation 是 Codex 怎样调用它：关掉了自动调用就只能手动。
+// codexInvocation 是 Codex 怎样调用它:policy.products 写了、又不含 codex 时 Codex 不加载它，调用不了;关掉了自动调用就只能手动。
 export function codexInvocation(c: CodexSettings | null | undefined): Invocation | undefined {
+  if (c?.products?.length && !c.products.includes("codex")) return "neither";
   return c?.implicit_invocation_disabled ? "manual" : undefined;
 }
 
@@ -33,7 +34,7 @@ export function invocationNote(settings: AgentSettings | null | undefined, agent
   }
   if (agents.includes(AgentCode.AgentCodex)) {
     const how = codexInvocation(settings?.codex);
-    if (how) notes.push({ text: t.invocationShort[how], title: t.codexInvocationTitle(name) });
+    if (how) notes.push({ text: t.invocationShort[how], title: how === "neither" ? t.codexProductsTitle(productNames(settings?.codex?.products)) : t.codexInvocationTitle(name) });
   }
   if (!notes.length) return undefined;
   return { text: [...new Set(notes.map((n) => n.text))].join(" · "), title: [...notes.map((n) => n.title), t.declared].join("\n") };
@@ -70,8 +71,8 @@ export function settingSections(settings: AgentSettings | null | undefined, name
   const x = settings?.codex;
   if (x) {
     const rows: (SettingRow | false)[] = [
-      !!codexInvocation(x) && { key: "invocation", label: t.invocation, values: [t.codexInvocation(name)] },
-      !!x.products?.length && { key: "products", label: t.products, values: [x.products.map(productName).join("、")] },
+      !!codexInvocation(x) && { key: "invocation", label: t.invocation, values: [codexInvocation(x) === "neither" ? t.codexNeither : t.codexInvocation(name)] },
+      !!x.products?.length && { key: "products", label: t.products, values: [productNames(x.products)] },
       !!x.tools?.length && { key: "tools", label: t.tools, values: x.tools.map(toolText), mono: true },
     ];
     sections.push({ agent: AgentCode.AgentCodex, rows: rows.filter((r): r is SettingRow => !!r) });
@@ -90,8 +91,8 @@ export function toolText(tool: { type: string; value: string; command?: string; 
   return `${tool.value} (${tool.type})${target ? `: ${target}` : ""}`;
 }
 
-const productNames: Record<string, string> = { chatgpt: "ChatGPT", codex: "Codex", atlas: "Atlas" };
-const productName = (p: string) => productNames[p] ?? p;
+const products: Record<string, string> = { chatgpt: "ChatGPT", codex: "Codex", atlas: "Atlas" };
+const productNames = (list: string[] | null | undefined) => messages().agentSettings.list((list ?? []).map((p) => products[p] ?? p));
 
 // permissionNote 是入库预览一行上写的权限：Claude Code 里不用确认就能用的工具、注册的 hooks,Codex 要接入的工具;都没有时为 undefined。
 // 行上写各有几个，悬停逐项列出。

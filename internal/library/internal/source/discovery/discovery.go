@@ -8,6 +8,8 @@ import (
 	"path"
 	"slices"
 	"strings"
+
+	"github.com/tiaot33/mechbox/internal/library/internal/agentsettings"
 )
 
 var (
@@ -96,7 +98,7 @@ type step struct {
 	reason error
 }
 
-const codexMetadataFile = "agents/openai.yaml"
+const codexMetadataFile = agentsettings.CodexFile
 
 func hasCodexMetadata(view View, root, dir string, entries []Entry) bool {
 	index := slices.IndexFunc(entries, func(e Entry) bool { return e.Name == "agents" && e.Mode.IsDir() })

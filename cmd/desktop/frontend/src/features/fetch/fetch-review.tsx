@@ -20,6 +20,7 @@ import { Modal, useUI } from "@/lib/ui";
 import { markFresh, useView } from "@/lib/view";
 import { chooseAndInstall, pageInstallTarget } from "@/features/install/install-to";
 import { cn, toggled } from "@/lib/utils";
+import { Hint } from "@/components/ui/field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ListBox, ListRow } from "@/components/ui/list";
@@ -261,6 +262,8 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
       ) : (
         <Notice alert>{t.noCandidates}</Notice>
       )}
+      {/* well-known 站点的候选入库前只读索引，读不到技能声明的权限，说一句免得看上去像什么都没声明。 */}
+      {preview.source.type === SourceType.SourceWellKnown && candidates.length > 0 && <Hint className="well-known-settings">{t.wellKnownNoSettings}</Hint>}
       <Diagnostics
         summary={t.diagnostics(preview.diagnostics?.length)}
         items={(preview.diagnostics ?? []).map((d) => ({ key: d.path, reason: d.reason }))}
