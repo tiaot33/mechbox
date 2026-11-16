@@ -2,7 +2,8 @@
 // - 贴着窗口上部(10vh)出现而不是垂直居中：内容变高(切换入库来源、预览结果出来)时只往下长，不上下跳;
 // - 表面不透明(tile),遮罩是淡色;
 // - 标题、关闭按钮、可滚动的主体与底部按钮行各有一个部件，弹窗外壳 Modal(lib/ui.tsx)把它们拼起来;
-// - 默认 560px 宽,wide 是 760px,full 铺满窗口(上面让出顶栏);
+// - 默认 560px 宽,wide 是 760px,large 是 1040px 宽、高度固定为能给的最大高度(内容多少都不变，里面分栏各自滚动),
+//   full 铺满窗口(上面让出顶栏);
 // - 从某个元素打开的(DialogMotion 给了 origin,如顶栏"入库技能"):弹窗从那个元素的位置和大小放大出来，关掉时缩回去;
 //   同一个弹窗里换了一页(入库预览出来，宽度变了)时从上一页的大小形变过去，不再从头弹出;
 // - 在 toast 上按下、拖动不算点了弹窗外面，弹窗不关;
@@ -81,11 +82,12 @@ function DialogContent({
   className,
   children,
   wide = false,
+  large = false,
   full = false,
   onInteractOutside,
   style,
   ...props
-}: ComponentProps<typeof DialogPrimitive.Content> & { wide?: boolean; full?: boolean }) {
+}: ComponentProps<typeof DialogPrimitive.Content> & { wide?: boolean; large?: boolean; full?: boolean }) {
   const motion = use(DialogMotionContext);
   const morphing = !!motion?.origin;
   const content = useRef<HTMLDivElement>(null);
@@ -156,6 +158,7 @@ function DialogContent({
           "bg-tile shadow-dialog",
           morphing ? "origin-top-left" : "animate-dialog-in",
           wide && "w-[760px]",
+          large && "h-[calc(90vh-40px)] w-[1040px]",
           // 铺满窗口(如版本比较):上面让出顶栏(top 见 style),其余三边留 24px。
           full && "bottom-6 max-h-none w-[calc(100vw-48px)]",
           className,

@@ -48,6 +48,7 @@ const bindings = fs.readFileSync(
 const methodID = (name) => bindings.match(new RegExp(`function ${name}\\([^]*?ByID\\((\\d+)`))[1];
 const previewMethodID = methodID("PreviewFetch");
 const refsMethodID = methodID("ListSourceRefs");
+const planMethodID = methodID("PlanUpdate");
 const appBindings = fs.readFileSync(
   new globalThis.URL("../frontend/bindings/github.com/tiaot33/mechbox/cmd/desktop/appservice.ts", import.meta.url),
   "utf8",
@@ -1800,8 +1801,9 @@ await step("检查更新 → 更新列表(风险提示)→ 更新(连同装出�
   assert((await updatesNav().locator('[data-slot="count"]').textContent()) === "1", "侧边栏计数应为 1");
   await updatesNav().click();
   assert((await card("delta").locator('[data-slot="badge"][data-tone="update"]', { hasText: "有新版本" }).count()) === 1, "delta 应标有新版本");
-  // 最后一列的「有新版本」是按钮：键盘聚焦后按回车，打开这个技能所在集合的更新计划。
-  await card("delta").locator('button[data-slot="alert-dot"]').focus();
+  // 「要处理的技能」里不列描述和日期，只写要处理什么;那一格是按钮：键盘聚焦后按回车，打开这个技能所在集合的更新计划。
+  assert.equal(await card("delta").locator(".skill-desc, .skill-changed").count(), 0, "要处理的技能不列描述和日期");
+  await card("delta").locator("button.update-what").focus();
   await page.keyboard.press("Enter");
   await modal().locator('[data-slot="dialog-title"]', { hasText: "更新" }).waitFor();
   await btn(modal(), "取消").click();
@@ -1809,8 +1811,9 @@ await step("检查更新 → 更新列表(风险提示)→ 更新(连同装出�
   const row = page.locator(".update-row", { hasText: "delta" });
   assert((await row.getByText("来自 delta.zip", { exact: false }).count()) === 1, "只有一个技能的集合直接显示技能名");
   await row.locator('.update-risk[data-tone="warn"]', { hasText: "新增 1 个脚本" }).waitFor({ timeout: 15000 });
-  // 读出风险的那一行，「更新」退回普通按钮，不比风险标签抢眼。
-  assert.equal(await row.locator(".update-direct").getAttribute("data-variant"), "default", "有风险的来源，「更新」不是绿胶囊");
+  // 主次不随风险读没读完而变：读出风险后「更新」照样是绿胶囊;「全部更新」在整页的那一行上，只有一个集合时也在。
+  assert.equal(await row.locator(".update-direct").getAttribute("data-variant"), "pill", "读出风险后「更新」仍是绿胶囊");
+  assert.equal(await page.locator(".updates-top .update-all").isEnabled(), true, "只有一个集合时也有「全部更新」");
   await btn(row, "更新").click();
   await toast("已更新 delta · 1 个技能换了新版本 · 换到了 1 个地方");
   assert((await page.locator('[data-slot="toast"]').getByRole("button", { name: "回滚" }).count()) === 1, "完成提示应带回滚");
@@ -1861,12 +1864,18 @@ await step("历史与回滚：库和装过的地方回到旧版，回滚掉的�
   await record.first().locator(".update-places", { hasText: "Claude Code · proj-a" }).locator('[data-slot="badge"]', { hasText: "换上了" }).waitFor();
   await btn(record.first(), "回滚").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "回滚这次更新" }).waitFor();
+  // 确认页换掉历史，不叠两层;写出会换回哪个技能、装回哪些地方。
+  assert.equal(await page.locator('[data-slot="dialog-content"]').count(), 1, "回滚的确认不叠在历史上");
+  await modal().locator(".rollback-skill", { hasText: "delta" }).waitFor();
+  await modal().locator(".rollback-places", { hasText: "Claude Code · proj-a" }).waitFor();
   await btn(modal(), "回滚").click();
-  await toast("装回了 1 个地方");
+  await toast("已回滚：delta 换回了更新之前的版本 · 装回了 1 个地方");
   await settle();
   assert(projSkill("delta").includes("delta skill from a zip"), "项目里的 delta 应回到 v1");
   await page.locator(".update-record", { has: page.locator('[data-slot="badge"]', { hasText: "回滚" }) }).first().waitFor();
   assert((await page.locator(".update-record").getByText("已回滚", { exact: true }).count()) === 1, "那次更新应标已回滚");
+  // 回滚掉的改动算作跳过：回滚记录和被回滚的那次更新上都能找回来再更新。
+  assert.equal(await modal().getByRole("button", { name: "再看更新计划", exact: true }).count(), 2, "回滚记录和被回滚的更新上都有找回的入口");
   await page.keyboard.press("Escape");
   assert((await updatesNav().count()) === 0, "回滚掉的改动不计入角标");
   // 从技能发起时就是要更新这一个：跳过的改动照样标出来，但默认勾上。
@@ -2226,7 +2235,9 @@ await step("从技能发起更新：只勾这一个、其余折叠;之后更新�
   await modal().locator('[data-slot="dialog-title"]', { hasText: "更新 pair.zip" }).waitFor();
   assert(await planRow("update-skill", "eta").locator("input[type=checkbox]").isChecked(), "eta 应勾上");
   await modal().locator('[data-slot="list-row"]', { hasText: "同一来源还有 1 个技能有变化（theta）" }).waitFor();
-  await modal().locator('[data-slot="notice"][data-alert]', { hasText: "只更新 eta 后，pair.zip 里的技能会不在同一个来源版本上" }).waitFor();
+  // 不在同一个来源版本上只是提示一级的小字，不是和脚本风险同级的警告。
+  await modal().locator(".update-splitting", { hasText: "只更新 eta 后，pair.zip 里的技能会不在同一个来源版本上" }).waitFor();
+  assert.equal(await modal().locator('[data-slot="notice"][data-alert]', { hasText: "不在同一个来源版本上" }).count(), 0, "不用警告的样式");
   await btn(modal(), "更新 1 个").click();
   await toast("已更新 pair.zip · 1 个技能换了新版本");
   await settle();
@@ -2284,9 +2295,27 @@ await step("更新计划：风险与差异、确认改名、继续保留已删�
   const row = page.locator(".update-row", { hasText: "trio.zip" });
   await row.getByText("lambda 可能改名为 lambda-kit", { exact: false }).waitFor();
   await row.locator('.update-risk[data-tone="warn"]', { hasText: "新增 1 个脚本" }).waitFor({ timeout: 15000 });
-  await btn(row, "查看").click();
+  // 更新计划读取中和读完一样大：不先弹一个小的再撑开。
+  const size = () => modal().evaluate((el) => [el.offsetWidth, el.offsetHeight]);
+  const hold = await holdCall(planMethodID);
+  try {
+    await btn(row, "查看").click();
+    await hold.requested();
+    const loading = await size();
+    await hold.release();
+    await modal().locator(".update-panes").waitFor();
+    assert.deepEqual(await size(), loading, "更新计划读完后弹窗大小不变");
+  } finally {
+    await hold.close();
+  }
   await modal().locator(".update-risk", { hasText: "scripts/x.sh" }).click();
   await modal().locator('.update-diff [data-slot="file-diff"] [data-diff="add"]', { hasText: "echo kappa" }).waitFor();
+  // 差异在右栏，左栏的技能和要换的地方不动;文件列表写明是改了的文件，每个文件标出新增、修改还是删除。
+  assert.equal(await modal().locator(".update-right .update-diff").count(), 1, "差异在右栏");
+  assert.equal(await modal().locator(".update-left .update-skill").count() > 0, true, "技能列表在左栏");
+  assert((await modal().locator(".update-diff .changed-count").textContent()).startsWith("这次改了"), "写明列的是改了的文件");
+  assert.equal(await modal().locator('.update-diff [data-diff="added"][data-path="scripts/x.sh"] .change-mark').textContent(), "新增");
+  assert.equal(await modal().locator('.update-diff [data-diff="changed"][data-path="SKILL.md"] .change-mark').textContent(), "修改");
   await btn(planRow("update-skill", "kappa"), "收起差异").click();
   await btn(planRow("update-skill", "kappa"), "看差异").click();
   await modal().locator(".update-diff button", { hasText: "SKILL.md" }).click();
@@ -2301,8 +2330,9 @@ await step("更新计划：风险与差异、确认改名、继续保留已删�
   await page.keyboard.press("Escape");
   await big().waitFor({ state: "detached" });
 
-  await btn(planRow("update-rename", "lambda"), "是").click();
-  await planRow("update-rename", "lambda").locator('[data-slot="badge"]', { hasText: "是同一个" }).waitFor();
+  await btn(planRow("update-rename", "lambda"), "是同一个").click();
+  await planRow("update-rename", "lambda").locator('[data-slot="badge"]', { hasText: "已确认是同一个" }).waitFor();
+  assert((await planRow("update-rename", "lambda").textContent()).includes("lambda 在来源里改名为 lambda-kit"), "回答后标题不再是问句");
   await modal().locator(".update-place", { hasText: "Claude Code · 全局" }).getByText("lambda → lambda-kit").waitFor();
   await btn(planRow("update-deleted", "mu"), "继续保留").click();
   await toast("已继续保留「mu」");
@@ -2410,7 +2440,7 @@ await step("Git 来源与 npx skills 记录：来源名字与来源版本、来�
     await planRow("update-skill", "grill-me").locator(".update-edited").waitFor({ timeout: 15000 });
     const hint = await modal().locator('[data-slot="hint"]').first().textContent();
     assert(hint.startsWith(label) && hint.includes("grill-me 的来源版本未知") && !hint.includes("技能都在"), `计划顶部如实写出:${hint}`);
-    assert.equal(await modal().locator('[data-slot="notice"]', { hasText: "不在同一个来源版本上" }).count(), 0, "可能有你的修改的默认没勾，不警告不在同一个来源版本上");
+    assert.equal(await modal().locator(".update-splitting").count(), 0, "可能有你的修改的默认没勾，不提示不在同一个来源版本上");
     await page.screenshot({ path: path.join(SHOTS, "git-npx-plan.png") });
     await page.keyboard.press("Escape");
     await settle();

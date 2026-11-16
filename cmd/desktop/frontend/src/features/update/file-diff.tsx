@@ -44,11 +44,12 @@ const setLayout = (layout: Layout) => {
   useLayoutStore.setState({ layout });
 };
 
-// 目录树里新增、删除的文件在行尾标 + / −(新增用绿色，删除用灰色、文件名再划掉);修改是最常见的，不标。
-const changeMark: Record<ChangeKind, { glyph: string; className: string } | undefined> = {
-  added: { glyph: "+", className: "text-primary" },
-  changed: undefined,
-  deleted: { glyph: "−", className: "text-muted-foreground" },
+// 目录树里列的都是改了的文件，每个文件在行尾写它是新增、修改还是删除(新增用绿色，修改用次要档，删除用灰色、文件名再划掉),
+// 不用逐个点开就分得出;列表上面一行写这次改了几个文件，不会被当成技能的全部文件。
+const changeMark: Record<ChangeKind, string> = {
+  added: "text-primary",
+  changed: "text-foreground-secondary",
+  deleted: "text-muted-foreground",
 };
 
 // splitPath 把路径拆成所在目录(带结尾的 /,在根上为空)和文件名。
@@ -101,6 +102,7 @@ export function ChangedFiles({
   };
   return (
     <div ref={list} className={cn("flex flex-col", className)} onKeyDown={onKeyDown}>
+      {files.length > 0 && <span className="changed-count px-2 pb-0.5 text-caption text-muted-foreground">{tt.diff.changedCount(files.length)}</span>}
       <Tree
         nodes={tree}
         depth={0}
@@ -193,13 +195,8 @@ function Tree({
         >
           {n.name}
         </span>
-        <span className="sr-only">{t[n.change]}</span>
         {badge?.(n.path)}
-        {mark && (
-          <span aria-hidden className={cn("w-2.5 shrink-0 text-center font-mono font-semibold", mark.className)}>
-            {mark.glyph}
-          </span>
-        )}
+        <span className={cn("change-mark shrink-0 text-caption", mark)}>{t[n.change]}</span>
       </button>
     );
   });

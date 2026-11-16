@@ -29,7 +29,7 @@ export async function reportUpdates(outcomes: UpdateOutcome[]) {
   if (outcomes.every((o) => !o.failed.length)) {
     if (outcomes.length === 1) {
       const o = outcomes[0];
-      ui.toast(summarize(o), "ok", o.record && o.changed ? { label: t.rollback, onClick: () => void rollbackUpdate(o.record, o.requests) } : undefined);
+      ui.toast(summarize(o), "ok", o.record && o.changed ? { label: t.rollback, onClick: () => void rollbackUpdate(o.record, o.history) } : undefined);
     } else {
       ui.toast([...outcomes.map(summarize), t.rollbackInHistory].join("\n"));
     }
@@ -96,7 +96,7 @@ function FailedPlaces({ outcomes, close }: { outcomes: UpdateOutcome[]; close: (
             <Button
               onClick={() => {
                 close();
-                void rollbackUpdate(single.record, single.requests);
+                void rollbackUpdate(single.record, single.history);
               }}
             >
               {t.rollback}

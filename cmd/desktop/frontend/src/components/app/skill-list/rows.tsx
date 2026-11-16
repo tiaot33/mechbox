@@ -1,4 +1,4 @@
-// 列表的行：库里的技能(技能库页、更新页与作用域页)与作用域里的未纳管技能。一个技能一行，列对齐，
+// 列表的行：库里的技能(技能库页与作用域页;更新页「要处理的技能」另有一种只写要处理什么的行)与作用域里的未纳管技能。一个技能一行，列对齐，
 // 平常的信息用淡色，只有要处理的(有新版本、来源里已删除、同名、要重新安装)才上色。
 // 作用域页与项目页的行首一格只表示 Agent 在这里用不用：开 = 在用，关 = 没在用;最后一列写是谁装的。
 // 未纳管技能不在技能库里，行首没有开关，是"入库"按钮;在"不在技能库里"一节里时最后一列不再写这句。
@@ -46,7 +46,7 @@ import { doneFlash, doneFresh, toggleDrawer, useView } from "@/lib/view";
 import { fetchUnmanaged } from "@/features/fetch/fetch-unmanaged";
 import { installSkill, uninstallSkill } from "@/features/install/install";
 import { openUpdate } from "@/features/update/update";
-import { AlertIcon, type Alert } from "@/components/ui/badge";
+import { AlertIcon, Badge, type Alert } from "@/components/ui/badge";
 import type { Mark } from "@/lib/level";
 import { Button } from "@/components/ui/button";
 import { Switch, SwitchMark } from "@/components/ui/switch";
@@ -104,10 +104,10 @@ const rowClass =
   "grid h-8 content-center items-center gap-x-4 border-b border-row-line px-3 text-body last:border-b-0 @max-[600px]/list:h-12 @max-[600px]/list:gap-y-0";
 
 
-// SkillRow 是库里一个技能的一行。scope 为空时是技能库页 / 更新页的样子;有 scope 时是作用域页、项目页的样子:
+// SkillRow 是库里一个技能的一行。scope 为空时是技能库页的样子;有 scope 时是作用域页、项目页的样子:
 // 开头一格表示 Agent 在这里用不用(见下),最后一列写是谁装的;fromGlobal 表示它是同一个 Agent 全局装的(项目里也看得到),这里不能开关。
 // 这里有一份和它一模一样、不是库装的文件夹时(identicalIn),开头一格是"入库",最后一列写不是 app 装的。
-// pickable 的行最前面有勾选框(技能库页、作用域页与项目页;更新页不能勾选)。
+// pickable 的行最前面有勾选框(技能库页、作用域页与项目页)。
 export function SkillRow(props: {
   skill: Skill;
   scope?: ScopeKey;
@@ -281,6 +281,77 @@ export function SkillRow(props: {
           </div>
         </>
       )}
+    </article>
+  );
+}
+
+// 更新页「要处理的技能」的列：名字 | 要处理什么 | 来自哪个来源 | 装在哪(更新时一起换成新版的地方)。窄的时候要处理什么挪到名字下面，
+// 来源和装在哪上下叠在右边。
+const updateCols =
+  "grid-cols-[minmax(120px,200px)_minmax(0,1fr)_minmax(80px,180px)_minmax(80px,160px)] @max-[600px]/list:grid-cols-[minmax(0,1fr)_minmax(110px,170px)]";
+
+// UpdateSkillRow 是更新页「要处理的技能」里的一行：一眼看出这个技能要处理的是什么事——有新版本(更新会换掉你的修改时另标一条)、
+// 可能改名为什么、来源里已删除，各用自己的图标和说法;点这一格打开所在集合的更新计划(只勾这一个)。
+// 描述、最近变化这些和要处理什么无关的不列。点行的其他地方照常打开技能详情。
+export function UpdateSkillRow({ skill }: { skill: Skill }) {
+  const s = useSnapshot();
+  const t = useT().list;
+  const selected = useView((v) => v.drawer === skill.id);
+  const to = renamedTo(skill);
+  const fresh = updateAvailable(skill) && !to;
+  return (
+    <article
+      className={cn(
+        "skill-row update-skill-row transition-colors hover:bg-fill",
+        rowClass,
+        updateCols,
+        selected && "bg-primary-soft hover:bg-primary-soft",
+      )}
+      data-name={skill.name}
+      data-skill-id={skill.id}
+      data-selected={selected || undefined}
+      onClick={() => toggleDrawer(skill.id)}
+    >
+      <span className="skill-name min-w-0 truncate text-body font-semibold" title={skill.note || undefined}>
+        {skill.name}
+      </span>
+      <div className="flex min-w-0 @max-[600px]/list:col-start-1 @max-[600px]/list:row-start-2">
+        <button
+          type="button"
+          className="update-what flex min-w-0 items-center gap-3 overflow-hidden rounded-control text-left outline-none hover:underline focus-visible:ring-3 focus-visible:ring-primary-soft"
+          title={t.whatTitle}
+          onClick={(e) => {
+            e.stopPropagation();
+            void openUpdate(skill.collection_id, { focus: skill.id });
+          }}
+        >
+          {fresh && <Badge tone="update">{t.newVersion}</Badge>}
+          {fresh && skill.edited && (
+            <Badge tone="warn" className="update-edited-note min-w-0 shrink" title={t.editedTitle}>
+              <span className="truncate">{t.edited}</span>
+            </Badge>
+          )}
+          {to && (
+            <Badge tone="rename" className="min-w-0 shrink" title={t.renamedTitle(to)}>
+              <span className="truncate">{t.renamedToShort(to)}</span>
+            </Badge>
+          )}
+          {deletedInSource(skill) && (
+            <Badge tone="info" title={t.deletedTitle}>
+              {t.deleted}
+            </Badge>
+          )}
+        </button>
+      </div>
+      <span
+        className="min-w-0 truncate text-caption text-foreground-secondary @max-[600px]/list:col-start-2 @max-[600px]/list:row-start-1"
+        title={`${sourceKindLabel(skill.source.type)} · ${sourceLabel(s, skill.source)}`}
+      >
+        {sourceLabel(s, skill.source)}
+      </span>
+      <div className="flex min-w-0 @max-[600px]/list:col-start-2 @max-[600px]/list:row-start-2">
+        <Where skill={skill} />
+      </div>
     </article>
   );
 }

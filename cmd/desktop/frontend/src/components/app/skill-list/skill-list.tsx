@@ -36,7 +36,7 @@ import { centerClass } from "@/components/app/layout";
 import { PlaceAgentMark } from "@/components/app/parts";
 import { ProjectSummary, ScopeSummary } from "./heads";
 import { PickBar } from "./pick-bar";
-import { nameIndent, nameIndentVars, pickColumn, SkillRow, UnmanagedRow } from "./rows";
+import { nameIndent, nameIndentVars, pickColumn, SkillRow, UnmanagedRow, UpdateSkillRow } from "./rows";
 import { CollectionSection, GroupSection, PlainHead, Section, SkillRows } from "./sections";
 import { UpdatesHead } from "./updates-head";
 import { flash } from "./flash";
@@ -252,7 +252,7 @@ function Updates({ skills }: { skills: Extract<PageListing, { kind: "updates" }>
       {updatableCollections(s).length > 0 && <UpdatesHead />}
       <Section id="updates" className="mt-4" gutter={false} head={<PlainHead name={t.updatesSkills} count={skills.length} />}>
         {skills.map((skill) => (
-          <SkillRow key={skill.id} skill={skill} showSource />
+          <UpdateSkillRow key={skill.id} skill={skill} />
         ))}
         {skills.length === 0 && <EmptyRows aligned={false}>{t.noMatch}</EmptyRows>}
       </Section>

@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
 
-// Places 按地方列出勾选的技能装在哪里;同一处装了几个技能时各自一个勾选框，状态分开给。
+// Places 按地方列出勾选的技能装在哪里：每个地方一行，地方名下面是装在那里的技能，各自一个勾选框，状态分开给。
 export function Places({
   places,
   name,
@@ -39,11 +39,12 @@ export function Places({
   return (
     <ListBox>
       {[...rows.entries()].map(([key, list]) => (
-        <ListRow key={key} className="update-place items-start">
-          <span className="w-[190px] shrink-0 truncate pt-px">{scopeLabel(s, list[0].scope)}</span>
-          <div className="flex min-w-0 grow flex-col gap-0.5">
+        // 地方写在上面，要换的技能紧接着列在它下面、和地方名左对齐：读起来连在一起，不隔着一大片空白去对应。
+        <ListRow key={key} className="update-place flex-col items-stretch gap-0.5">
+          <span className="min-w-0 truncate font-medium">{scopeLabel(s, list[0].scope)}</span>
+          <div className="flex min-w-0 flex-col gap-0.5">
             {list.map((p) => (
-              <label key={placeKey(p)} className={cn("flex items-center gap-1.5", canInstall(p) && "cursor-pointer")}>
+              <label key={placeKey(p)} className={cn("flex flex-wrap items-center gap-x-1.5 gap-y-0.5", canInstall(p) && "cursor-pointer")}>
                 <input type="checkbox" className="shrink-0 accent-primary" checked={on(p)} disabled={!canInstall(p)} onChange={() => onToggle(p)} />
                 <span className="whitespace-nowrap">{name(p.skill_id)}</span>
                 {p.status === SkillScopeStatus.SkillScopeModified &&

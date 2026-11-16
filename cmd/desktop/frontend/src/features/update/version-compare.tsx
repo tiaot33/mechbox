@@ -50,7 +50,7 @@ export async function compareVersions({
 }): Promise<void> {
   const call = LibraryService.DiffVersions(from, to);
   signal?.addEventListener("abort", () => void call.cancel(), { once: true });
-  const diff = await ui.run(() => call, { reload: false });
+  const diff = await ui.run(() => call, { reload: false, busyMark: false });
   if (!diff || signal?.aborted) return;
   await openCompare({
     ...rest,

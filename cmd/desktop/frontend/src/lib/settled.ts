@@ -8,7 +8,7 @@ export interface Settled {
 }
 
 // SETTLED_HOLD 是结束后对勾或叉停留的毫秒数：外圈先合拢，再画出对勾或叉，停一下再收起。
-export const SETTLED_HOLD = 1300;
+export const SETTLED_HOLD = 1800;
 
 // settledFresh 是 now 时这次结果还该不该画：只在结束后的 SETTLED_HOLD 之内画。
 export function settledFresh(settled: Settled, now: number): boolean {

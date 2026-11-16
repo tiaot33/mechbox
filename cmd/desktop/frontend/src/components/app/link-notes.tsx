@@ -74,7 +74,7 @@ export async function confirmLinkWrites(
 // confirmLinkedRequests 是 confirmLinkWrites 的现查版：只知道要写哪几处时，先巡检一次再说明。
 export async function confirmLinkedRequests(requests: { skill_id: SkillID; scope: Scope }[], title: string, confirm: string) {
   const wanted = new Set(requests.map(placeKey));
-  const inspected = await ui.run(() => LibraryService.InspectSkillScopes({}), { reload: false });
+  const inspected = await ui.run(() => LibraryService.InspectSkillScopes({}), { reload: false, busyMark: false });
   if (inspected === undefined) return false;
   return confirmLinkWrites(inspected ?? [], (p) => wanted.has(placeKey(p)), title, confirm);
 }

@@ -45,6 +45,7 @@ export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; sco
     const call = LibraryService.PlanUpdateFromScope(skill.id, scope);
     void ui.run(() => call, {
       reload: false,
+      busyMark: false,
       onError: (err) => {
         if (!cancelled) setFailed(err);
         return true;

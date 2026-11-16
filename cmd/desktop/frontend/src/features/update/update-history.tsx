@@ -1,6 +1,8 @@
 // 历史：集合(或某个技能)的每次更新、跳过、回滚各一条，最新的在前。
-// 更新记录可以回滚、重试没换上的地方;跳过的记录可以找回来再更新(打开更新计划，默认勾上那几个)。
-import { useEffect, useRef } from "react";
+// 更新记录可以回滚(在这个弹窗里换到回滚的确认页，不另叠一层)、重试没换上的地方;跳过的、被回滚掉的改动都可以找回来再更新
+// (打开更新计划，默认勾上那几个):回滚掉的改动算作跳过，回滚记录和被回滚的那次更新上都有这个入口。
+// 底部的「关闭」是普通按钮，不比记录上的操作显眼。
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueries } from "@tanstack/react-query";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
@@ -8,6 +10,7 @@ import {
   UpdateRecordKind,
   type RecordedInstall,
   type RecordedSkill,
+  type SkillID,
   type SkillVersion,
   type UpdateHistoryFilter,
   type UpdateRecord,
@@ -20,7 +23,7 @@ import { queryClient, toLibraryError, useSnapshot, updateHistoryQuery, versionQu
 import { mergeProjectPlaces, scopeLabel, shortRevision } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import { openUpdate } from "./update";
-import { putBack, rollbackOutcome, rollbackUpdate } from "./rollback";
+import { putBack, RollbackDialog, rollbackOutcome } from "./rollback";
 import { compareVersions } from "./version-compare";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -48,18 +51,12 @@ export function UpdateHistory({ filter, title, onClose }: { filter: UpdateHistor
   const q = useQuery(updateHistoryQuery(filter));
   const failed = q.isError ? toLibraryError(q.error) : null;
   const records = q.data ?? null;
+  // 正在回滚的那次更新：弹窗换成回滚的确认页，取消或做完回到历史。
+  const [rolling, setRolling] = useState<UpdateRecord | null>(null);
+  if (rolling) return <RollbackDialog record={rolling} onBack={() => setRolling(null)} onDone={() => setRolling(null)} />;
 
   return (
-    <Modal
-      title={title}
-      wide
-      onClose={onClose}
-      footer={
-        <Button variant="primary" onClick={onClose}>
-          {t.close}
-        </Button>
-      }
-    >
+    <Modal title={title} wide onClose={onClose} footer={<Button onClick={onClose}>{t.close}</Button>}>
       {failed ? (
         <>
           <Notice alert className="whitespace-pre-line">
@@ -80,7 +77,17 @@ export function UpdateHistory({ filter, title, onClose }: { filter: UpdateHistor
       ) : (
         <ListBox>
           {records.map((r) => (
-            <Record key={r.id} record={r} all={records} />
+            <Record
+              key={r.id}
+              record={r}
+              all={records}
+              onRollback={() => setRolling(r)}
+              // 找回来再更新时关掉历史，更新计划不叠在历史上面。
+              onReview={(ids) => {
+                onClose();
+                openUpdate(r.collection_id, { select: ids });
+              }}
+            />
           ))}
         </ListBox>
       )}
@@ -88,7 +95,17 @@ export function UpdateHistory({ filter, title, onClose }: { filter: UpdateHistor
   );
 }
 
-function Record({ record, all }: { record: UpdateRecord; all: UpdateRecord[] }) {
+function Record({
+  record,
+  all,
+  onRollback,
+  onReview,
+}: {
+  record: UpdateRecord;
+  all: UpdateRecord[];
+  onRollback: () => void;
+  onReview: (skills: SkillID[]) => void;
+}) {
   const s = useSnapshot();
   const ui = useUI();
   const t = useT().history;
@@ -122,7 +139,7 @@ function Record({ record, all }: { record: UpdateRecord; all: UpdateRecord[] }) 
   const retry = async () => {
     const requests = failed.map((i) => ({ skill_id: i.skill_id, scope: i.scope, overwrite: false }));
     if (!(await confirmLinkedRequests(requests, t.retryTitle, t.retry))) return;
-    const results = await ui.run(() => LibraryService.RetryUpdateInstalls(record.id, requests));
+    const results = await ui.run(() => LibraryService.RetryUpdateInstalls(record.id, requests), { label: messages().update.retryLabel });
     if (!results) return;
     const left = results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed).length;
     ui.toast(left ? t.stillLeft(left) : t.allPlaced, left ? "error" : "ok");
@@ -165,21 +182,17 @@ function Record({ record, all }: { record: UpdateRecord; all: UpdateRecord[] }) 
             {t.retryFailed}
           </Button>
         )}
-        {update && !rolledBack && (
-          <Button
-            onClick={() => void rollbackUpdate(record.id, record.installs ?? [])}
-          >
-            {t.rollback}
-          </Button>
-        )}
-        {record.kind === UpdateRecordKind.UpdateRecordSkip && s.collections.some((c) => c.id === record.collection_id) && (
-          <Button
-            onClick={() => openUpdate(record.collection_id, { select: skills.map((x) => x.skill_id) })}
-            title={t.reviewTitle}
-          >
-            {t.review}
-          </Button>
-        )}
+        {update && !rolledBack && <Button onClick={onRollback}>{t.rollback}</Button>}
+        {/* 跳过的改动、回滚掉的改动(算作跳过)都能找回来：打开更新计划，默认勾上那几个技能。 */}
+        {(record.kind === UpdateRecordKind.UpdateRecordSkip || rollback || (update && rolledBack)) &&
+          s.collections.some((c) => c.id === record.collection_id) && (
+            <Button
+              onClick={() => onReview(skills.map((x) => x.skill_id))}
+              title={record.kind === UpdateRecordKind.UpdateRecordSkip ? t.reviewTitle : t.reviewRolledBackTitle}
+            >
+              {t.review}
+            </Button>
+          )}
       </div>
     </ListRow>
   );

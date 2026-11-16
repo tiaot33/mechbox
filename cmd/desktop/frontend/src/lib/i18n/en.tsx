@@ -35,6 +35,11 @@ const where = (w: InstalledWhere) =>
 export const en = {
   common: {
     working: "Working…",
+    doing: (labels: string[]) => `${labels.join(", ")}…`,
+    finished: (labels: string[]) => `${labels.join(", ")}: done`,
+    failedSome: (labels: string[]) => `${labels.join(", ")}: not all done`,
+    finishedAny: "The last operation is done",
+    failedAny: "The last operation didn't fully finish; see the message",
     sameContent: "File contents are identical",
     binary: "Binary file; content not shown.",
     cancel: "Cancel",
@@ -286,6 +291,7 @@ export const en = {
     removeFolders: (folders: number, edited: number) =>
       `Remove ${count(folders, "skill folder")}${edited ? `; ${edited} of them ${edited === 1 ? "was" : "were"} edited and the edits will be lost` : ""}`,
     removeSkillTitle: (name: string) => `Remove “${name}”`,
+    removeLabel: (name: string) => `Removing “${name}”`,
     removeSkillHint: "Deletes it and all its past Versions from the Library, and takes it out of every Group.",
     pickedAllThere: (where: string) => `The selected skills are all installed directly in ${where}`,
     pickedInstallTitle: (n: number, where: string) => `Install ${count(n, "skill")} in ${where}`,
@@ -491,7 +497,20 @@ export const en = {
     rollbackUnknown: "Not put back, needs a look",
     rollbackTitle: "Roll back this Update",
     rollbackHint:
-      "Skills in the Library go back to the Versions they had before this Update, and the places it changed get the old Versions back; places reinstalled since, edited by you, or not on this machine are left alone. The rolled-back changes are recorded as skipped and no longer count toward the badge; you can check them again in the Update plan whenever you want.",
+      "Places reinstalled since, edited by you, or not on this machine are left alone and listed afterwards. The rolled-back changes are recorded as skipped and no longer count toward the badge; if you change your mind, find them in the history and update again.",
+    rollbackLead: (date: string) => `Undo the Update from ${date}. This is what will change.`,
+    rollbackSkills: "Skills go back to the Versions before the Update",
+    rollbackNoSkills: "This Update didn't change any skill's Version.",
+    rollbackPlaces: "These places get the old Versions back",
+    rollbackNoPlaces: "This Update didn't change any installed places; only the Library goes back.",
+    rollbackChecking: "Checking the installed places…",
+    renameBack: (name: string, from: string) => `${name} → back to ${from}`,
+    versionBack: (now: string, back: string) => `${now || "current Version"} → ${back || "previous Version"}`,
+    rollbackLabel: (names: string[]) => (names.length ? `Rolling back the Update of ${names.join(", ")}` : "Rolling back an Update"),
+    updateLabel: (label: string) => `Updating ${label}`,
+    rereadLabel: (name: string) => `Re-reading “${name}”`,
+    retryLabel: "Retrying places not updated",
+    keepLabel: (name: string) => `Keeping “${name}”`,
     alreadyRolledBack: "This Update has already been rolled back",
     rolledBack: (names: string[], back: number) =>
       [names.length ? `Rolled back: ${and(names)} returned to the Versions before the Update` : "Rolled back: no skills to return", back ? `put back in ${count(back, "place")}` : ""]
@@ -733,6 +752,10 @@ export const en = {
     searchResults: (text: string, n: number) => `Search “${text}”: ${count(n, "result")}`,
     clearSearch: "Clear",
     updatesSkills: "Skills to handle",
+    whatTitle: "Open its Collection's Update plan with only this skill checked",
+    renamedToShort: (to: string) => `May be renamed to ${to}`,
+    updatesFrom: (n: number) => `${count(n, "Source")} with updates to handle`,
+    updateAllNone: "Nothing can be updated directly: renames, deletions and updates that would replace your edits need confirming in each Update plan",
     sectionMore: "More actions",
     expandSection: "Expand this section",
     collapseSection: "Collapse this section",
@@ -829,13 +852,19 @@ export const en = {
         {name} may have been renamed to {to} in the Source. Is it the same skill?
       </>
     ),
+    renameConfirmed: (name: ReactNode, to: ReactNode): ReactNode => (
+      <>
+        {name} was renamed to {to} in the Source
+      </>
+    ),
     renameYes: (to: string | undefined) =>
-      `Once confirmed, the skill takes the new name, and its Groups, install records and Version history move over; in Agents, invoke it as /${to}.`,
-    renameNo: (to: string | undefined) => `If it's the same skill, its invocation name in Agents changes to /${to}.`,
+      `After the Update the skill takes the new name, and its Groups, install records and Version history move over; in Agents, invoke it as /${to}.`,
+    renameNo: (to: string | undefined) =>
+      `If it's the same skill, invoke it as /${to} in Agents after the Update; if not, it's treated as one skill deleted and a new one added.`,
     renameEdited: " Its content also becomes the Source's—updating replaces your edits.",
-    sameOne: "Same skill",
+    sameOne: "Confirmed as the same skill",
     undo: "Undo",
-    yes: "Yes",
+    yes: "Same skill",
     no: "No",
     deletedHere: (source: string) => `Deleted from ${source}. Your copy is still here and you can keep using it.`,
     keptDeleted: "Kept",
@@ -850,6 +879,10 @@ export const en = {
     commits: (n: number) => `Commits · ${n}`,
     moreCommits: (n: number) => `${n} more`,
     changesOf: (name: string) => `Changes in ${name}`,
+    diffHere: "Click a skill's “Show diff” to see which files changed here.",
+    skipLabel: (names: string[]) => `Skipping this change to ${names.join(", ")}`,
+    skipRevisionLabel: (label: string) => `Skipping this Source revision of ${label}`,
+    rejectLabel: (name: string) => `Recording that “${name}” wasn't renamed`,
     enlarge: "Open larger",
     modifiedHere: "You edited it here; the new Version will overwrite your edits",
     alreadyLatest: "Already this version here (updated outside the app); nothing to replace",
@@ -955,6 +988,7 @@ export const en = {
     retryFailed: "Retry the rest",
     reviewTitle: "Open the Update plan with the skills skipped here checked; if the Source has changed since, the latest content is used",
     review: "Review Update plan",
+    reviewRolledBackTitle: "Open the Update plan with the rolled-back skills checked: rolled-back changes count as skipped, and this is where you get them back",
     placedOk: "Updated",
     placedCurrent: "Already this Version",
     placedFailed: "Not updated",
@@ -1461,6 +1495,7 @@ export const en = {
     added: "Added",
     changed: "Changed",
     deleted: "Deleted",
+    changedCount: (n: number) => `${count(n, "file")} changed`,
     toggleFiles: "Show/hide file list",
     expand: (n: number) => `Show ${count(n, "line")}`,
     split: "Side by side",
