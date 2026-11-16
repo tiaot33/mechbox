@@ -91,13 +91,13 @@ type SkillScopeInspection struct {
 func (l *Library) filteredSkillScopes(ctx context.Context, operation string, filter SkillScopeFilter) ([]SkillScope, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
-	var scope *scopeRow
+	var scope *store.Scope
 	if filter.Scope != nil {
 		target, err := l.resolveScope(ctx, operation, *filter.Scope)
 		if err != nil {
 			return nil, err
 		}
-		scope = &target.scopeRow
+		scope = &target.Scope
 	}
 	if filter.SkillID != 0 {
 		if _, err := l.GetSkill(ctx, filter.SkillID); err != nil {
@@ -223,7 +223,7 @@ func (l *Library) installedFolder(ctx context.Context, id SkillID, target resolv
 	if err != nil {
 		return "", 0, err
 	}
-	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.record())
+	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.Scope)
 	if err != nil {
 		return "", 0, err
 	}
@@ -418,7 +418,7 @@ func (l *Library) reinstallOne(ctx context.Context, operation string, request Re
 			if err != nil {
 				return err
 			}
-			return tx.RecordInstall(ctx, int64(update.record), store.RecordInstall{SkillID: int64(request.SkillID), Scope: row.record(), Outcome: string(outcome), Error: string(code)})
+			return tx.RecordInstall(ctx, int64(update.record), store.RecordInstall{SkillID: int64(request.SkillID), Scope: row, Outcome: string(outcome), Error: string(code)})
 		}
 	}
 	outcome, recorded, err := l.reinstallLocked(ctx, operation, request, update)
@@ -440,7 +440,7 @@ func (l *Library) reinstallLocked(ctx context.Context, operation string, request
 	if err != nil {
 		return "", false, err
 	}
-	place, err := l.store.PlaceSkillScopes(ctx, int64(request.SkillID), target.record())
+	place, err := l.store.PlaceSkillScopes(ctx, int64(request.SkillID), target.Scope)
 	if err != nil {
 		return "", false, err
 	}
@@ -498,7 +498,7 @@ func (l *Library) reinstallLocked(ctx context.Context, operation string, request
 		if update.record == 0 {
 			return nil
 		}
-		return tx.RecordInstall(ctx, int64(update.record), store.RecordInstall{SkillID: int64(request.SkillID), Scope: target.record(), Outcome: string(Reinstalled)})
+		return tx.RecordInstall(ctx, int64(update.record), store.RecordInstall{SkillID: int64(request.SkillID), Scope: target.Scope, Outcome: string(Reinstalled)})
 	}
 	if err := l.place(ctx, []*placement{{skill: skill, files: current.files, scope: target, replaces: folder}}, record); err != nil {
 		return "", false, err

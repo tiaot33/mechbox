@@ -184,7 +184,7 @@ func (l *Library) applyScopeUpdate(ctx context.Context, operation string, state 
 		if err != nil {
 			return err
 		}
-		from := edit.target.record()
+		from := edit.target.Scope
 		recordID, err := tx.AddRecord(ctx, store.Record{SourceID: state.sourceID, Kind: recordUpdate, FromScope: &from, At: now, Skills: []store.RecordSkill{{SkillID: int64(id), Name: edit.skill.Name, From: edit.current.versionID, To: versionID}}})
 		if err != nil {
 			return err
@@ -216,7 +216,7 @@ func (l *Library) sameFolder(ctx context.Context, operation string, id SkillID, 
 	if target.sharesFolderWith(edit.target) {
 		return true
 	}
-	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.record())
+	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.Scope)
 	if err != nil || len(place) == 0 {
 		return false
 	}

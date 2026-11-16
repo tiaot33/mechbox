@@ -188,7 +188,7 @@ func (l *Library) unmanagedFolder(ctx context.Context, operation string, req Fet
 	if !slices.ContainsFunc(folders, func(found agentdir.Folder) bool { return found.Name == req.Name }) {
 		return unmanagedFolder{}, &Error{Code: NotFound, Message: operation + ": no skill folder with this name in the scope", Details: ErrorDetails{Path: path}}
 	}
-	installed, err := l.listSkillScopes(ctx, 0, &target.scopeRow)
+	installed, err := l.listSkillScopes(ctx, 0, &target.Scope)
 	if err != nil {
 		return unmanagedFolder{}, err
 	}
@@ -495,7 +495,7 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 		disk, parsed, err := parseSkillFolder(operation, entries[i].Folder, entries[i].Name, state)
 		reads[i] = planned{disk: disk, parsed: parsed, modified: state.Modified, err: err}
 		if err == nil {
-			found, err := recognize(ctx, l.store, disk, []store.Scope{entries[i].found.target.record()}, latests)
+			found, err := recognize(ctx, l.store, disk, []store.Scope{entries[i].found.target.Scope}, latests)
 			if err != nil {
 				return err
 			}
@@ -736,7 +736,7 @@ type versionReader interface {
 
 func recordFetchedFolders(ctx context.Context, tx *store.Tx, id int64, folders []unmanagedFolder, now time.Time) error {
 	for _, folder := range folders {
-		if err := tx.RecordFetchedSkillScope(ctx, id, folder.target.record(), folder.name, now); err != nil {
+		if err := tx.RecordFetchedSkillScope(ctx, id, folder.target.Scope, folder.name, now); err != nil {
 			return err
 		}
 	}
@@ -746,7 +746,7 @@ func recordFetchedFolders(ctx context.Context, tx *store.Tx, id int64, folders [
 func folderScopes(folders []unmanagedFolder) []store.Scope {
 	scopes := make([]store.Scope, len(folders))
 	for i, folder := range folders {
-		scopes[i] = folder.target.record()
+		scopes[i] = folder.target.Scope
 	}
 	return scopes
 }
@@ -822,7 +822,7 @@ func (l *Library) sourceRecords() *sourceRecords {
 
 func (f *sourceRecords) find(target resolvedScope, names ...string) (sourceRecord, bool) {
 	root := ""
-	if target.projectID != nil {
+	if target.ProjectID != nil {
 		root = target.root
 	}
 	records, ok := f.read[root]

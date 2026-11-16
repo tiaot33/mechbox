@@ -62,47 +62,46 @@ type UnregisterProjectOptions struct {
 	Folders FolderPolicy `json:"folders"` // 默认删除技能文件夹,只有显式 Keep 保留
 }
 
-type scopeRow struct {
-	agent     AgentCode
-	projectID *ProjectID
-}
-
-func scopeOf(operation string, scope Scope) (scopeRow, error) {
+func scopeOf(operation string, scope Scope) (store.Scope, error) {
 	switch scope.Kind {
 	case ScopeGlobal:
 		if scope.ProjectID != 0 {
-			return scopeRow{}, argumentError(operation, "project_id", "global scope must not have a project")
+			return store.Scope{}, argumentError(operation, "project_id", "global scope must not have a project")
 		}
-		return scopeRow{agent: scope.Agent}, nil
+		return store.Scope{Agent: string(scope.Agent)}, nil
 	case ScopeProject:
 		if scope.ProjectID <= 0 {
-			return scopeRow{}, argumentError(operation, "project_id", "project scope requires a project")
+			return store.Scope{}, argumentError(operation, "project_id", "project scope requires a project")
 		}
-		return scopeRow{agent: scope.Agent, projectID: new(scope.ProjectID)}, nil
+		return store.Scope{Agent: string(scope.Agent), ProjectID: new(int64(scope.ProjectID))}, nil
 	default:
-		return scopeRow{}, argumentError(operation, "kind", "unknown scope kind")
+		return store.Scope{}, argumentError(operation, "kind", "unknown scope kind")
 	}
 }
 
-func (r scopeRow) scope() Scope {
-	if r.projectID == nil {
-		return GlobalScope(r.agent)
+func scopeFrom(row store.Scope) Scope {
+	if row.ProjectID == nil {
+		return GlobalScope(AgentCode(row.Agent))
 	}
-	return ProjectScope(r.agent, *r.projectID)
+	return ProjectScope(AgentCode(row.Agent), ProjectID(*row.ProjectID))
 }
 
 type resolvedScope struct {
-	scopeRow
+	store.Scope
 	root      string
 	relative  string
 	directory string
 }
 
+func (s resolvedScope) scope() Scope {
+	return scopeFrom(s.Scope)
+}
+
 func (s resolvedScope) sharesFolderWith(other resolvedScope) bool {
-	if (s.projectID == nil) != (other.projectID == nil) || s.relative != other.relative {
+	if (s.ProjectID == nil) != (other.ProjectID == nil) || s.relative != other.relative {
 		return false
 	}
-	return s.projectID == nil || *s.projectID == *other.projectID
+	return s.ProjectID == nil || *s.ProjectID == *other.ProjectID
 }
 
 func (s resolvedScope) rootMissing(operation string) (*Error, error) {
@@ -114,8 +113,8 @@ func (s resolvedScope) rootMissing(operation string) (*Error, error) {
 		return nil, nil
 	}
 	details := ErrorDetails{Path: s.root}
-	if s.projectID != nil {
-		details.ProjectID = *s.projectID
+	if s.ProjectID != nil {
+		details.ProjectID = ProjectID(*s.ProjectID)
 	}
 	return preconditionError(operation, "scope root does not exist", details), nil
 }
@@ -137,22 +136,6 @@ func (l *Library) resolveScope(ctx context.Context, operation string, scope Scop
 		return resolvedScope{}, err
 	}
 	return l.resolveRow(ctx, row)
-}
-
-func (r scopeRow) record() store.Scope {
-	scope := store.Scope{Agent: string(r.agent)}
-	if r.projectID != nil {
-		scope.ProjectID = new(int64(*r.projectID))
-	}
-	return scope
-}
-
-func scopeRowOf(scope store.Scope) scopeRow {
-	row := scopeRow{agent: AgentCode(scope.Agent)}
-	if scope.ProjectID != nil {
-		row.projectID = new(ProjectID(*scope.ProjectID))
-	}
-	return row
 }
 
 // RegisterProject 登记一个项目目录,使它与每个 Agent 组成可安装的项目作用域。path 必须是本机上存在的目录,
@@ -270,14 +253,14 @@ func (l *Library) ScopeDirectory(ctx context.Context, scope Scope) (directory st
 	return target.directory, err
 }
 
-func (l *Library) resolveRow(ctx context.Context, row scopeRow) (resolvedScope, error) {
-	agent, err := l.store.GetAgent(ctx, string(row.agent))
+func (l *Library) resolveRow(ctx context.Context, row store.Scope) (resolvedScope, error) {
+	agent, err := l.store.GetAgent(ctx, row.Agent)
 	if err != nil {
 		return resolvedScope{}, err
 	}
-	target := resolvedScope{scopeRow: row, root: l.home.Root(), relative: agent.GlobalPath}
-	if row.projectID != nil {
-		project, err := l.store.GetProject(ctx, int64(*row.projectID))
+	target := resolvedScope{Scope: row, root: l.home.Root(), relative: agent.GlobalPath}
+	if row.ProjectID != nil {
+		project, err := l.store.GetProject(ctx, *row.ProjectID)
 		if err != nil {
 			return resolvedScope{}, err
 		}

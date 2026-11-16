@@ -223,7 +223,7 @@ func (l *Library) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID 
 	}
 	plan := newMemberPlan("add skill to group", InstallOptions{})
 	for _, install := range installs {
-		target, err := l.resolveScope(ctx, "add skill to group", scopeRowOf(install.Scope).scope())
+		target, err := l.resolveScope(ctx, "add skill to group", scopeFrom(install.Scope))
 		if err != nil {
 			return nil, err
 		}
@@ -279,7 +279,7 @@ func (l *Library) releasedMemberScopes(ctx context.Context, groupID, skillID int
 	}
 	released := make([]releasedMemberScope, len(skillScopes))
 	for i, skillScope := range skillScopes {
-		target, err := l.resolveRow(ctx, scopeRowOf(skillScope.Scope))
+		target, err := l.resolveRow(ctx, skillScope.Scope)
 		if err != nil {
 			return nil, err
 		}

@@ -123,7 +123,7 @@ func recordOf(row store.Record) (UpdateRecord, error) {
 		RollsBack:     UpdateRecordID(row.RollsBack),
 	}
 	if row.FromScope != nil {
-		record.FromScope = new(scopeRowOf(*row.FromScope).scope())
+		record.FromScope = new(scopeFrom(*row.FromScope))
 	}
 	if row.Commits != "" {
 		if err := json.Unmarshal([]byte(row.Commits), &record.Commits); err != nil {
@@ -134,7 +134,7 @@ func recordOf(row store.Record) (UpdateRecord, error) {
 		record.Skills = append(record.Skills, RecordedSkill{SkillID: SkillID(skill.SkillID), Name: skill.Name, FromName: skill.FromName, FromVersionID: VersionID(skill.From), ToVersionID: VersionID(skill.To)})
 	}
 	for _, install := range row.Installs {
-		record.Installs = append(record.Installs, RecordedInstall{SkillID: SkillID(install.SkillID), Scope: scopeRowOf(install.Scope).scope(), Outcome: install.Outcome, Error: ErrorCode(install.Error)})
+		record.Installs = append(record.Installs, RecordedInstall{SkillID: SkillID(install.SkillID), Scope: scopeFrom(install.Scope), Outcome: install.Outcome, Error: ErrorCode(install.Error)})
 	}
 	return record, nil
 }
@@ -239,7 +239,7 @@ func (l *Library) Rollback(ctx context.Context, id UpdateRecordID) (result Rollb
 		}
 		for _, install := range previous.Installs {
 			done[placeOf(install)] = true
-			item := RollbackInstall{SkillID: SkillID(install.SkillID), Scope: scopeRowOf(install.Scope).scope(), Outcome: RollbackOutcome(install.Outcome)}
+			item := RollbackInstall{SkillID: SkillID(install.SkillID), Scope: scopeFrom(install.Scope), Outcome: RollbackOutcome(install.Outcome)}
 			if install.Error != "" {
 				item.Error = &Error{Code: ErrorCode(install.Error), Message: operation + ": " + install.Error}
 			}
@@ -381,7 +381,7 @@ func (l *Library) rollbackPlaces(ctx context.Context, operation string, record s
 			return result, err
 		}
 		skillID := SkillID(install.SkillID)
-		item := RollbackInstall{SkillID: skillID, Scope: scopeRowOf(install.Scope).scope()}
+		item := RollbackInstall{SkillID: skillID, Scope: scopeFrom(install.Scope)}
 		if removed[skillID] {
 			item.Outcome = RollbackRemoved
 		} else {
@@ -414,7 +414,7 @@ func (l *Library) rollbackInstall(ctx context.Context, operation string, id Skil
 	if err != nil {
 		return "", err
 	}
-	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.record())
+	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.Scope)
 	if err != nil {
 		return "", err
 	}
