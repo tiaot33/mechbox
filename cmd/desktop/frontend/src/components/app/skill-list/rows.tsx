@@ -32,6 +32,7 @@ import {
   sameNameInLibrary,
   sameNameNote,
   scopeKey,
+  scopeReaders,
   skillSameNameNote,
   shortPath,
   skillScopeIn,
@@ -49,6 +50,7 @@ import { doneFlash, doneFresh, toggleDrawer, useView } from "@/lib/view";
 import { fetchUnmanaged } from "@/features/fetch/fetch-unmanaged";
 import { installSkill, uninstallSkill } from "@/features/install/install";
 import { missingAt, missingNames } from "@/lib/mentions";
+import { invocationNote, type Note } from "@/lib/agent-settings";
 import { openUpdate } from "@/features/update/update";
 import { AlertIcon, Badge, MarkIcon, type Alert } from "@/components/ui/badge";
 import type { Mark } from "@/lib/level";
@@ -130,6 +132,8 @@ export function SkillRow(props: {
   const groups = foreign ? [] : s.groups.filter((g) => g.members?.includes(skill.id) && g.id !== props.hideGroup);
   const twins = sameNameInLibrary(s, skill);
   const translated = translatedDescription(skill);
+  // 作用域页、项目页上：这个技能对读这里的 Agent 声明的调用方式(只能手动调用等)，和默认一样时不写。
+  const invocation = scope ? invocationNote(skill.agent_settings, scopeReaders(s, parseScope(scope)), skill.name) : undefined;
   const ref = useFlash(skill.id, scope);
   const plan = () => void openUpdate(skill.collection_id, { focus: skill.id });
   // 这一行的状态：技能本身的、它装出去的几处(技能库页)或这一处(作用域页)的提醒与更新，在最后一列只写最要紧的一条，
@@ -215,6 +219,7 @@ export function SkillRow(props: {
         >
           {skill.name}
         </span>
+        <InvocationNote note={invocation} />
         {groups.length > 0 && (
           // 组名不是状态，不套标签的框：只是标注档的灰字，和前面「要处理」的标签分得开。
           <span className="skill-groups max-w-24 min-w-0 shrink-[100] truncate text-caption text-muted-foreground" title={t.list.groupsTitle(groups.map((g) => g.name))}>
@@ -267,6 +272,16 @@ export function SkillRow(props: {
         </>
       )}
     </article>
+  );
+}
+
+// InvocationNote 是技能名后面的调用方式(只能手动调用等):不是要处理的事，和组名一样只是标注档的灰字，悬停写出是哪个字段、怎样调用。
+function InvocationNote({ note }: { note?: Note }) {
+  if (!note) return null;
+  return (
+    <span className="skill-invocation max-w-28 min-w-0 shrink-[50] truncate text-caption text-muted-foreground" title={note.title}>
+      {note.text}
+    </span>
   );
 }
 
@@ -548,6 +563,7 @@ export function UnmanagedRow({
       </span>
       <div className="flex min-w-0 items-center gap-1.5">
         <span className="unmanaged-name min-w-0 truncate text-body font-semibold">{skill.name}</span>
+        <InvocationNote note={invocationNote(skill.agent_settings, scopeReaders(s, skill.scope), skill.name)} />
       </div>
       <div className={cn("min-w-0", layouts.scope.desc)}>
         <Truncated always={notes.length > 0} tip={[skill.description, ...notes.map((x) => x.text)].filter(Boolean).join("\n")}>

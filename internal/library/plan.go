@@ -77,7 +77,9 @@ type PlannedSkill struct {
 	// 来源里的和它不一样就是有变化,同样默认不勾。
 	// 用目录里的修改更新的计划(PlanUpdateFromScope)里为 false。
 	Edited bool `json:"edited,omitzero"`
-	// Risks 是有变化的技能里需要先看一眼的文件:新增或改动的脚本、新增的可执行文件,按路径排序。没有时为空。
+	// Risks 是有变化的技能里需要先看一眼的地方:新增或改动的脚本、新增的可执行文件,以及技能对 Agent 声明的设置里
+	// 新增的不用确认就能用的工具、新增或改动的 hooks、新增的要接入的工具;另有一条提示级的:从只能手动调用变成会自动调用。
+	// 按路径排序,同一个文件里脚本与可执行文件在前。没有时为空。
 	Risks []UpdateRisk `json:"risks,omitempty"`
 	// Diff 是有变化时从库里的当前版本到来源里的内容改了哪些文件;其他情况为 nil。库里一侧用 GetVersionFile(Skill.VersionID, path) 读,
 	// 来源一侧用 GetUpdatePlanFile 读。
@@ -85,19 +87,32 @@ type PlannedSkill struct {
 }
 
 // UpdateRiskKind 是更新计划标出的风险种类。脚本指可执行文件、带 #! 开头的文件,以及常见脚本扩展名
-// (.sh、.py、.js、.ts、.rb、.pl、.ps1 等)的文件。种类以后可能增加,调用方遇到不认识的值按「需要用户查看」处理。
+// (.sh、.py、.js、.ts、.rb、.pl、.ps1 等)的文件。技能对 Agent 声明的设置见 [AgentSettings]。
+// 种类以后可能增加,调用方遇到不认识的值按「需要用户查看」处理。
 type UpdateRiskKind string
 
 const (
 	RiskExecutableAdded UpdateRiskKind = "executable_added" // 新增的可执行文件,包括原来不可执行、这次变成可执行的文件
 	RiskScriptAdded     UpdateRiskKind = "script_added"     // 新增的脚本(不可执行)
 	RiskScriptChanged   UpdateRiskKind = "script_changed"   // 改动的脚本
+	// RiskAllowedToolsAdded 是 Claude Code 不用确认就能用的工具(allowed-tools)多了,Items 是新增的几项。
+	RiskAllowedToolsAdded UpdateRiskKind = "allowed_tools_added"
+	// RiskHooksChanged 是 Claude Code 的 hooks 新增或改动了,Items 是新的或改过的几个,写成「事件 (匹配): 做什么」。只删掉 hook 不算。
+	RiskHooksChanged UpdateRiskKind = "hooks_changed"
+	// RiskToolsAdded 是 Codex 要接入的工具(dependencies.tools)多了或改了启动命令、地址,Items 是这几个,写成「名字: 命令或地址」。
+	RiskToolsAdded UpdateRiskKind = "tools_added"
+	// RiskAutoInvocationEnabled 是提示级的:原来只能手动调用,这次 Agent 会自动调用它了。Items 为空。
+	RiskAutoInvocationEnabled UpdateRiskKind = "auto_invocation_enabled"
 )
 
-// UpdateRisk 是一个有变化的技能里的一个风险文件。
+// UpdateRisk 是一个有变化的技能里需要先看一眼的一处。
 type UpdateRisk struct {
 	Kind UpdateRiskKind `json:"kind"`
-	Path string         `json:"path"` // 技能内斜杠分隔的相对路径
+	Path string         `json:"path"` // 技能内斜杠分隔的相对路径;技能对 Agent 声明的设置是写着它的文件(SKILL.md 或 agents/openai.yaml)
+	// Agent 是技能对 Agent 声明的设置那几种风险说的是哪个 Agent;脚本与可执行文件为空。
+	Agent AgentCode `json:"agent,omitempty"`
+	// Items 是这几种设置里新增或改动的那几项,原样写出;脚本与可执行文件、RiskAutoInvocationEnabled 为空。
+	Items []string `json:"items,omitempty"`
 }
 
 const planTTL = 30 * time.Minute
@@ -553,7 +568,8 @@ func updateRisks(from, to []skillfile.File) []UpdateRisk {
 			risks = append(risks, UpdateRisk{Kind: RiskScriptChanged, Path: file.Path})
 		}
 	}
-	slices.SortFunc(risks, func(a, b UpdateRisk) int { return cmp.Compare(a.Path, b.Path) })
+	risks = append(risks, settingsRisks(from, to)...)
+	slices.SortStableFunc(risks, func(a, b UpdateRisk) int { return cmp.Compare(a.Path, b.Path) })
 	return risks
 }
 

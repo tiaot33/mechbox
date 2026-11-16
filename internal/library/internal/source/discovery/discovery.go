@@ -27,11 +27,12 @@ type View interface {
 }
 
 type Candidate struct {
-	Name        string
-	Description string
-	Path        string
-	PluginName  string
-	SkillMD     []byte
+	Name          string
+	Description   string
+	Path          string
+	PluginName    string
+	SkillMD       []byte
+	CodexMetadata []byte
 }
 
 type Diagnostic struct {
@@ -91,7 +92,19 @@ func Excluded(name string) bool {
 type step struct {
 	dir    string
 	file   string
+	codex  bool
 	reason error
+}
+
+const codexMetadataFile = "agents/openai.yaml"
+
+func hasCodexMetadata(view View, root, dir string, entries []Entry) bool {
+	index := slices.IndexFunc(entries, func(e Entry) bool { return e.Name == "agents" && e.Mode.IsDir() })
+	if index < 0 {
+		return false
+	}
+	agents, err := readLinkedDir(view, root, path.Join(dir, "agents"))
+	return err == nil && slices.ContainsFunc(agents, func(e Entry) bool { return e.Name == "openai.yaml" && e.Mode.IsRegular() })
 }
 
 func Scan(ctx context.Context, view View, root string, load func(candidate Candidate, file string, content []byte) error) ([]Candidate, []Diagnostic, error) {
@@ -132,15 +145,22 @@ func Scan(ctx context.Context, view View, root string, load func(candidate Candi
 			steps = append(steps, step{dir: dir, reason: errors.New("SKILL.md must be a regular file")})
 			return true
 		}
-		steps = append(steps, step{dir: dir, file: entry.Name})
+		steps = append(steps, step{dir: dir, file: entry.Name, codex: hasCodexMetadata(view, root, dir, entries)})
 		return true
 	}
 	flush := func() error {
 		defer func() { steps = steps[:0] }()
 		var paths []string
+		codexAt := map[int]int{}
 		for _, s := range steps {
 			if s.file != "" {
 				paths = append(paths, path.Join(s.dir, s.file))
+			}
+		}
+		for i, s := range steps {
+			if s.file != "" && s.codex {
+				codexAt[i] = len(paths)
+				paths = append(paths, path.Join(s.dir, codexMetadataFile))
 			}
 		}
 		contents, readErrs := view.ReadFiles(ctx, paths)
@@ -153,7 +173,7 @@ func Scan(ctx context.Context, view View, root string, load func(candidate Candi
 			}
 		}
 		index := 0
-		for _, s := range steps {
+		for n, s := range steps {
 			if s.file == "" {
 				diagnose(s.dir, s.reason)
 				continue
@@ -175,6 +195,9 @@ func Scan(ctx context.Context, view View, root string, load func(candidate Candi
 			}
 			candidate.PluginName = groups[s.dir]
 			candidate.SkillMD = contents[i]
+			if at, ok := codexAt[n]; ok && readErrs[at] == nil {
+				candidate.CodexMetadata = contents[at]
+			}
 			if err := load(candidate, s.file, contents[i]); err != nil {
 				if aborts(ctx, err) {
 					return err

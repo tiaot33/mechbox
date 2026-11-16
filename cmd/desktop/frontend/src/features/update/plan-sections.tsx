@@ -9,34 +9,52 @@ import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
-import { riskLabel } from "./risks";
+import { isRiskNotice, riskLabel } from "./risks";
 import { Summary } from "@/components/app/parts";
 
-// Risks 是更新计划最先给的：新增或改动的脚本、新增的可执行文件，点一条看那个文件的差异。
+// Risks 是更新计划最先给的：新增或改动的脚本、新增的可执行文件、技能放宽了对 Agent 声明的权限，点一条看那个文件的差异。
+// 「会自动调用它了」只是提示：写在风险下面，不带「注意」的图标;只有它时也照样说没有风险。
 export function Risks({ risks, onView }: { risks: { p: PlannedSkill; r: UpdateRisk }[]; onView: (p: PlannedSkill, path: string) => void }) {
   const t = useT().plan;
+  const alerts = risks.filter(({ r }) => !isRiskNotice(r));
+  const notices = risks.filter(({ r }) => isRiskNotice(r));
   return (
     <>
       <div className={sectionClass}>{t.firstLook}</div>
-      {risks.length ? (
+      {alerts.length ? (
         <Notice alert className="flex flex-col gap-0.5">
-          {risks.map(({ p, r }) => (
-            <button
-              key={`${p.skill.id}|${r.path}`}
-              type="button"
-              className="update-risk flex items-center gap-2 text-left hover:underline"
-              onClick={() => onView(p, r.path)}
-            >
-              <b className="font-semibold">{p.renamed_to ?? p.skill.name}</b>
-              <span>{riskLabel(r)}</span>
-              <span className="min-w-0 truncate font-mono text-caption">{r.path}</span>
-            </button>
+          {alerts.map(({ p, r }) => (
+            <RiskLine key={`${p.skill.id}|${r.kind}|${r.path}`} name={p.renamed_to ?? p.skill.name} risk={r} onClick={() => onView(p, r.path)} />
           ))}
         </Notice>
       ) : (
         <Hint>{t.noRisks}</Hint>
       )}
+      {notices.length > 0 && (
+        <Notice className="flex flex-col gap-0.5">
+          {notices.map(({ p, r }) => (
+            <RiskLine key={`${p.skill.id}|${r.kind}|${r.path}`} name={p.renamed_to ?? p.skill.name} risk={r} onClick={() => onView(p, r.path)} />
+          ))}
+        </Notice>
+      )}
     </>
+  );
+}
+
+// RiskLine 是一条风险：技能名(更新单个技能时不写)、是什么风险，后面是文件路径;技能对 Agent 声明的设置写新增或改动的那几项，悬停看全。
+export function RiskLine({ name, risk, onClick }: { name?: string; risk: UpdateRisk; onClick: () => void }) {
+  const detail = risk.items?.length ? risk.items.join(", ") : risk.path;
+  return (
+    <button
+      type="button"
+      className="update-risk flex min-w-0 items-center gap-2 text-left hover:underline"
+      title={risk.items?.length ? `${risk.path}\n${risk.items.join("\n")}` : undefined}
+      onClick={onClick}
+    >
+      {name && <b className="shrink-0 font-semibold">{name}</b>}
+      <span className="shrink-0">{riskLabel(risk)}</span>
+      <span className="min-w-0 truncate font-mono text-caption">{detail}</span>
+    </button>
   );
 }
 

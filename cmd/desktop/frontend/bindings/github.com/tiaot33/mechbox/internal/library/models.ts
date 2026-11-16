@@ -135,6 +135,25 @@ export interface AgentMigration {
 }
 
 /**
+ * AgentSettings 是技能对内置 Agent 声明的设置:只有那个 Agent 才读的字段,决定它怎样用这个技能。
+ * Claude Code 的取自 SKILL.md 开头的 frontmatter,Codex 的取自技能文件夹里的 agents/openai.yaml。
+ * 只给出和默认不同的;写错了、解析不出来的按 Agent 自己的做法当作没写,不报错。
+ * 库只读出来给界面看,不据此改变安装、同名判断或其他任何行为;Agent 实际怎样做还取决于它自己的设置和版本。
+ * 自定义 Agent 读哪些字段不知道,这里不给。
+ */
+export interface AgentSettings {
+    /**
+     * Claude Code 的;全是默认值时为 nil
+     */
+    "claude_code"?: ClaudeCodeSettings | null;
+
+    /**
+     * Codex 的;全是默认值时为 nil
+     */
+    "codex"?: CodexSettings | null;
+}
+
+/**
  * AuditAvailability 说明一个候选在 skills.sh 上的审计查询结果处于哪种状态。
  */
 export enum AuditAvailability {
@@ -251,6 +270,13 @@ export interface Candidate {
      * 公共段落按整份入库预览算,单个词的名字不交给 AI、不算提到(候选还没有版本,存不了结论)。界面用它在勾选时提示一起勾上。
      */
     "mentions"?: string[] | null;
+
+    /**
+     * AgentSettings 是它对 Claude Code、Codex 声明的设置(见 [AgentSettings]),入库前给用户看它要求哪些不用确认就能用的工具、
+     * 注册哪些 hooks、要接入哪些工具;都是默认时为 nil。和 Mentions 一样只读 SKILL.md 与 agents/openai.yaml,
+     * well-known 索引的候选没读过,总为 nil。
+     */
+    "agent_settings"?: AgentSettings | null;
 }
 
 /**
@@ -278,6 +304,148 @@ export enum CannotPullReason {
      */
     CannotPullOlderApp = "older_app",
 };
+
+/**
+ * ClaudeCodeHook 是技能注册的一个 hook。
+ */
+export interface ClaudeCodeHook {
+    /**
+     * 触发的事件,如 PreToolUse
+     */
+    "event": string;
+
+    /**
+     * 只在匹配的工具等上触发,如 Bash;空表示都触发
+     */
+    "matcher"?: string;
+
+    /**
+     * command、http、mcp_tool、prompt、agent
+     */
+    "type": string;
+
+    /**
+     * Detail 是它做什么:command 是要执行的命令(连同参数),http 是请求的地址,mcp_tool 是「服务/工具」,prompt 与 agent 是提示词。
+     */
+    "detail"?: string;
+}
+
+/**
+ * ClaudeCodeSettings 是 SKILL.md frontmatter 里 Claude Code 才读的字段,零值就是默认。
+ */
+export interface ClaudeCodeSettings {
+    /**
+     * ModelInvocationDisabled 对应 disable-model-invocation: true:Claude 不会自动调用它,只能用 /名称 手动调用。
+     */
+    "model_invocation_disabled"?: boolean;
+
+    /**
+     * UserInvocationDisabled 对应 user-invocable: false:不在 / 菜单里,用 /名称 也调不出来,只留给 Claude 自动调用。
+     */
+    "user_invocation_disabled"?: boolean;
+
+    /**
+     * AllowedTools 是 allowed-tools:调用这个技能的那一轮里,这些工具不用用户确认就能用,如 Bash(git add *)。
+     */
+    "allowed_tools"?: string[] | null;
+
+    /**
+     * DisallowedTools 是 disallowed-tools:这个技能在用时,这些工具从 Claude 能用的工具里拿掉。
+     */
+    "disallowed_tools"?: string[] | null;
+
+    /**
+     * Hooks 是 hooks:调用这个技能时注册、之后整个会话都会触发的 hooks,按事件名排。
+     */
+    "hooks"?: ClaudeCodeHook[] | null;
+
+    /**
+     * Paths 是 paths:只在处理匹配这些 glob 的文件时才自动调用。
+     */
+    "paths"?: string[] | null;
+
+    /**
+     * WhenToUse 是 when_to_use:接在描述后面、帮 Claude 判断什么时候调用的说明。
+     */
+    "when_to_use"?: string;
+
+    /**
+     * ArgumentHint 是 argument-hint:手动调用时补全里提示要带的参数。
+     */
+    "argument_hint"?: string;
+
+    /**
+     * Model 是 model:调用时这一轮换用的模型;inherit(沿用当前模型)当作没写。
+     */
+    "model"?: string;
+
+    /**
+     * Effort 是 effort:调用时这一轮的思考深度,如 high。
+     */
+    "effort"?: string;
+
+    /**
+     * Fork 对应 context: fork:在单独的 subagent 里运行;Agent 是那个 subagent 的类型(agent),没写时是 general-purpose,这里为空。
+     */
+    "fork"?: boolean;
+    "agent"?: string;
+
+    /**
+     * Shell 是 shell:技能里内联命令用的 shell;bash(默认)当作没写,如 powershell。
+     */
+    "shell"?: string;
+}
+
+/**
+ * CodexSettings 是 agents/openai.yaml 里 Codex 读的设置,零值就是默认。只管 ChatGPT 界面显示的 interface 不给。
+ */
+export interface CodexSettings {
+    /**
+     * ImplicitInvocationDisabled 对应 policy.allow_implicit_invocation: false:Codex 不会自动调用它,只能用 $名称 手动调用。
+     */
+    "implicit_invocation_disabled"?: boolean;
+
+    /**
+     * Products 是 policy.products:只在这几个产品里用(chatgpt、codex、atlas,统一成小写);空表示不限。
+     */
+    "products"?: string[] | null;
+
+    /**
+     * Tools 是 dependencies.tools:技能要接入的工具,如 MCP 服务。按 Codex 的规则只留下 type 和 value 都有的。
+     */
+    "tools"?: CodexTool[] | null;
+}
+
+/**
+ * CodexTool 是技能要接入的一个工具。
+ */
+export interface CodexTool {
+    /**
+     * 种类,如 mcp
+     */
+    "type": string;
+
+    /**
+     * 名字,如 MCP 服务名
+     */
+    "value": string;
+    "description"?: string;
+
+    /**
+     * 连接方式,如 streamable_http
+     */
+    "transport"?: string;
+
+    /**
+     * 启动它要执行的命令
+     */
+    "command"?: string;
+
+    /**
+     * 连接的地址
+     */
+    "url"?: string;
+}
 
 /**
  * Collection 是从同一个来源入库的技能,按来源自动形成(见 ADR 0004);与手动创建的 Group 相对。
@@ -1159,7 +1327,9 @@ export interface PlannedSkill {
     "edited"?: boolean;
 
     /**
-     * Risks 是有变化的技能里需要先看一眼的文件:新增或改动的脚本、新增的可执行文件,按路径排序。没有时为空。
+     * Risks 是有变化的技能里需要先看一眼的地方:新增或改动的脚本、新增的可执行文件,以及技能对 Agent 声明的设置里
+     * 新增的不用确认就能用的工具、新增或改动的 hooks、新增的要接入的工具;另有一条提示级的:从只能手动调用变成会自动调用。
+     * 按路径排序,同一个文件里脚本与可执行文件在前。没有时为空。
      */
     "risks"?: UpdateRisk[] | null;
 
@@ -1709,6 +1879,12 @@ export interface Skill {
      * 只含翻译时的原文和当前描述相同的,技能更新后描述变了,旧译文就不在这里。没有译文为 nil。
      */
     "description_translations"?: { [_ in string]?: string } | null;
+
+    /**
+     * AgentSettings 是当前版本对 Claude Code、Codex 声明的设置(见 [AgentSettings]);都是默认时为 nil。
+     * 按库里的当前版本,装出去的文件夹被用户改过时不另读那一处。
+     */
+    "agent_settings"?: AgentSettings | null;
 }
 
 /**
@@ -2414,6 +2590,11 @@ export interface UnmanagedSkill {
      * (FetchUnmanaged 返回 SourceInvalid,整批入库的计划里这一条带 Error),界面在作用域里就据此说明,不给入库的按钮。
      */
     "invalid"?: SkillFileProblem | null;
+
+    /**
+     * AgentSettings 是文件夹里的技能对 Claude Code、Codex 声明的设置(见 [AgentSettings]);都是默认时为 nil。
+     */
+    "agent_settings"?: AgentSettings | null;
 }
 
 /**
@@ -2693,20 +2874,31 @@ export interface UpdateResult {
 }
 
 /**
- * UpdateRisk 是一个有变化的技能里的一个风险文件。
+ * UpdateRisk 是一个有变化的技能里需要先看一眼的一处。
  */
 export interface UpdateRisk {
     "kind": UpdateRiskKind;
 
     /**
-     * 技能内斜杠分隔的相对路径
+     * 技能内斜杠分隔的相对路径;技能对 Agent 声明的设置是写着它的文件(SKILL.md 或 agents/openai.yaml)
      */
     "path": string;
+
+    /**
+     * Agent 是技能对 Agent 声明的设置那几种风险说的是哪个 Agent;脚本与可执行文件为空。
+     */
+    "agent"?: AgentCode;
+
+    /**
+     * Items 是这几种设置里新增或改动的那几项,原样写出;脚本与可执行文件、RiskAutoInvocationEnabled 为空。
+     */
+    "items"?: string[] | null;
 }
 
 /**
  * UpdateRiskKind 是更新计划标出的风险种类。脚本指可执行文件、带 #! 开头的文件,以及常见脚本扩展名
- * (.sh、.py、.js、.ts、.rb、.pl、.ps1 等)的文件。种类以后可能增加,调用方遇到不认识的值按「需要用户查看」处理。
+ * (.sh、.py、.js、.ts、.rb、.pl、.ps1 等)的文件。技能对 Agent 声明的设置见 [AgentSettings]。
+ * 种类以后可能增加,调用方遇到不认识的值按「需要用户查看」处理。
  */
 export enum UpdateRiskKind {
     /**
@@ -2728,6 +2920,26 @@ export enum UpdateRiskKind {
      * 改动的脚本
      */
     RiskScriptChanged = "script_changed",
+
+    /**
+     * RiskAllowedToolsAdded 是 Claude Code 不用确认就能用的工具(allowed-tools)多了,Items 是新增的几项。
+     */
+    RiskAllowedToolsAdded = "allowed_tools_added",
+
+    /**
+     * RiskHooksChanged 是 Claude Code 的 hooks 新增或改动了,Items 是新的或改过的几个,写成「事件 (匹配): 做什么」。只删掉 hook 不算。
+     */
+    RiskHooksChanged = "hooks_changed",
+
+    /**
+     * RiskToolsAdded 是 Codex 要接入的工具(dependencies.tools)多了或改了启动命令、地址,Items 是这几个,写成「名字: 命令或地址」。
+     */
+    RiskToolsAdded = "tools_added",
+
+    /**
+     * RiskAutoInvocationEnabled 是提示级的:原来只能手动调用,这次 Agent 会自动调用它了。Items 为空。
+     */
+    RiskAutoInvocationEnabled = "auto_invocation_enabled",
 };
 
 /**

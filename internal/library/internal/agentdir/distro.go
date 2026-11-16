@@ -136,6 +136,9 @@ for e in *; do
 	[ -r "$e/SKILL.md" ] || continue
 	s=$(($(wc -c <"$e/SKILL.md")))
 	[ "$s" -le 1048576 ] && set -- "$@" "./$e/SKILL.md"
+	[ -f "$e/agents/openai.yaml" ] && [ -r "$e/agents/openai.yaml" ] || continue
+	s=$(($(wc -c <"$e/agents/openai.yaml")))
+	[ "$s" -le 1048576 ] && set -- "$@" "./$e/agents/openai.yaml"
 done
 printf '\0'
 [ $# -eq 0 ] || tar -chf - "$@" 2>/dev/null || :`
@@ -545,15 +548,21 @@ func (d distro) list(directory string) ([]Folder, error) {
 		}
 		folders = append(folders, folder)
 	}
-	manifests := map[string][]byte{}
+	manifests, metadata := map[string][]byte{}, map[string][]byte{}
 	_ = readArchive(parser.rest, func(_ *tar.Header, name string, content []byte) error {
-		if folder, file, ok := strings.Cut(name, "/"); ok && file == "SKILL.md" && content != nil {
+		folder, file, ok := strings.Cut(name, "/")
+		switch {
+		case !ok || content == nil:
+		case file == "SKILL.md":
 			manifests[folder] = content
+		case file == codexMetadataFile:
+			metadata[folder] = content
 		}
 		return nil
 	})
 	for i := range folders {
 		folders[i].SkillMD = manifests[folders[i].Name]
+		folders[i].CodexMetadata = metadata[folders[i].Name]
 	}
 	return folders, nil
 }

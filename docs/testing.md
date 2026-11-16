@@ -372,17 +372,17 @@ Git 不保存的部分由 `run.sh` 现场补上：空目录、zip 文件、Git �
 
 | 方面 | 内容 |
 | --- | --- |
-| 集合 `git.dev.test/anthropics/skills` | frontend-design 有新版本；claude-academy-guide 可能改名为 academy-guide；来源里的新技能 discernment-nudge |
-| 集合 `git.dev.test/openai/skills` | 更新过一次，有历史可以回滚；openai-docs 有新版本并改动脚本；sora 来源里已删除；doc 来源里已删除，用户选了继续保留，只留淡色标记、不计入更新；新技能 define-goal |
+| 集合 `git.dev.test/anthropics/skills` | frontend-design 有新版本，新版本里多了 Claude Code 不用确认就能用的工具，更新计划的风险里有这一条；claude-academy-guide 可能改名为 academy-guide；来源里的新技能 discernment-nudge |
+| 集合 `git.dev.test/openai/skills` | 更新过一次，有历史可以回滚；openai-docs 有新版本并改动脚本，它在 `agents/openai.yaml` 里声明了 Codex 要接入的 MCP 工具；sora 来源里已删除；doc 来源里已删除，用户选了继续保留，只留淡色标记、不计入更新；新技能 define-goal |
 | 集合 `git.dev.test/obra/superpowers` | 全部 15 个技能，技能之间互相提到，用来看关系图：节标题上的「关系图」画出 33 条提到，其中 using-superpowers 提到了 anthropics 集合的 frontend-design(空心虚线圆);diagnosing-superpowers 和 receiving-code-review 没有连线，收在图下方;另有 4 处单个词的技能名(如 doc、brainstorming)要交给 AI 判断，没配 AI 时图上方提示去设置；来源里 brainstorming 又改了一次，这次改动已跳过，集合的历史里有一条跳过记录 |
-| 集合 `~/code/my-skills` | 本地目录来源，两个技能；入库后目录里的 gh-fix-ci 又改过，技能详情里「重新读取」能读出新版本；目录里另有一个 SKILL.md 没有 frontmatter 的文件夹 notes-without-name，入库预览时列在诊断里 |
+| 集合 `~/code/my-skills` | 本地目录来源，两个技能；gh-fix-ci 关掉了 Claude Code 的自动调用、写了不用确认就能用的工具（`allowed-tools`），装在 web-app 的 Claude Code 里，作用域页这一行写「只能手动调用」，技能详情里「在 Agent 里怎样用」逐项写出；入库后目录里的 gh-fix-ci 又改过，技能详情里「重新读取」能读出新版本；目录里另有一个 SKILL.md 没有 frontmatter 的文件夹 notes-without-name，入库预览时列在诊断里 |
 | 没有来源的技能 | internal-comms，从 Claude Code 全局的未纳管技能入库，之后在 Claude Code 全局里又改过 |
 | 备注 | frontend-design 有一条备注 |
 | 自定义 Agent | Cursor：全局目录 `~/.cursor/skills`，项目里 `.cursor/skills` |
 | 组 | 「前端」组安装到 Codex 全局；「文档」没有组安装；「写计划」是 superpowers 的 brainstorming、writing-plans、executing-plans，关系图里提到的组外技能画成空心虚线圆，组安装到 Cursor 全局和 web-app 的 Codex；这两处的 executing-plans、writing-plans 提到的技能在那里找不到，作用域页这两行有提示级的「提到的 N 个找不到」，详情里的「提到关系」写出在哪找不到 |
 | 项目 | web-app 是 Git 仓库，里面提交了 `.claude/skills/playwright`，和 Claude Code 全局的 playwright 同名；`.claude/skills/screenshot` 没提交，内容和库里的 screenshot 一样但不是 app 装的；old-project 不在这台机器上 |
 | 安装状态 | 当前版本；被手动改过（Claude Code 全局的 playwright、internal-comms）；文件夹不在了（Claude Code 全局的 sora）；项目不在这台机器上 |
-| 未纳管技能 | webapp-testing 是 npx skills 的布局：真实文件夹在 Codex 全局，Claude Code 全局里是符号链接；来源记录认出来源 `git.dev.test/anthropics/skills`；Claude Code 全局的 pr-summary 是指向 `~/code/skill-drafts` 的符号链接（指向 Agent 目录以外）；release-notes 在 Claude Code 全局和 Codex 全局各有一份，同名但内容不同 |
+| 未纳管技能 | webapp-testing 是 npx skills 的布局：真实文件夹在 Codex 全局，Claude Code 全局里是符号链接；来源记录认出来源 `git.dev.test/anthropics/skills`；Claude Code 全局的 pr-summary 是指向 `~/code/skill-drafts` 的符号链接（指向 Agent 目录以外）；release-notes 在 Claude Code 全局和 Codex 全局各有一份，同名但内容不同，Claude Code 的那份关掉了自动调用 |
 
 开发数据已经标记为打开过 app，启动时不弹第一次打开的确认。三个 `git.dev.test` 集合在界面上显示为「Git 仓库」，不是 GitHub。按 GitHub 来源入库只能跟踪真实的默认分支，造不出要处理的更新。
 

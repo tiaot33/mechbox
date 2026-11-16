@@ -3,13 +3,17 @@ package agentdir
 import "context"
 
 type Folder struct {
-	Name    string
-	Path    string
-	Target  string
-	SkillMD []byte
+	Name          string
+	Path          string
+	Target        string
+	SkillMD       []byte
+	CodexMetadata []byte
 }
 
-const maxSkillMD = 1 << 20
+const (
+	maxSkillMD        = 1 << 20
+	codexMetadataFile = "agents/openai.yaml"
+)
 
 func List(directory string) ([]Folder, error) {
 	return on(directory).list(directory)

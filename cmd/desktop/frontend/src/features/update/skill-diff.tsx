@@ -40,7 +40,12 @@ export function SkillDiff({
     }),
     [versionID, plan.id, item.skill.id],
   );
-  const risk = useMemo(() => new Map((item.risks ?? []).map((r) => [r.path, riskLabel(r)])), [item.risks]);
+  // 同一个文件可能有几条(SKILL.md 里 Claude Code 的几种设置):合成一个标签。
+  const risk = useMemo(() => {
+    const labels = new Map<string, string[]>();
+    for (const r of item.risks ?? []) labels.set(r.path, [...(labels.get(r.path) ?? []), riskLabel(r)]);
+    return new Map([...labels].map(([p, l]) => [p, l.join(" · ")]));
+  }, [item.risks]);
   const badge = (p: string) => risk.has(p) && <Badge tone="warn">{risk.get(p)}</Badge>;
   const title = t.changesOf(item.renamed_to ? `${item.skill.name} → ${item.renamed_to}` : item.skill.name);
   const enlarge = (diff: VersionDiff, origin: Element) =>

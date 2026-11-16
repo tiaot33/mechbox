@@ -458,11 +458,16 @@ export const en = {
     riskScriptAdded: "New script",
     riskScriptChanged: "Changed script",
     riskOther: "Worth a look",
-    riskSummary: (executables: number, scriptsAdded: number, scriptsChanged: number) =>
+    riskAllowedTools: (agent: string) => `More tools usable without asking in ${agent}`,
+    riskHooks: (agent: string) => `New or changed ${agent} hooks`,
+    riskTools: (agent: string) => `More tools for ${agent} to connect`,
+    riskAutoInvocation: (agent: string) => `${agent} now invokes it automatically (was manual only)`,
+    riskSummary: (executables: number, scriptsAdded: number, scriptsChanged: number, settings: number) =>
       [
         executables && `${count(executables, "new executable")}`,
         scriptsAdded && `${count(scriptsAdded, "new script")}`,
         scriptsChanged && `${count(scriptsChanged, "changed script")}`,
+        settings && `${count(settings, "looser agent permission")}`,
       ]
         .filter(Boolean)
         .join(" · "),
@@ -691,6 +696,43 @@ export const en = {
     versionFiles: (n: number | undefined) => `Files of Version ${n}`,
   },
 
+  agentSettings: {
+    declared: "Declared by the skill itself; what the agent actually does also depends on its own settings and version",
+    invocationShort: { manual: "Manual only", auto: "Automatic only", neither: "Can't be invoked" } as Record<"manual" | "auto" | "neither", string>,
+    claudeInvocationTitle: (how: "manual" | "auto" | "neither", name: string) =>
+      how === "manual"
+        ? `SKILL.md sets disable-model-invocation: true: Claude Code won't invoke it automatically; use /${name} to invoke it`
+        : how === "auto"
+          ? `SKILL.md sets user-invocable: false: it's not in the / menu and /${name} won't run it; only Claude Code invokes it automatically`
+          : "SKILL.md turns off both automatic invocation (disable-model-invocation: true) and manual invocation (user-invocable: false): Claude Code can't use it",
+    codexInvocationTitle: (name: string) => `agents/openai.yaml sets allow_implicit_invocation: false: Codex won't invoke it automatically; use $${name} to invoke it`,
+    title: "How agents use it",
+    note: "Declared by the skill",
+    noteTitle: "From the SKILL.md frontmatter (Claude Code) and agents/openai.yaml (Codex); only what differs from the defaults. What the agent actually does also depends on its own settings and version",
+    invocation: "Invocation",
+    claudeInvocation: (how: "manual" | "auto" | "neither", name: string) =>
+      how === "manual" ? `Manual only (/${name}); Claude won't invoke it automatically` : how === "auto" ? "Only Claude invokes it automatically; not in the / menu" : "Both automatic and manual invocation are off",
+    codexInvocation: (name: string) => `Manual only ($${name}); Codex won't invoke it automatically`,
+    paths: "Automatic only for these files",
+    whenToUse: "When to use",
+    allowedTools: "Usable without asking",
+    hooks: "Registered hooks",
+    disallowedTools: "Tools removed while active",
+    run: "How it runs",
+    fork: (agent: string) => (agent ? `In a separate subagent (${agent})` : "In a separate subagent"),
+    model: (model: string) => `Switches to model ${model}`,
+    effort: (effort: string) => `Effort ${effort}`,
+    shell: (shell: string) => `Inline commands use ${shell}`,
+    argumentHint: "Argument hint",
+    products: "Only in these products",
+    tools: "Tools to connect",
+    permissionShort: (allowed: number, hooks: number, tools: number) =>
+      [allowed && `${count(allowed, "tool")} without asking`, hooks && count(hooks, "hook"), tools && `connects ${count(tools, "tool")}`].filter(Boolean).join(" · "),
+    claudeAllowedTitle: "In Claude Code, these tools can be used without asking when it's invoked:",
+    claudeHooksTitle: "In Claude Code, invoking it registers these hooks for the rest of the session:",
+    codexToolsTitle: "In Codex, it connects these tools:",
+  },
+
   list: {
     mentionsMissing: (n: number) => `${count(n, "mentioned skill")} missing`,
     mentionsMissingTitle: (names: string[]) => `It mentions ${quoted(names)}, which ${names.length > 1 ? "aren’t" : "isn’t"} here; Agents may not be able to use it fully`,
@@ -861,7 +903,7 @@ export const en = {
     changedSkillsEdited: (names: string[]) => `${and(names)} changed; updating replaces your edits`,
     renamedSkill: (name: string, to: string) => `${name} maybe renamed to ${to}`,
     deletedSkills: (names: string[]) => `${and(names)} deleted in the Source`,
-    riskTitle: "New or changed scripts, new executables; open the Update plan to see which",
+    riskTitle: "New or changed scripts, new executables, or looser permissions the skill declares for agents; open the Update plan to see which",
     updateEditedTitle: "Updating replaces your edits; open the Update plan to check and confirm",
     updateEdited: "Update…",
     view: "View",
@@ -893,7 +935,7 @@ export const en = {
     mixed: (text: string) => ` · ${text}`,
     latest: (revision: string) => ` · latest in Source: ${revision}`,
     firstLook: "Take a look first",
-    noRisks: "These changes add or change no scripts and add no executables.",
+    noRisks: "These changes add or change no scripts, add no executables, and loosen no permissions declared for agents.",
     skills: "Skills",
     skippedTitle: "You skipped this change from the Source before; you can still check it to update",
     skipped: "Skipped",

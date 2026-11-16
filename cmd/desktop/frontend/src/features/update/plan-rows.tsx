@@ -28,7 +28,7 @@ export function ChangedRow({ p, checked, viewed, locked, onCheck, onView, onSkip
         {/* 名字不让给后面的标签：最多占一半，放不下的风险标签自己截短(悬停看全)。 */}
         <b className="max-w-1/2 min-w-0 shrink-0 truncate font-semibold">{p.skill.name}</b>
         {p.skipped ? <Badge title={t.skippedTitle}>{t.skipped}</Badge> : <Badge tone="update">{t.changed}</Badge>}
-        {(p.risks?.length ?? 0) > 0 && (
+        {riskSummary(p.risks ?? []) && (
           <Badge tone="warn" className="min-w-0 shrink" title={riskSummary(p.risks ?? [])}>
             <span className="truncate">{riskSummary(p.risks ?? [])}</span>
           </Badge>

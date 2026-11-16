@@ -263,6 +263,9 @@ func (native) list(directory string) ([]Folder, error) {
 		if manifest.Size() <= maxSkillMD {
 			folder.SkillMD, _ = os.ReadFile(filepath.Join(path, "SKILL.md"))
 		}
+		if metadata, err := os.Stat(filepath.Join(path, filepath.FromSlash(codexMetadataFile))); err == nil && metadata.Mode().IsRegular() && metadata.Size() <= maxSkillMD {
+			folder.CodexMetadata, _ = os.ReadFile(filepath.Join(path, filepath.FromSlash(codexMetadataFile)))
+		}
 		folders = append(folders, folder)
 	}
 	return folders, nil

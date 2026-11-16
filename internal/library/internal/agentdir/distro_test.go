@@ -193,9 +193,21 @@ func TestDistroStatFoldersFollowsLinks(t *testing.T) {
 func TestDistroListMatchesNative(t *testing.T) {
 	home := npxLayout(t)
 	directory := filepath.Join(home, ".claude/skills")
+	metadata := filepath.Join(home, ".agents/skills/shared/agents/openai.yaml")
+	if err := os.MkdirAll(filepath.Dir(metadata), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(metadata, []byte("policy:\n  allow_implicit_invocation: false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	want, err := List(directory)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(want, func(f Folder) bool {
+		return f.Name == "shared" && string(f.CodexMetadata) == "policy:\n  allow_implicit_invocation: false\n"
+	}) {
+		t.Fatalf("native List = %+v, want shared with agents/openai.yaml", want)
 	}
 	got, err := List(unc(directory))
 	if err != nil {
