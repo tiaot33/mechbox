@@ -9,6 +9,7 @@ import (
 )
 
 func TestRollbackOfARenameRestoresNameAndFolders(t *testing.T) {
+	t.Parallel()
 	fx := newRenameFixture(t)
 	ctx := t.Context()
 	plan, err := fx.lib.PlanUpdate(ctx, fx.skill.CollectionID)
@@ -51,6 +52,7 @@ func TestRollbackOfARenameRestoresNameAndFolders(t *testing.T) {
 
 // 确认改名之后来源里新名字的那份又变了,检查更新已经报着;回滚改名时把来源里现在的那份记为跳过,再检查更新也不计入角标。
 func TestRollingBackARenameSkipsTheNewerContentAlreadySeen(t *testing.T) {
+	t.Parallel()
 	fx := newRenameFixture(t)
 	ctx := t.Context()
 	result, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID))
@@ -74,6 +76,7 @@ func TestRollingBackARenameSkipsTheNewerContentAlreadySeen(t *testing.T) {
 }
 
 func TestRollingBackAnEarlierUpdateRestoresTheNameItHad(t *testing.T) {
+	t.Parallel()
 	fx := newRenameFixture(t)
 	ctx := t.Context()
 	// 先回到改名前的来源,更新一次内容,再改名并确认。
@@ -110,6 +113,7 @@ func TestRollingBackAnEarlierUpdateRestoresTheNameItHad(t *testing.T) {
 }
 
 func TestRolledBackRenameIsStillOfferedAfterAnotherFetch(t *testing.T) {
+	t.Parallel()
 	fx := newRenameFixture(t)
 	ctx := t.Context()
 	result, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID))
@@ -140,6 +144,7 @@ func TestRolledBackRenameIsStillOfferedAfterAnotherFetch(t *testing.T) {
 }
 
 func TestRollingBackChainedRenamesOutOfOrderKeepsTheSourceName(t *testing.T) {
+	t.Parallel()
 	fx := newRenameFixture(t)
 	ctx := t.Context()
 	first, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID))
@@ -166,6 +171,7 @@ func TestRollingBackChainedRenamesOutOfOrderKeepsTheSourceName(t *testing.T) {
 }
 
 func TestRenameWithdrawnBySourceClearsTheRememberedName(t *testing.T) {
+	t.Parallel()
 	fx := newRenameFixture(t)
 	ctx := t.Context()
 	first, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID))
@@ -206,6 +212,7 @@ func TestRenameWithdrawnBySourceClearsTheRememberedName(t *testing.T) {
 // 回滚完成时和之后检查更新、更新计划都一致地不计入角标;来源再变了才重新计入。
 // 那次更新加了文件,回滚回去的版本和改名后的技能不再那么像,推测照样留着。
 func TestRollbackAlsoSkipsTheRenameGuessedBefore(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	server := newArchiveServer(t, zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", renamedBody)}), "")
@@ -254,6 +261,7 @@ func TestRollbackAlsoSkipsTheRenameGuessedBefore(t *testing.T) {
 // 确认改名的那次更新和之后的一次内容更新都回滚:先回滚改名,再回滚之后那次,技能回到新名字,
 // 来源里同名的那份就是这个技能,不是改名推测;它带着回滚掉的改动,一并跳过。
 func TestRollingBackTheRenameThenTheLaterUpdateLeavesNoRenameGuess(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	fx := newRenameFixture(t)
 	renamedUpdate, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID))

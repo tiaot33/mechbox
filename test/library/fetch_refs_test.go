@@ -43,7 +43,7 @@ func recordGit(t *testing.T) func() []string {
 	dir := t.TempDir()
 	log := filepath.Join(dir, "calls")
 	writeFile(t, filepath.Join(dir, "git"), []byte("#!/bin/sh\necho \"$*\" >> '"+log+"'\nexec '"+real+"' \"$@\"\n"), 0o755)
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	setTestEnv(t, "PATH", dir+string(os.PathListSeparator)+testEnv(t, "PATH"))
 	return func() []string {
 		content, err := os.ReadFile(log)
 		if err != nil && !os.IsNotExist(err) {
@@ -128,6 +128,7 @@ func TestInputWithoutSchemeStartingWithDomainGetsHTTPS(t *testing.T) {
 }
 
 func TestListSourceRefsForGitHubUsesOnlyLsRemote(t *testing.T) {
+	t.Parallel()
 	repository, _ := githubRemote(t)
 	refsRepository(t, repository)
 	requested := recordHTTP(t)
@@ -157,6 +158,7 @@ func TestListSourceRefsForGitHubUsesOnlyLsRemote(t *testing.T) {
 }
 
 func TestListSourceRefsLeavesUnknownDefaultBranchEmpty(t *testing.T) {
+	t.Parallel()
 	repository, _ := githubRemote(t)
 	runGit(t, repository, "checkout", "--quiet", "--detach")
 	lib := openTestLibrary(t)
@@ -167,6 +169,7 @@ func TestListSourceRefsLeavesUnknownDefaultBranchEmpty(t *testing.T) {
 }
 
 func TestListSourceRefsForGitLabAndSSHDoesNotClone(t *testing.T) {
+	t.Parallel()
 	config := isolateGit(t)
 	repository := skillRepository(t)
 	refsRepository(t, repository)
@@ -174,9 +177,9 @@ func TestListSourceRefsForGitLabAndSSHDoesNotClone(t *testing.T) {
 	redirectRemote(t, config, repository, "https://git.example.com/org/repo.git")
 	wrapper := filepath.Join(t.TempDir(), "ssh")
 	writeFile(t, wrapper, []byte("#!/bin/sh\ncase \" $* \" in *' -oBatchMode=yes '*) ;; *) exit 9 ;; esac\nexec git-upload-pack \"$TEST_SSH_REPOSITORY\"\n"), 0o755)
-	t.Setenv("GIT_SSH_COMMAND", "'"+wrapper+"'")
-	t.Setenv("GIT_SSH_VARIANT", "ssh")
-	t.Setenv("TEST_SSH_REPOSITORY", repository)
+	setTestEnv(t, "GIT_SSH_COMMAND", "'"+wrapper+"'")
+	setTestEnv(t, "GIT_SSH_VARIANT", "ssh")
+	setTestEnv(t, "TEST_SSH_REPOSITORY", repository)
 	requested := recordHTTP(t)
 	calls := recordGit(t)
 	lib := openTestLibrary(t)
@@ -202,6 +205,7 @@ func TestListSourceRefsForGitLabAndSSHDoesNotClone(t *testing.T) {
 }
 
 func TestListSourceRefsRejectsInputsThatAreNotGitRepositoriesWithoutNetwork(t *testing.T) {
+	t.Parallel()
 	requested := recordHTTP(t)
 	marker := forbidGit(t)
 	lib := openTestLibrary(t)
@@ -227,10 +231,11 @@ func TestListSourceRefsRejectsInputsThatAreNotGitRepositoriesWithoutNetwork(t *t
 }
 
 func TestListSourceRefsRejectsBadRefsBeforeContactingRemote(t *testing.T) {
+	t.Parallel()
 	forbidden := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusForbidden) }))
 	t.Cleanup(forbidden.Close)
 	redirectGitHubRemote(t, forbidden.URL+"/owner/repo.git")
-	config := os.Getenv("GIT_CONFIG_GLOBAL")
+	config := testEnv(t, "GIT_CONFIG_GLOBAL")
 	runGit(t, t.TempDir(), "config", "--file", config, "url."+forbidden.URL+"/.insteadOf", "https://")
 	recordHTTP(t)
 	calls := recordGit(t)
@@ -255,6 +260,7 @@ func TestListSourceRefsRejectsBadRefsBeforeContactingRemote(t *testing.T) {
 }
 
 func TestListSourceRefsFailsLikePreviewFetch(t *testing.T) {
+	t.Parallel()
 	missing := "file://" + filepath.Join(t.TempDir(), "missing")
 	forbidden := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusForbidden) }))
 	t.Cleanup(forbidden.Close)

@@ -140,6 +140,7 @@ func (f sourcedSkillFixture) planned(t *testing.T, skill library.Skill) (library
 }
 
 func TestFetchUnmanagedWithTheSourceContentJoinsTheCollection(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newSourcedSkillFixture(t)
 	docx := fetchSkills(t, f.lib, mustPreview(t, f.lib, gitHubRequest()), []string{"docx"})[0]
@@ -176,6 +177,7 @@ func TestFetchUnmanagedWithTheSourceContentJoinsTheCollection(t *testing.T) {
 }
 
 func TestFetchUnmanagedOnlyFromSourceCountsSeenSkills(t *testing.T) {
+	t.Parallel()
 	f := newSourcedSkillFixture(t)
 	f.writeDisk(t, "v1")
 	skill := f.fetch(t).Skill
@@ -190,6 +192,7 @@ func TestFetchUnmanagedOnlyFromSourceCountsSeenSkills(t *testing.T) {
 }
 
 func TestFetchUnmanagedUntouchedButBehindIsAnOrdinaryUpdate(t *testing.T) {
+	t.Parallel()
 	for _, records := range []string{"global", "project"} {
 		t.Run(records, func(t *testing.T) {
 			ctx := t.Context()
@@ -244,6 +247,7 @@ func TestFetchUnmanagedUntouchedButBehindIsAnOrdinaryUpdate(t *testing.T) {
 }
 
 func TestFetchUnmanagedThatMayBeEditedWarnsBeforeTheUpdate(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		record map[string]string
@@ -315,6 +319,7 @@ func TestFetchUnmanagedThatMayBeEditedWarnsBeforeTheUpdate(t *testing.T) {
 }
 
 func TestFetchUnmanagedMaybeEditedClearsWhenTheAuthorCatchesUp(t *testing.T) {
+	t.Parallel()
 	f := newSourcedSkillFixture(t)
 	f.writeDisk(t, "edited")
 	skill := f.fetch(t).Skill
@@ -335,6 +340,7 @@ func TestFetchUnmanagedMaybeEditedClearsWhenTheAuthorCatchesUp(t *testing.T) {
 }
 
 func TestMaybeEditedSkillUpdatedFromScopeStillWarnsBeforeTheAuthorsVersion(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newSourcedSkillFixture(t)
 	f.writeDisk(t, "edited")
@@ -359,6 +365,7 @@ func TestMaybeEditedSkillUpdatedFromScopeStillWarnsBeforeTheAuthorsVersion(t *te
 }
 
 func TestFetchUnmanagedWithSameNameInTheCollection(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newSourcedSkillFixture(t)
 	pdf := fetchSkills(t, f.lib, mustPreview(t, f.lib, gitHubRequest()), []string{"pdf"})[0]
@@ -395,6 +402,7 @@ func TestFetchUnmanagedWithSameNameInTheCollection(t *testing.T) {
 }
 
 func TestFetchUnmanagedSourceErrorsLeaveEverythingUnchanged(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newSourcedSkillFixture(t)
 	writeFile(t, filepath.Join(f.home, ".claude", "skills", "notes", "SKILL.md"), []byte(skillDocument("notes", "mine")), 0o644)
@@ -439,6 +447,7 @@ func TestFetchUnmanagedSourceErrorsLeaveEverythingUnchanged(t *testing.T) {
 // 来源记录里的哈希对不上磁盘,却等于来源现在的那份:装的就是来源现在这一版,磁盘不一样是用户改过,作者之后没动过。
 // 入库的版本是基于来源这一版的修改,和用目录里的修改更新之后一样:作者没再改时没有更新,作者再改才报、写明会换掉修改。
 func TestFetchUnmanagedEditedAfterInstallingTheLatestFollowsOnlyTheAuthor(t *testing.T) {
+	t.Parallel()
 	for _, records := range []string{"global", "project"} {
 		t.Run(records, func(t *testing.T) {
 			ctx := t.Context()
@@ -525,6 +534,7 @@ func TestFetchUnmanagedEditedAfterInstallingTheLatestFollowsOnlyTheAuthor(t *tes
 // 项目记录里的内容哈希不算可执行位:作者只改了脚本的可执行位时,记录照样等于来源现在的那份,却不能断定装的就是这一版。
 // 磁盘上的文件模式和来源里的不一样时,保守地当作说不清有没有修改:第一次检查更新就报有新版本,作者的权限改动不被漏掉。
 func TestFetchUnmanagedDoesNotTakeAModeOnlyChangeAsTheVersionTheEditsAreBasedOn(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newSourcedSkillFixture(t)
 	project := t.TempDir()

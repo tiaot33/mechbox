@@ -2,7 +2,6 @@ package wsl
 
 import (
 	"context"
-	"os"
 	"os/exec"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/process"
@@ -19,8 +18,8 @@ func commandKey() string {
 }
 
 func listDistros(ctx context.Context) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "wsl.exe", "--list", "--quiet")
-	cmd.Env = append(os.Environ(), "WSL_UTF8=1")
+	cmd := process.Command(ctx, "wsl.exe", "--list", "--quiet")
+	cmd.Env = append(cmd.Env, "WSL_UTF8=1")
 	process.Hide(cmd)
 	output, err := cmd.Output()
 	if ctx.Err() != nil {

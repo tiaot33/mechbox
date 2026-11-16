@@ -21,6 +21,7 @@ func fetchArchive(t *testing.T, lib *library.Library, spec library.PreviewFetchR
 
 // 服务端给出各种写法的 validator 并回 304 时,检查与更新都判定无更新,只刷新读取时间。
 func TestURLNotModifiedMeansNoUpdate(t *testing.T) {
+	t.Parallel()
 	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")})
 	for _, tc := range []struct{ name, etag, lastModified string }{
 		{"strong etag", `"v1"`, ""},
@@ -59,6 +60,7 @@ func TestURLNotModifiedMeansNoUpdate(t *testing.T) {
 }
 
 func TestURLUpdateWritesChangedArchive(t *testing.T) {
+	t.Parallel()
 	server := newArchiveServer(t, zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")}), `"v1"`)
 	lib := openTestLibrary(t)
 	id := fetchArchive(t, lib, server.request())[0].ID
@@ -81,6 +83,7 @@ func TestURLUpdateWritesChangedArchive(t *testing.T) {
 
 // 同一压缩包里的技能各自判断:只更新了其中一个后,另一个仍报告有更新。
 func TestURLSkillsFromOneArchiveAreCheckedIndependently(t *testing.T) {
+	t.Parallel()
 	server := newArchiveServer(t, zipArchive(t, map[string]string{
 		"first/SKILL.md":  skillDocument("first", "old"),
 		"second/SKILL.md": skillDocument("second", "old"),
@@ -116,6 +119,7 @@ func TestURLSkillsFromOneArchiveAreCheckedIndependently(t *testing.T) {
 
 // 没带条件头却收到 304 是远端异常,不能当成"无更新"。
 func TestURLUnexpectedNotModifiedIsAnError(t *testing.T) {
+	t.Parallel()
 	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")})
 	server := newArchiveServer(t, archive, "")
 	lib := openTestLibrary(t)
@@ -135,11 +139,12 @@ func forbidGit(t *testing.T) string {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "called")
 	writeFile(t, filepath.Join(dir, "git"), []byte("#!/bin/sh\ntouch '"+marker+"'\nexit 1\n"), 0o755)
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	setTestEnv(t, "PATH", dir+string(os.PathListSeparator)+testEnv(t, "PATH"))
 	return marker
 }
 
 func TestRawSkillFileLinkPreviewsOneSkillWithoutCloning(t *testing.T) {
+	t.Parallel()
 	marker := forbidGit(t)
 	s := serveSite(t)
 	link := "https://raw.githubusercontent.com/owner/repo/main/skills/demo/SKILL.md"
@@ -165,6 +170,7 @@ func TestRawSkillFileLinkPreviewsOneSkillWithoutCloning(t *testing.T) {
 }
 
 func TestDirectDownloadRecognizesArchivesByContent(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	files := map[string]string{"pack/alpha/SKILL.md": skillDocument("alpha", "a"), "pack/beta/SKILL.md": skillDocument("beta", "b"), "pack/beta/notes.txt": "notes",
 		// 系统和缓存文件不进技能库。
@@ -205,6 +211,7 @@ func TestDirectDownloadRecognizesArchivesByContent(t *testing.T) {
 }
 
 func TestLinkPreviewReportsWhatTheLinkIsNot(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	s := serveSite(t)
 	s.put("https://docs.example/guide", []byte("<html>docs</html>"))
@@ -229,6 +236,7 @@ func TestLinkPreviewReportsWhatTheLinkIsNot(t *testing.T) {
 }
 
 func TestGitLabReleaseDownloadLinkIsDirectDownload(t *testing.T) {
+	t.Parallel()
 	marker := forbidGit(t)
 	s := serveSite(t)
 	link := "https://gitlab.com/group/repo/-/releases/v1/downloads/skills.zip"
@@ -248,6 +256,7 @@ func TestGitLabReleaseDownloadLinkIsDirectDownload(t *testing.T) {
 
 // 链接里带用户名或密码时不联网、直接拒绝,免得凭据写进库里、随同步传出去;托管平台的 raw、archive 这类下载链接也一样。
 func TestLinkWithCredentialsIsRejectedBeforeContactingIt(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	s := serveSite(t)
 	lib := openTestLibrary(t)

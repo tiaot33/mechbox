@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/tiaot33/mechbox/internal/library"
@@ -760,8 +761,12 @@ func TestEditAgentMigrationNeverOverwritesAFolderThatAppearsDuringCopy(t *testin
 		t.Fatal(err)
 	}
 	oldDir, newDir := filepath.Join(home, ".old", "skills"), filepath.Join(home, ".new", "skills")
+	// cond 也会在 database/sql 的 goroutine 里被调用(查询等着 ctx 结束),所以 appeared 要加锁。
+	var mu sync.Mutex
 	appeared := false
 	injectDuringCopy := cancelWhen{Context: ctx, cond: func() bool {
+		mu.Lock()
+		defer mu.Unlock()
 		entries, _ := os.ReadDir(newDir)
 		for _, entry := range entries {
 			if !appeared && strings.HasPrefix(entry.Name(), ".example-") {
@@ -772,7 +777,10 @@ func TestEditAgentMigrationNeverOverwritesAFolderThatAppearsDuringCopy(t *testin
 		return false
 	}}
 	_, err := lib.EditAgent(injectDuringCopy, agent.Code, library.CustomAgent{Name: "Agent", GlobalDirectory: newDir, ProjectDirectory: agent.ProjectDirectory}, library.EditAgentOptions{Migrate: true})
-	if !appeared {
+	mu.Lock()
+	injected := appeared
+	mu.Unlock()
+	if !injected {
 		t.Fatal("the folder was never injected")
 	}
 	requireErrorDetails(t, err, library.AlreadyExists, library.ErrorDetails{Path: filepath.Join(newDir, "example")})

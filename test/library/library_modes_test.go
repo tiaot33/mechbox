@@ -9,14 +9,15 @@ import (
 	"testing"
 
 	"github.com/tiaot33/mechbox/internal/library"
+	"github.com/tiaot33/mechbox/internal/library/platformtest"
 )
 
-// Windows 本机的目录读不出可执行位。测试里 MECHBOX_TEST_NO_FILE_MODES 让本机的目录也这样:
+// Windows 本机的目录读不出可执行位。测试里 platformtest.WithoutFileModes 让本机的目录也这样:
 // 读出的文件一律是普通文件,和在 Windows 上一样;库写出去的文件照样带可执行位。
 
 func withoutFileModes(t *testing.T) {
 	t.Helper()
-	t.Setenv("MECHBOX_TEST_NO_FILE_MODES", "1")
+	platformtest.WithoutFileModes(t)
 }
 
 func installExample(t *testing.T, lib *library.Library, scopes ...library.Scope) library.Skill {
@@ -170,7 +171,7 @@ func TestSourceLatestWithoutFileModesIsRecognized(t *testing.T) {
 // 整批入库的计划不能借着前一份把后一份也并进「库里的技能」,入库时也不能因此多出一个技能。
 func TestPlanFetchUnmanagedKeepsWSLCopyWithOtherModesApart(t *testing.T) {
 	setTestHome(t, t.TempDir())
-	t.Setenv("MECHBOX_TEST_WSL_SHELL", "sh")
+	platformtest.EmulateWSL(t, "sh")
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	claude, codex := library.GlobalScope(library.AgentClaudeCode), library.GlobalScope(library.AgentCodex)

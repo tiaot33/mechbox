@@ -8,6 +8,7 @@ import (
 )
 
 func TestEditedSkillHasNoUpdateWhileTheAuthorHasNotChangedIt(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newScopeEditFixture(t)
 	edited := f.takeClaudeEdits(t)
@@ -42,6 +43,7 @@ func TestEditedSkillHasNoUpdateWhileTheAuthorHasNotChangedIt(t *testing.T) {
 }
 
 func TestEditedSkillInGitSourceFollowsOnlyItsOwnChanges(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	config := isolateGit(t)
 	repository := skillRepository(t)

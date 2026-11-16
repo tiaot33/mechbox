@@ -13,10 +13,11 @@ import (
 	"testing"
 
 	"github.com/tiaot33/mechbox/internal/library"
+	"github.com/tiaot33/mechbox/internal/library/platformtest"
 )
 
 // 选了 WSL 发行版时,各 Agent 的全局目录在发行版的主目录下,经 \\wsl.localhost\<发行版>\... 读写。
-// 测试里 MECHBOX_TEST_WSL_SHELL 让「发行版」就是本机的 sh,发行版里的路径就是本机路径,
+// 测试里 platformtest.EmulateWSL 让「发行版」就是本机的 sh,发行版里的路径就是本机路径,
 // 所以 \\wsl.localhost\<发行版>\<本机路径> 与本机路径指同一处,可以直接核对磁盘。
 // 每个发行版的 sh 启动一次、一直用下去,带着启动时的 HOME,所以每个测试用自己名字的发行版。
 
@@ -33,7 +34,7 @@ func openWSLLibrary(t *testing.T) (*library.Library, string) {
 	setTestHome(t, home)
 	// 充当发行版的是本机的 sh,发行版的主目录就是它看到的 $HOME。
 	t.Setenv("HOME", home)
-	t.Setenv("MECHBOX_TEST_WSL_SHELL", "sh")
+	platformtest.EmulateWSL(t, "sh")
 	lib := openTestLibrary(t)
 	if err := lib.SetWSLDistro(t.Context(), t.Name()); err != nil {
 		t.Fatal(err)
@@ -203,7 +204,7 @@ func TestWSLDistroReadsManyFoldersInFewCommands(t *testing.T) {
 	log := filepath.Join(t.TempDir(), "requests")
 	shell := filepath.Join(t.TempDir(), "sh")
 	writeFile(t, shell, []byte("#!/bin/sh\ntee -a '"+log+"' | sh\n"), 0o755)
-	t.Setenv("MECHBOX_TEST_WSL_SHELL", shell)
+	platformtest.EmulateWSL(t, shell)
 	codex := library.GlobalScope(library.AgentCodex)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	add := func(from, to int) {
@@ -281,7 +282,7 @@ func wslCommands(t *testing.T, log string) int {
 
 func TestWSLDistroUnavailable(t *testing.T) {
 	lib := openTestLibrary(t)
-	t.Setenv("MECHBOX_TEST_WSL_SHELL", "/nonexistent/sh")
+	platformtest.EmulateWSL(t, "/nonexistent/sh")
 	home := lib.HomeDirectory()
 	err := lib.SetWSLDistro(t.Context(), "gone")
 	requireLibraryError(t, err, library.FailedPrecondition)

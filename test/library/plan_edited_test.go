@@ -7,6 +7,7 @@ import (
 )
 
 func TestSkippingTheAuthorsChangeKeepsTheEditsUntilTheAuthorChangesAgain(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newScopeEditFixture(t)
 	edited := f.takeClaudeEdits(t)

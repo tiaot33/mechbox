@@ -13,6 +13,7 @@ import (
 // 改了作者的技能,照样跟着作者走
 
 func TestEditedSkillTakesTheAuthorsNewVersionAndRollsBackToTheEdits(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newScopeEditFixture(t)
 	edited := f.takeClaudeEdits(t)

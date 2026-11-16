@@ -1128,6 +1128,7 @@ func TestSyncPushAndPullWithStoredSettings(t *testing.T) {
 // 设置的 GitHub 令牌存在数据库里,随推送、拉回走:拉回的一侧换成推送那份库里的令牌,访问 GitHub 时用它;
 // 拉回一份没有令牌的库,本机的令牌随之变成没填。
 func TestGitHubTokenTravelsWithSync(t *testing.T) {
+	t.Parallel()
 	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
 	}))

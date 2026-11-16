@@ -12,6 +12,7 @@ import (
 // 来源里改名的技能:推测、确认、否认与回滚
 
 func TestConfirmedRenameKeepsHistoryGroupsAndInstalls(t *testing.T) {
+	t.Parallel()
 	fx := newRenameFixture(t)
 	ctx := t.Context()
 	plan, err := fx.lib.PlanUpdate(ctx, fx.skill.CollectionID)

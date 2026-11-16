@@ -191,9 +191,18 @@ func zipArchive(t *testing.T, files map[string]string) []byte {
 	return buffer.Bytes()
 }
 
+// gitCommand 是构造测试仓库用的 git:环境变量和这个测试里的 Library 看到的一样(git 配置与本机的隔开),
+// 只是 PATH 用进程的,所以测试换上的假 git 不会接到构造仓库的命令。
+func gitCommand(t *testing.T, args ...string) *exec.Cmd {
+	t.Helper()
+	command := exec.Command("git", args...)
+	command.Env = append(worldOf(t).environ(), "PATH="+os.Getenv("PATH"))
+	return command
+}
+
 func runGit(t *testing.T, directory string, args ...string) {
 	t.Helper()
-	command := exec.Command("git", append([]string{"-c", "core.excludesFile=/dev/null", "-c", "commit.gpgsign=false", "-C", directory}, args...)...)
+	command := gitCommand(t, append([]string{"-c", "core.excludesFile=/dev/null", "-c", "commit.gpgsign=false", "-C", directory}, args...)...)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, output)
 	}
@@ -313,12 +322,14 @@ func openTestLibrary(t *testing.T) *library.Library {
 	return openTestLibraryAt(t, filepath.Join(t.TempDir(), "library.db"))
 }
 
-// testWorld 是一个顶层测试自己的远端与主目录,取代改全局的 http.DefaultClient 与 HOME:这个测试(连同它的子测试)里
-// 打开的 Library,HTTP 请求都交给当前设的假远端,主目录是当前设的那个。各顶层测试各有一份,不碰环境变量的测试因此可以并行。
+// testWorld 是一个顶层测试自己的远端、主目录与 git、gh 的环境变量,取代改全局的 http.DefaultClient、HOME 与环境变量:
+// 这个测试(连同它的子测试)里打开的 Library,HTTP 请求都交给当前设的假远端,主目录是当前设的那个,
+// 启动 git、gh 时用进程的环境变量加上当前设的那些。各顶层测试各有一份,不改进程环境变量的测试因此可以并行。
 type testWorld struct {
 	mu        sync.Mutex
 	roundTrip func(*http.Request) (*http.Response, error)
 	home      string
+	env       []string
 }
 
 var testWorlds sync.Map
@@ -396,16 +407,49 @@ func testHome(t *testing.T) string {
 	return home
 }
 
+// setTestEnv 给这个测试里的 Library 启动的 git、gh 与构造测试仓库的 git(PATH 除外)设环境变量 key,测试结束时还原;
+// 进程的环境变量不变。已经打开的 Library 下一次读来源或查已提交的文件夹时就用上。
+func setTestEnv(t *testing.T, key, value string) {
+	t.Helper()
+	world := worldOf(t)
+	world.mu.Lock()
+	previous := world.env
+	world.env = append(slices.Clip(previous), key+"="+value)
+	world.mu.Unlock()
+	t.Cleanup(func() {
+		world.mu.Lock()
+		world.env = previous
+		world.mu.Unlock()
+	})
+}
+
+// testEnv 返回这个测试里 git、gh 看到的环境变量 key:setTestEnv 设过的,没设过时是进程的。
+func testEnv(t *testing.T, key string) string {
+	t.Helper()
+	for _, pair := range slices.Backward(worldOf(t).environ()) {
+		if name, value, ok := strings.Cut(pair, "="); ok && name == key {
+			return value
+		}
+	}
+	return ""
+}
+
+func (w *testWorld) environ() []string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append(os.Environ(), w.env...)
+}
+
 // testHTTPOption 让 Library 的 HTTP 请求走这个测试的假远端。
 func testHTTPOption(t *testing.T) library.Option {
 	t.Helper()
 	return library.WithHTTPClient(&http.Client{Transport: worldOf(t)})
 }
 
-// testOptions 是测试里打开 Library 都要带的选项:HTTP 请求走这个测试的假远端,主目录是这个测试的。
+// testOptions 是测试里打开 Library 都要带的选项:HTTP 请求走这个测试的假远端,主目录与 git、gh 的环境变量是这个测试的。
 func testOptions(t *testing.T) []library.Option {
 	t.Helper()
-	return []library.Option{testHTTPOption(t), library.WithHomeDirectory(testHome(t))}
+	return []library.Option{testHTTPOption(t), library.WithHomeDirectory(testHome(t)), library.WithEnvironment(worldOf(t).environ)}
 }
 
 // TestMain 让整个测试进程用一个空的主目录:git、gh 这些子进程读 HOME 下的配置与凭据,不该受这台机器上的影响。
@@ -566,7 +610,7 @@ func stubGitHubCLI(t *testing.T, script string) {
 	t.Helper()
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "gh"), []byte("#!/bin/sh\n"+script), 0o755)
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	setTestEnv(t, "PATH", dir+string(os.PathListSeparator)+testEnv(t, "PATH"))
 }
 
 // checkSkillUpdate 检查一个技能所在的集合,返回这个技能存下的结论;结论为 failed 时一并返回集合的 Error。
@@ -881,8 +925,8 @@ func (s *site) roundTrip(r *http.Request) (*http.Response, error) {
 func isolateGit(t *testing.T) string {
 	t.Helper()
 	config := filepath.Join(t.TempDir(), "gitconfig")
-	t.Setenv("GIT_CONFIG_GLOBAL", config)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	setTestEnv(t, "GIT_CONFIG_GLOBAL", config)
+	setTestEnv(t, "GIT_CONFIG_NOSYSTEM", "1")
 	runGit(t, t.TempDir(), "config", "--file", config, "url.file://"+filepath.Join(t.TempDir(), "missing")+"/.insteadOf", "https://")
 	return config
 }

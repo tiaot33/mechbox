@@ -14,6 +14,7 @@ import (
 )
 
 func TestSearchSkillsReturnsGitHubSourcesWithoutChangingLibrary(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	stubHTTP(t, func(r *http.Request) (*http.Response, error) {
 		if r.URL.String() != "https://skills.sh/api/search?limit=20&q=testing+tools" {
@@ -43,6 +44,7 @@ func TestSearchSkillsReturnsGitHubSourcesWithoutChangingLibrary(t *testing.T) {
 }
 
 func TestSearchSkillsDistinguishesEmptyInvalidAndUnavailableResults(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name, body string
 		status     int
@@ -80,6 +82,7 @@ func TestSearchSkillsDistinguishesEmptyInvalidAndUnavailableResults(t *testing.T
 }
 
 func TestSearchSkillsLimitsResultsAndSupportsCancellation(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	stubHTTP(t, func(*http.Request) (*http.Response, error) { t.Fatal("empty query contacted network"); return nil, nil })
 	if _, err := lib.SearchSkills(t.Context(), " \t\n"); !library.IsCode(err, library.InvalidArgument) {
@@ -112,6 +115,7 @@ func TestSearchSkillsLimitsResultsAndSupportsCancellation(t *testing.T) {
 }
 
 func TestSearchSkillsDoesNotInterpretDisplayNamesAsRefs(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	stubHTTP(t, func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"skills":[{"id":"owner/repo/display","name":"display#other-ref","source":"owner/repo"}]}`))}, nil

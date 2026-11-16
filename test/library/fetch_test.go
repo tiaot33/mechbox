@@ -15,6 +15,7 @@ import (
 )
 
 func TestFetchKeepsCandidateDescription(t *testing.T) {
+	t.Parallel()
 	for _, source := range []struct {
 		name string
 		spec func(*testing.T) library.PreviewFetchRequest
@@ -55,6 +56,7 @@ func TestFetchKeepsCandidateDescription(t *testing.T) {
 }
 
 func TestFetchFailureKeepsHandleAndLibraryUnchanged(t *testing.T) {
+	t.Parallel()
 	repository := previewRepository(t)
 	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"), testOptions(t)...)
 	if err != nil {
@@ -94,6 +96,7 @@ func TestFetchFailureKeepsHandleAndLibraryUnchanged(t *testing.T) {
 }
 
 func TestFetchConcurrentCallsConsumeHandleOnce(t *testing.T) {
+	t.Parallel()
 	repository := previewRepository(t)
 	// 每轮使用独立的库,两个调用选择不同候选,避免唯一约束掩盖重复消费。
 	for range 10 {
@@ -147,6 +150,7 @@ func previewRepository(t *testing.T) string {
 }
 
 func TestFetchIsAtomicAndDiscardsSuccessfulHandle(t *testing.T) {
+	t.Parallel()
 	repository := previewRepository(t)
 	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"), testOptions(t)...)
 	if err != nil {

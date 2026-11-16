@@ -133,6 +133,7 @@ func writeSkillTree(t *testing.T, dir string, skills map[string]string) {
 // 每种来源都走同一遍:入库、没变化、改了一个、更新、出现新技能、删了一个。结论只经公开方法读取,
 // 和来源怎么判断有没有变化(比版本号、比内容摘要还是取文件比较)无关。
 func TestEverySourceGoesThroughTheUpdateLifecycle(t *testing.T) {
+	t.Parallel()
 	for _, kind := range sourceKinds {
 		t.Run(kind.name, func(t *testing.T) {
 			src := kind.serve(t)

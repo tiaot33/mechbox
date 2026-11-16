@@ -11,6 +11,7 @@ import (
 )
 
 func TestGetSkillAuditLooksUpLibrarySkillBySourceAndName(t *testing.T) {
+	t.Parallel()
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"first/SKILL.md":  {content: []byte(skillDocument("first", "first body")), mode: 0o644},
 		"second/SKILL.md": {content: []byte(skillDocument("second", "second body")), mode: 0o644},
@@ -71,6 +72,7 @@ func TestGetSkillAuditLooksUpLibrarySkillBySourceAndName(t *testing.T) {
 }
 
 func TestGetSkillAuditSkipsSourcesOutsideSkillsSh(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	preview, err := lib.PreviewFetch(t.Context(), mockPreviewArchive(t))
 	if err != nil {

@@ -5,25 +5,22 @@ package wsl
 import (
 	"context"
 	"errors"
-	"os"
 	"os/exec"
 )
 
-const testShell = "MECHBOX_TEST_WSL_SHELL"
-
 func shellCommand(string) (*exec.Cmd, error) {
-	if shell := os.Getenv(testShell); shell != "" {
+	if shell := emulatedShell(); shell != "" {
 		return exec.Command(shell), nil
 	}
 	return nil, errors.ErrUnsupported
 }
 
 func commandKey() string {
-	return os.Getenv(testShell)
+	return emulatedShell()
 }
 
 func listDistros(context.Context) ([]byte, error) {
-	if os.Getenv(testShell) != "" {
+	if emulatedShell() != "" {
 		return []byte("test\ndocker-desktop\n"), nil
 	}
 	return nil, nil

@@ -12,6 +12,7 @@ import (
 // 用目录里的修改更新
 
 func TestUpdateFromScopeTakesTheEditsAndReinstallsCheckedPlaces(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newScopeEditFixture(t)
 	lib, skill := f.lib, f.skill
@@ -127,6 +128,7 @@ func TestUpdateFromScopeTakesTheEditsAndReinstallsCheckedPlaces(t *testing.T) {
 }
 
 func TestUpdateFromScopeLeavesUncheckedPlacesAndRefusesEditedOnesWithoutConsent(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newScopeEditFixture(t)
 	lib, skill := f.lib, f.skill
@@ -194,6 +196,7 @@ func TestUpdateFromScopeWithLocalSource(t *testing.T) {
 }
 
 func TestUpdateFromScopeRechecksTheFolderAndTheRequest(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newScopeEditFixture(t)
 	lib, skill := f.lib, f.skill
@@ -223,6 +226,7 @@ func TestUpdateFromScopeRechecksTheFolderAndTheRequest(t *testing.T) {
 
 // 几个 Agent 共用一个目录时,取内容的文件夹也是它们的,计划里不列,更新时也不能勾。
 func TestUpdateFromScopeLeavesOutAgentsSharingTheFolder(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newScopeEditFixture(t)
 	lib, skill := f.lib, f.skill
@@ -246,6 +250,7 @@ func TestUpdateFromScopeLeavesOutAgentsSharingTheFolder(t *testing.T) {
 
 // 一处是指向另一处的符号链接时,两处是同一个文件夹,内容就是这份修改:计划里不把另一处列为被改过,更新时也不能勾。
 func TestUpdateFromScopeTreatsPlacesLinkedToTheSameFolderAsOne(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newScopeEditFixture(t)
 	lib, skill := f.lib, f.skill
@@ -303,6 +308,7 @@ func requireRollbackLeavesTheEditedFolder(t *testing.T, f scopeEditFixture, reco
 
 // 符号链接的目标只是大小写不同(macOS 默认的卷不区分大小写):仍是同一个文件夹。区分大小写的文件系统上跳过。
 func TestUpdateFromScopeTreatsACaseVariantLinkAsTheSameFolder(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newScopeEditFixture(t)
 	lib, skill := f.lib, f.skill

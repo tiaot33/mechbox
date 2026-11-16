@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -20,6 +19,7 @@ import (
 )
 
 func TestPreviewRootSkillPreservesAllAssetsAndRejectsUnsafeArchives(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		extra string
@@ -83,6 +83,7 @@ func TestPreviewRootSkillPreservesAllAssetsAndRejectsUnsafeArchives(t *testing.T
 }
 
 func TestPreviewArchiveExcludesBrokenCandidateAndEnforcesExpandedLimit(t *testing.T) {
+	t.Parallel()
 	var buffer bytes.Buffer
 	writer := zip.NewWriter(&buffer)
 	for _, file := range []struct {
@@ -126,6 +127,7 @@ func TestPreviewArchiveExcludesBrokenCandidateAndEnforcesExpandedLimit(t *testin
 }
 
 func TestPreviewArchiveEnforcesExpandedFileCountLimit(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		files int
@@ -181,6 +183,7 @@ func (infiniteZeros) Read(p []byte) (int, error) {
 }
 
 func TestPreviewArchiveRejectsOversizedDownloadWithoutCreatingPreview(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	stubHTTP(t, func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(io.LimitReader(infiniteZeros{}, 64<<20+1)), Header: make(http.Header)}, nil
@@ -195,6 +198,7 @@ func TestPreviewArchiveRejectsOversizedDownloadWithoutCreatingPreview(t *testing
 }
 
 func TestPreviewArchiveErrorsDoNotExposeSourceCredentials(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	stubHTTP(t, func(*http.Request) (*http.Response, error) { return nil, errors.New("offline") })
 	_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://source.example/archive?token=example-secret"})
@@ -213,6 +217,7 @@ func TestPreviewArchiveErrorsDoNotExposeSourceCredentials(t *testing.T) {
 }
 
 func TestPreviewDescribesValidCandidatesAndDiagnosesInvalidFrontmatter(t *testing.T) {
+	t.Parallel()
 	content := "---\nname: useful\ndescription: >-\n  Helps with\n  useful work.\n---\n# Original\n"
 	spec := serveArchive(t, zipArchive(t, map[string]string{
 		"one/SKILL.md": content,
@@ -241,6 +246,7 @@ func skillDocument(name, body string) string {
 }
 
 func TestPreviewDiscoversCandidatesBeforeReadingUnrelatedFiles(t *testing.T) {
+	t.Parallel()
 	repository := t.TempDir()
 	runGit(t, repository, "init", "-b", "main")
 	for _, root := range []string{"skills/good", ".claude/skills/other", "bad", "node_modules/ignored", "dist/ignored"} {
@@ -280,6 +286,7 @@ func TestPreviewDiscoversCandidatesBeforeReadingUnrelatedFiles(t *testing.T) {
 }
 
 func TestPreviewRejectsInvalidCandidateSetsWithoutCreatingPreview(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		files  map[string]string
@@ -332,6 +339,7 @@ func discoverySources(t *testing.T, files map[string]string, check func(*testing
 }
 
 func TestPreviewDiscoveryPrefersConventionalDirectories(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{
 		"skills/category/useful/SKILL.md": skillDocument("useful", "keep"),
 		"skills/a/b/c/d/SKILL.md":         skillDocument("too-deep", "skip"),
@@ -357,6 +365,7 @@ func TestPreviewDiscoveryPrefersConventionalDirectories(t *testing.T) {
 }
 
 func TestPreviewDiscoveryRootFallbackAndDuplicates(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name        string
 		files       map[string]string
@@ -411,6 +420,7 @@ func TestPreviewDiscoveryRootFallbackAndDuplicates(t *testing.T) {
 }
 
 func TestPreviewDiscoveryPluginManifests(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{
 		".claude-plugin/marketplace.json": `{"metadata":{"pluginRoot":"./plugins"},"plugins":[{"name":"alpha","source":"./a","skills":["./skills/x","./special/q","../outside","./../../escape"]},{"name":"remote","source":{"source":"github","repo":"owner/remote"}},{"name":"unsafe","source":"../outside"}]}`,
 		".claude-plugin/plugin.json":      `{"name":"single","skills":["./extras/solo"]}`,
@@ -438,6 +448,7 @@ func TestPreviewDiscoveryPluginManifests(t *testing.T) {
 }
 
 func TestPreviewDiscoverySubpathUsesRelativeConventions(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{
 		".claude-plugin/plugin.json":      `{"name":"wrong-root","skills":["./area/extras/solo"]}`,
 		"area/.claude-plugin/plugin.json": `{"name":"subpath","skills":["./extras/solo"]}`,
@@ -463,6 +474,7 @@ func TestPreviewDiscoverySubpathUsesRelativeConventions(t *testing.T) {
 }
 
 func TestPreviewDiscoveryIgnoresInvalidManifestEntries(t *testing.T) {
+	t.Parallel()
 	for _, manifest := range []string{
 		`{`,
 		`{"metadata":{"pluginRoot":"plugins"},"plugins":[{"name":"bad","source":"./hidden","skills":["./skills/x"]}]}`,
@@ -487,6 +499,7 @@ func TestPreviewDiscoveryIgnoresInvalidManifestEntries(t *testing.T) {
 }
 
 func TestPreviewDiscoveryChoosesSkillFilenameDeterministically(t *testing.T) {
+	t.Parallel()
 	for _, exact := range []bool{false, true} {
 		files := map[string]string{
 			"demo/Skill.md": skillDocument("sorted-first", "mixed"),
@@ -509,7 +522,7 @@ func TestPreviewDiscoveryChoosesSkillFilenameDeterministically(t *testing.T) {
 					for name, content := range files {
 						temp := filepath.Join(t.TempDir(), "content")
 						writeFile(t, temp, []byte(content), 0o644)
-						command := exec.Command("git", "-C", repo, "hash-object", "-w", temp)
+						command := gitCommand(t, "-C", repo, "hash-object", "-w", temp)
 						output, err := command.Output()
 						if err != nil {
 							t.Fatal(err)
@@ -540,6 +553,7 @@ func TestPreviewDiscoveryChoosesSkillFilenameDeterministically(t *testing.T) {
 }
 
 func TestPreviewTarArchiveMadeByGitArchive(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	repository := t.TempDir()
 	runGit(t, repository, "init", "-b", "main")
@@ -571,6 +585,7 @@ func TestPreviewTarArchiveMadeByGitArchive(t *testing.T) {
 }
 
 func TestPreviewRejectsUnsafeOrBrokenTarArchives(t *testing.T) {
+	t.Parallel()
 	skill := skillDocument("pdf", "body")
 	// entries 打一个含 pdf/SKILL.md 的 tar,再追加 extra 里的条目;普通文件按 Size 填零。
 	entries := func(compress bool, extra ...*tar.Header) []byte {
@@ -636,6 +651,7 @@ func TestPreviewRejectsUnsafeOrBrokenTarArchives(t *testing.T) {
 }
 
 func TestPreviewGzipThatIsNotTarIsNotTreatedAsArchive(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	var buffer bytes.Buffer
 	zipped := gzip.NewWriter(&buffer)

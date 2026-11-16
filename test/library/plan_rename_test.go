@@ -7,6 +7,7 @@ import (
 )
 
 func TestRejectedRenameIsNotGuessedAgain(t *testing.T) {
+	t.Parallel()
 	fx := newRenameFixture(t)
 	ctx := t.Context()
 	plan, err := fx.lib.PlanUpdate(ctx, fx.skill.CollectionID)
@@ -31,6 +32,7 @@ func TestRejectedRenameIsNotGuessedAgain(t *testing.T) {
 }
 
 func TestGuessedRenameCanBeSkipped(t *testing.T) {
+	t.Parallel()
 	fx := newRenameFixture(t)
 	ctx := t.Context()
 	plan, err := fx.lib.PlanUpdate(ctx, fx.skill.CollectionID)

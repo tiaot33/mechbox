@@ -18,6 +18,7 @@ import (
 type Library struct {
 	store    *store.Store
 	client   *http.Client
+	environ  func() []string
 	userHome string
 	home     agentdir.Home
 	distro   string
@@ -72,14 +73,24 @@ func (l *Library) exclusiveOperation(ctx context.Context) (context.Context, func
 	return context.WithValue(ctx, libraryOperationKey{}, heldOperation{library: l, exclusive: true}), l.mu.Unlock
 }
 
-// Option 是 [Open] 的选项:让这个 Library 不用这台机器默认的 HTTP 客户端或用户主目录。应用照常打开自己的库时不用传;
-// 测试用它给每个 Library 接上各自的假远端和临时主目录,互不影响,也就不必改全局的 http.DefaultClient 与 HOME。
+// Option 是 [Open] 的选项:让这个 Library 不用这台机器默认的 HTTP 客户端、用户主目录或环境变量。应用照常打开自己的库时不用传;
+// 测试用它给每个 Library 接上各自的假远端、临时主目录和 git、gh 的配置,互不影响,也就不必改全局的 http.DefaultClient、HOME 与环境变量。
 type Option func(*Library)
 
 // WithHTTPClient 让这个 Library 发出的 HTTP 请求都经 client:读 GitHub、直接下载、well-known 站点,搜索 skills.sh 与查审计,
 // 同步用的 S3,以及调用 AI 服务。不传时用 http.DefaultClient。git 与 gh 命令自己联网,不经它。
 func WithHTTPClient(client *http.Client) Option {
 	return func(l *Library) { l.client = client }
+}
+
+// WithEnvironment 让这个 Library 启动 git、gh 时用 environ 给出的环境变量,而不是这个进程自己的。
+// 返回值和 [os.Environ] 的一样,每项形如 KEY=value,同名的以后面的为准;返回 nil 时当作没有环境变量,不改用进程的。
+// 每次读来源(识别输入、列分支、读来源内容与检查更新的每一步)或查项目里已提交的文件夹时调用一次,
+// 这一步里启动的 git、gh 都用这一份。git 的配置、SSH 命令与超时,gh 的登录,以及到 PATH 的哪些目录里找这两个命令,都按它。
+// WSL 发行版里执行的命令(包括在发行版里查项目已提交的文件夹)与 wsl.exe 本身不受这个选项影响,照常用发行版自己的环境。
+// 不传时用这个进程的环境变量,git、gh 照常用这台机器的配置和登录。
+func WithEnvironment(environ func() []string) Option {
+	return func(l *Library) { l.environ = environ }
 }
 
 // WithHomeDirectory 把 dir 当作当前用户的主目录:各 Agent 的全局目录在它下面,[Library.HomeDirectory] 返回它,
@@ -118,7 +129,7 @@ func Open(path string, options ...Option) (lib *Library, err error) {
 	}
 	opened.store, opened.home = db, home
 	opened.previews, opened.plans = map[FetchPreviewID]*previewState{}, map[UpdatePlanID]*planState{}
-	opened.sources = catalog.New(opened.client, maxFetchFiles, maxFetchSize)
+	opened.sources = catalog.New(opened.client, opened.environ, maxFetchFiles, maxFetchSize)
 	opened.sources.SetToken(token)
 	return opened, nil
 }

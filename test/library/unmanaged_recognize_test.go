@@ -99,6 +99,7 @@ func inspectionsOf(t *testing.T, lib *library.Library, id library.SkillID) map[l
 }
 
 func TestUnmanagedCopyOfALibrarySkillIsThatSkill(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newRecognizeFixture(t)
 	f.publish(t, "https://author.example", "alpha", "v1")
@@ -160,6 +161,7 @@ func TestUnmanagedCopyOfALibrarySkillIsThatSkill(t *testing.T) {
 }
 
 func TestCopyOfALibrarySkillIsFetchedWithoutReadingTheGivenSource(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newRecognizeFixture(t)
 	f.publish(t, "https://author.example", "alpha", "v1")
@@ -188,6 +190,7 @@ func TestCopyOfALibrarySkillIsFetchedWithoutReadingTheGivenSource(t *testing.T) 
 }
 
 func TestUnmanagedCopyOfAnOlderVersionIsThatVersion(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newRecognizeFixture(t)
 	f.publish(t, "https://author.example", "alpha", "v1")
@@ -217,6 +220,7 @@ func TestUnmanagedCopyOfAnOlderVersionIsThatVersion(t *testing.T) {
 }
 
 func TestCopyUpdatedOutsideTheLibraryToTheAuthorsVersionIsANewVersion(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newRecognizeFixture(t)
 	f.publish(t, "https://author.example", "alpha", "v1")
@@ -299,6 +303,7 @@ func TestCopyUpdatedOutsideTheLibraryToTheAuthorsVersionIsANewVersion(t *testing
 }
 
 func TestFindUnmanagedSourcesPrefersSourcesTheLibraryFollows(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newRecognizeFixture(t)
 	body := "one\ntwo\nthree\nfour\nfive\nsix"

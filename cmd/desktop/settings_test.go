@@ -11,6 +11,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/tiaot33/mechbox/internal/library"
+	"github.com/tiaot33/mechbox/internal/library/platformtest"
 )
 
 func TestSettingsDefaultWhenNothingStored(t *testing.T) {
@@ -125,11 +126,11 @@ func TestAppVersionComesFromBuildConfig(t *testing.T) {
 	}
 }
 
-// MECHBOX_TEST_WSL_SHELL 让「WSL 发行版」就是本机的 sh;每个发行版的 sh 启动一次、一直用下去,所以各处用不同的名字。
+// platformtest.EmulateWSL 让「WSL 发行版」就是本机的 sh;每个发行版的 sh 启动一次、一直用下去,所以各处用不同的名字。
 func TestWSLDistroSetting(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("MECHBOX_TEST_WSL_SHELL", "sh")
+	platformtest.EmulateWSL(t, "sh")
 	lib := startLibrary(t)
 	app := startApp(t, lib)
 
@@ -142,7 +143,7 @@ func TestWSLDistroSetting(t *testing.T) {
 		t.Fatalf("HomeDirectory = %q", got)
 	}
 
-	t.Setenv("MECHBOX_TEST_WSL_SHELL", "/nonexistent/sh")
+	platformtest.EmulateWSL(t, "/nonexistent/sh")
 	settings.WSLDistro = "broken-distro"
 	if _, err := app.SaveSettings(t.Context(), settings); !library.IsCode(err, library.FailedPrecondition) {
 		t.Fatalf("SaveSettings with a broken distro = %v", err)
@@ -161,7 +162,7 @@ func TestWSLDistroSetting(t *testing.T) {
 
 func TestWSLDistroUnavailableAtStartup(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("MECHBOX_TEST_WSL_SHELL", "/nonexistent/sh")
+	platformtest.EmulateWSL(t, "/nonexistent/sh")
 	path := filepath.Join(t.TempDir(), "library.db")
 	created := NewLibraryService(path)
 	if err := created.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
@@ -200,7 +201,7 @@ func TestWSLDistroUnavailableAtStartup(t *testing.T) {
 		t.Fatalf("RetryWSLDistro = %v, error %q", err, app.WSLDistroError())
 	}
 
-	t.Setenv("MECHBOX_TEST_WSL_SHELL", "sh")
+	platformtest.EmulateWSL(t, "sh")
 	if err := app.RetryWSLDistro(t.Context()); err != nil {
 		t.Fatalf("RetryWSLDistro: %v", err)
 	}

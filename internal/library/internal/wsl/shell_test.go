@@ -31,7 +31,7 @@ func localShells(t *testing.T) []string {
 func eachShell(t *testing.T, test func(t *testing.T)) {
 	for _, shell := range localShells(t) {
 		t.Run(shell, func(t *testing.T) {
-			t.Setenv(testShell, shell)
+			t.Cleanup(Emulate(shell))
 			test(t)
 		})
 	}
@@ -93,7 +93,7 @@ func TestRunReportsDeadShell(t *testing.T) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\necho no such distribution >&2\nexit 1\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv(testShell, script)
+	t.Cleanup(Emulate(script))
 	_, err := Run(context.Background(), "gone", `true`)
 	if !errors.Is(err, ErrUnavailable) || !strings.Contains(err.Error(), "no such distribution") {
 		t.Fatalf("err = %v", err)
@@ -153,7 +153,7 @@ func TestQueryReturnsTextExactly(t *testing.T) {
 }
 
 func TestDistrosSkipsMessagesAndDocker(t *testing.T) {
-	t.Setenv(testShell, "sh")
+	t.Cleanup(Emulate("sh"))
 	distros, err := Distros(context.Background())
 	if err != nil || len(distros) != 1 || distros[0] != "test" {
 		t.Fatalf("Distros = %v, %v", distros, err)

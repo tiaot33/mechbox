@@ -14,6 +14,7 @@ import (
 // 计入角标
 
 func TestPendingCountsChangesAndDeletionsButNotLocalSources(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	local, source := fetchLocalSkill(t, lib, "local", "v1")
@@ -46,6 +47,7 @@ func TestPendingCountsChangesAndDeletionsButNotLocalSources(t *testing.T) {
 }
 
 func TestLateCheckKeepsNewerConclusionSkipAndNewSkills(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	gate := newNetworkGate()
@@ -93,6 +95,7 @@ func TestLateCheckKeepsNewerConclusionSkipAndNewSkills(t *testing.T) {
 }
 
 func TestCheckStartedBeforeKeepDoesNotUndoIt(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	gate := newNetworkGate()
@@ -130,6 +133,7 @@ func TestCheckStartedBeforeKeepDoesNotUndoIt(t *testing.T) {
 }
 
 func TestCheckOverwritingAFailureStillClearsAnEarlierKeep(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	gate := newNetworkGate()

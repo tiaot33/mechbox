@@ -209,7 +209,7 @@ func (l *Library) withSameFolders(ctx context.Context, operation string, folders
 	if err != nil {
 		return nil, err
 	}
-	same := indexSameFolders(found, committedFolders{}, l.sourceRecords())
+	same := indexSameFolders(found, l.committedFolders(), l.sourceRecords())
 	result := slices.Clone(folders)
 	for _, folder := range folders {
 		for _, other := range same.of(ctx, folder.target, folder.path) {

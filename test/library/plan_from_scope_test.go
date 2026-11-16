@@ -9,6 +9,7 @@ import (
 )
 
 func TestPlanUpdateFromScopeNeedsAnEditedValidFolder(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newScopeEditFixture(t)
 	lib, skill := f.lib, f.skill

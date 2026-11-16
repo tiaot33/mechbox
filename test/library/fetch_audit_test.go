@@ -68,6 +68,7 @@ func sampleAuditEntries(name string) []library.AuditEntry {
 }
 
 func TestGetCandidateAuditLoadsOnDemandAndCaches(t *testing.T) {
+	t.Parallel()
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"first/SKILL.md":  {content: []byte(skillDocument("first", "first body")), mode: 0o644},
 		"second/SKILL.md": {content: []byte(skillDocument("second", "second body")), mode: 0o644},
@@ -112,6 +113,7 @@ func TestGetCandidateAuditLoadsOnDemandAndCaches(t *testing.T) {
 }
 
 func TestGetCandidateAuditValidatesHandleAndCandidate(t *testing.T) {
+	t.Parallel()
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"first/SKILL.md":  {content: []byte(skillDocument("first", "first body")), mode: 0o644},
 		"second/SKILL.md": {content: []byte(skillDocument("second", "second body")), mode: 0o644},
@@ -189,6 +191,7 @@ func TestGetCandidateAuditValidatesHandleAndCandidate(t *testing.T) {
 }
 
 func TestGetCandidateAuditWorksOnCloneFallback(t *testing.T) {
+	t.Parallel()
 	repo := writeGitHubRepo(t, map[string]repoFile{"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644}})
 	redirectGitHubClone(t, repo)
 	stubHTTP(t, func(*http.Request) (*http.Response, error) {
@@ -209,6 +212,7 @@ func TestGetCandidateAuditWorksOnCloneFallback(t *testing.T) {
 }
 
 func TestGetCandidateAuditIsBoundedInTimeAndHonorsCancel(t *testing.T) {
+	t.Parallel()
 	repo := writeGitHubRepo(t, map[string]repoFile{"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644}})
 	fx := inspectGitHubRepo(t, repo)
 	synctest.Test(t, func(t *testing.T) {
@@ -252,6 +256,7 @@ func TestGetCandidateAuditIsBoundedInTimeAndHonorsCancel(t *testing.T) {
 }
 
 func TestGetCandidateAuditFailuresDegradeToAvailability(t *testing.T) {
+	t.Parallel()
 	repo := writeGitHubRepo(t, map[string]repoFile{"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644}})
 	fx := inspectGitHubRepo(t, repo)
 	for _, tc := range []struct {

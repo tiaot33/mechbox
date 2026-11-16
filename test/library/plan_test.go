@@ -14,6 +14,7 @@ import (
 // 更新计划
 
 func TestUpdatePlanShowsRisksCommitsDiffAndSourceContent(t *testing.T) {
+	t.Parallel()
 	for _, mode := range gitHubModes {
 		t.Run(mode.name, func(t *testing.T) {
 			ctx := t.Context()
@@ -187,6 +188,7 @@ func TestUpdatePlanListsEachInstallOfChangedSkills(t *testing.T) {
 // 跳过
 
 func TestSkipStopsCountingUntilTheSkillChangesAgain(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	server := newArchiveServer(t, zipArchive(t, map[string]string{"a/SKILL.md": skillDocument("a", "v1"), "b/SKILL.md": skillDocument("b", "v1")}), "")
