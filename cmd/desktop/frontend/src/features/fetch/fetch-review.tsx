@@ -112,9 +112,15 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
   for (const c of candidates) groups.set(parentDir(c.path), [...(groups.get(parentDir(c.path)) ?? []), c]);
   const grouped = groups.size > 1;
 
-  // 勾上的候选提到了同一份预览里没勾、也还没入库的候选：行里给一个按钮把它们一起勾上(技能库只按 SKILL.md、按规则认出)。
+  // 勾上的候选提到了同一份预览里没勾、也还没入库的候选：行里写出它们，点一下一起勾上(技能库只按 SKILL.md、按规则认出)。
+  // 库里已有同名技能的候选默认不勾、要用户看过提醒自己决定，这里也不算：库里那个就能满足这次提到。
   const unpickedMentions = (c: Candidate) =>
-    selected.has(c.name) ? (c.mentions ?? []).filter((name) => !selected.has(name) && fresh.some((x) => x.name === name)) : [];
+    selected.has(c.name)
+      ? (c.mentions ?? []).filter((name) => {
+          const other = fresh.find((x) => x.name === name);
+          return !selected.has(name) && !!other && twinsOf(other).length === 0;
+        })
+      : [];
 
   const row = (c: Candidate, dir: string) => {
     const unpicked = unpickedMentions(c);
@@ -162,14 +168,14 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
             <Button
               variant="ghost"
               size="sm"
-              className="candidate-mentions shrink-0"
+              className="candidate-mentions max-w-[40%] min-w-0 shrink"
               title={t.mentionsUnpickedTitle(unpicked)}
               onClick={(e) => {
                 e.preventDefault();
                 setSelected((set) => new Set([...set, ...unpicked]));
               }}
             >
-              {t.mentionsUnpicked(unpicked.length)}
+              <span className="truncate">{t.mentionsUnpicked(unpicked)}</span>
             </Button>
           )}
           <span className="candidate-desc min-w-0 grow truncate text-caption text-foreground-secondary">{c.description}</span>

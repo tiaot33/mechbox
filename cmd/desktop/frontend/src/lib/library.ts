@@ -125,7 +125,8 @@ async function readSnapshot(signal: AbortSignal): Promise<Snapshot> {
     list(wails(signal, LibraryService.InspectSkillScopes({}))),
     list(wails(signal, LibraryService.ListUnmanagedSkills())),
     list(wails(signal, LibraryService.ListSameNameSkills())),
-    list(wails(signal, LibraryService.ListMissingMentions({}))),
+    // 提到关系只是提示：读不出来时按没有，不让整个主界面打不开。
+    list(wails(signal, LibraryService.ListMissingMentions())).catch(() => []),
     wails(signal, AppService.Settings()),
   ]);
   findSources(unmanaged);

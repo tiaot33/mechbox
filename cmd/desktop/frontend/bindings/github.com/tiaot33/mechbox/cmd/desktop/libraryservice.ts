@@ -165,12 +165,16 @@ export function ListGroups(): $CancellablePromise<library$0.Group[] | null> {
     return $Call.ByID(3063702138);
 }
 
+export function ListLostMentions(gone: library$0.SkillInScope[] | null): $CancellablePromise<library$0.MissingMention[] | null> {
+    return $Call.ByID(2612168027, gone);
+}
+
 export function ListMentions(filter: library$0.MentionsFilter): $CancellablePromise<library$0.Mentions> {
     return $Call.ByID(3136146389, filter);
 }
 
-export function ListMissingMentions(req: library$0.MissingMentionsRequest): $CancellablePromise<library$0.MissingMention[] | null> {
-    return $Call.ByID(3794824745, req);
+export function ListMissingMentions(): $CancellablePromise<library$0.MissingMention[] | null> {
+    return $Call.ByID(3794824745);
 }
 
 export function ListRegisteredProjects(): $CancellablePromise<library$0.RegisteredProject[] | null> {

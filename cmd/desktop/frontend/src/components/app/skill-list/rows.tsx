@@ -2,7 +2,7 @@
 // 平常的信息用淡色，只有要处理的(有新版本、来源里已删除、同名、要重新安装)才上色。
 // 作用域页与项目页的行首一格只表示 Agent 在这里用不用：开 = 在用，关 = 没在用;最后一列写是谁装的。
 // 未纳管技能不在技能库里，行首没有开关，是"入库"按钮;在"不在技能库里"一节里时最后一列不再写这句。
-// 作用域页、项目页上装在这里的技能提到的技能在这里找不到时，状态里有一条提示级的提醒，库里有的点一下装到这里。
+// 作用域页、项目页上装在这里的技能提到的技能在这里找不到时，状态里有一条提示级的提醒，悬停写出是哪几个。
 // 库里技能的行点开详情抽屉，可以拖到右栏作用域(直接安装)或左栏、节标题上的组(加入该组);
 // 技能库页、作用域页与项目页的行开头有勾选框，勾选的几个技能用底部的操作栏一起操作，拖勾选着的一行就是拖它们全部。
 import { useEffect, useRef } from "react";
@@ -47,8 +47,8 @@ import { ui } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { doneFlash, doneFresh, toggleDrawer, useView } from "@/lib/view";
 import { fetchUnmanaged } from "@/features/fetch/fetch-unmanaged";
-import { installMentioned, installSkill, uninstallSkill } from "@/features/install/install";
-import { installable, missingNames } from "@/lib/mentions";
+import { installSkill, uninstallSkill } from "@/features/install/install";
+import { missingAt, missingNames } from "@/lib/mentions";
 import { openUpdate } from "@/features/update/update";
 import { AlertIcon, Badge, MarkIcon, type Alert } from "@/components/ui/badge";
 import type { Mark } from "@/lib/level";
@@ -135,7 +135,8 @@ export function SkillRow(props: {
   // 这一行的状态：技能本身的、它装出去的几处(技能库页)或这一处(作用域页)的提醒与更新，在最后一列只写最要紧的一条，
   // 鼠标停住时逐条列出;一行只有这一个图标。
   // 装在这里的技能提到的、在这里找不到的技能(按规则和已存下的 AI 判断结论)。
-  const unfound = scope && here ? s.missingMentions.filter((m) => m.skill_id === skill.id && scopeKey(m.scope) === scope) : [];
+  // 项目里共用目录的几个 Agent 是一行，它们各自找不到的都算(见 lib/mentions 的 missingAt)。
+  const unfound = scope && here ? missingAt(s, s.missingMentions, [{ skill_id: skill.id, scope: parseScope(scope) }]) : [];
   const placeAlerts: Alert[] = scope
     ? [place && needsReinstall(place) && (skillScopeStatus(place.status, place.source_latest) as Alert)].filter((x): x is Alert => !!x)
     : reinstallAlerts(s, skill.id);
@@ -269,18 +270,11 @@ export function SkillRow(props: {
   );
 }
 
-// unfoundAlert 是装在这里的技能提到的技能在这里找不到：提示一级，悬停写出是哪几个;库里有的点一下装到这里。
+// unfoundAlert 是装在这里的技能提到的技能在这里找不到：提示一级，悬停写出是哪几个。
 function unfoundAlert(t: Messages["list"], unfound: MissingMention[]): Alert | undefined {
   if (!unfound.length) return undefined;
   const names = missingNames(unfound);
-  const targets = installable(unfound);
-  return {
-    tone: "info",
-    label: t.mentionsMissing(names.length),
-    tip: t.mentionsMissingTitle(names, targets.length > 0),
-    className: "mentions-missing",
-    onClick: targets.length ? () => void installMentioned(targets) : undefined,
-  };
+  return { tone: "info", label: t.mentionsMissing(names.length), tip: t.mentionsMissingTitle(names), className: "mentions-missing" };
 }
 
 // updateAlerts 是一个技能和更新有关的要处理的事，技能库页一行的状态和更新页「要处理的技能」共用一份:

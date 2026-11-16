@@ -16,6 +16,7 @@ import {
   type GroupID,
   type InstallPlan,
   type MissingMention,
+  type SkillInScope,
   type Scope,
   type Skill,
   type SkillID,
@@ -26,7 +27,7 @@ import { detachedBy, lostEdits } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, toLibraryError, useSnapshot, type Snapshot } from "@/lib/library";
-import { installable, missingAt, missingNames, newlyMissing, type Placed } from "@/lib/mentions";
+import { installable, mergeMissing, missingAt, missingNames } from "@/lib/mentions";
 import {
   agentName,
   agentNameIn,
@@ -78,14 +79,15 @@ export async function installSkill(id: SkillID, scope: Scope) {
   if (done) await toastInstalled([{ skill_id: id, scope }], t.installed(plan.name, where));
 }
 
-// toastInstalled 是装好之后的提示：装上的这几处提到的技能在那里找不到时写出名字，库里有的给一个按钮一起装上;
-// 都找得到时只提示 done。done 为空(已经列出了结果)时只在有找不到的时候提示。
-async function toastInstalled(placed: Placed[], done?: string) {
+// toastInstalled 是装好之后的提示：装上的这几处提到的技能在那里找不到时写出名字，库里有、那里还没有安装记录的给一个按钮一起装上
+// (有记录、文件夹不在了的要重新安装，不在这里装);都找得到时只提示 done。done 为空(已经列出了结果)时只在有找不到的时候提示。
+// 「照着另一个 Agent 装」、加进已安装的组也用它。
+export async function toastInstalled(placed: SkillInScope[], done?: string) {
   const t = messages().actions;
   let missing: MissingMention[] = [];
   if (placed.length) {
     try {
-      missing = missingAt((await LibraryService.ListMissingMentions({})) ?? [], placed);
+      missing = missingAt(currentSnapshot(), (await LibraryService.ListMissingMentions()) ?? [], placed);
     } catch {
       // 读不出提到关系时只说装好了。
     }
@@ -94,50 +96,62 @@ async function toastInstalled(placed: Placed[], done?: string) {
     if (done) ui.toast(done);
     return;
   }
+  const s = currentSnapshot();
   const skills = new Set(missing.map((m) => m.skill_id)).size;
   const names = missingNames(missing);
-  const targets = installable(missing);
+  const targets = installable(missing).filter((p) => !skillScopeIn(s, p.skill_id, scopeKey(p.scope)));
+  const count = new Set(targets.map((p) => p.skill_id)).size;
   ui.toast(
     done ? t.installedMissing(done, skills, names) : t.missingThere(skills, names),
     "ok",
-    targets.length ? { label: t.installMentioned(targets.length), onClick: () => void installMentioned(targets) } : undefined,
+    targets.length ? { label: t.installMentioned(count), onClick: () => void installMentioned(targets) } : undefined,
   );
 }
 
 // installMentioned 把提到的、库里有的技能装到提到它的技能所在的作用域：逐处直接安装，和"安装到…"一样处理同名文件夹。
-export async function installMentioned(targets: Placed[]) {
+async function installMentioned(targets: SkillInScope[]) {
   const s = currentSnapshot();
   const t = messages().actions;
   const items = targets.flatMap((p) => {
     const skill = s.skills.find((x) => x.id === p.skill_id);
     return skill ? [{ skill, scope: p.scope }] : [];
   });
-  await installEach(items, t.installMentionedTitle(items.length), t.installedMentioned(items.length));
+  const n = new Set(items.map((x) => x.skill.id)).size;
+  await installEach(items, t.installMentionedTitle(n), t.installedMentioned(n));
 }
 
-// lostMentions 是卸掉这几处的文件夹之后才会找不到被提到技能的地方;读不出来时当作没有，不拦着卸载。
-export async function lostMentions(gone: Placed[]): Promise<MissingMention[]> {
+// lostMentions 是卸掉这几处的文件夹之后才会找不到被提到技能的地方(技能库一次算出);读不出来时当作没有，不拦着卸载。
+// 项目里共用目录的几个 Agent 的同一条只留一条。
+export async function lostMentions(gone: SkillInScope[]): Promise<MissingMention[]> {
   if (!gone.length) return [];
-  const without = gone.map((p) => ({ skill_id: p.skill_id, scope: p.scope }));
   try {
-    const [before, after] = await Promise.all([LibraryService.ListMissingMentions({}), LibraryService.ListMissingMentions({ without })]);
-    return newlyMissing(before ?? [], after ?? []);
+    const lost = await LibraryService.ListLostMentions(gone.map((p) => ({ skill_id: p.skill_id, scope: p.scope })));
+    return mergeMissing(currentSnapshot(), lost ?? []);
   } catch {
     return [];
   }
 }
 
-// LostMentions 是卸载、删除确认里的一段：哪些装着的技能会因此找不到它们提到的技能。removing 是从库里删除(选删掉文件夹时才这样)。
-export function LostMentions({ lost, removing = false }: { lost: MissingMention[]; removing?: boolean }) {
+// lostMentionLines 是 lost 逐条的说法：哪个技能、在哪、找不到谁。
+export function lostMentionLines(s: Snapshot, lost: MissingMention[]): string[] {
+  const t = messages().actions;
+  return lost.map((m) => t.lostMention(skillName(s, m.skill_id), scopeLabel(s, m.scope), m.name));
+}
+
+// LostMentions 是卸载确认里的一段：哪些装着的技能会因此找不到它们提到的技能。prefix 是限定语(如移出组时「选一并卸载时」)。
+export function LostMentions({ lost, prefix }: { lost: MissingMention[]; prefix?: string }) {
   const s = useSnapshot();
   const t = useT().actions;
   if (!lost.length) return null;
   return (
     <Notice alert className="lost-mentions">
-      <span className="font-semibold text-foreground">{t.lostMentionsLead(removing)}</span>
+      <span className="font-semibold text-foreground">
+        {prefix}
+        {t.lostMentionsLead}
+      </span>
       <ul className="mt-1">
-        {lost.map((m) => (
-          <li key={`${m.skill_id}|${scopeKey(m.scope)}|${m.name}`}>{t.lostMention(skillName(s, m.skill_id), scopeLabel(s, m.scope), m.name)}</li>
+        {lostMentionLines(s, lost).map((line) => (
+          <li key={line}>{line}</li>
         ))}
       </ul>
     </Notice>
@@ -262,7 +276,7 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
     overwrite = choice === "overwrite";
   }
   let installed = 0;
-  const placed: Placed[] = [];
+  const placed: SkillInScope[] = [];
   let failed = planned.length < items.length;
   await ui.run(async () => {
     for (const { skill, scope, plan } of planned) {

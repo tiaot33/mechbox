@@ -9,7 +9,7 @@
 // - 一项装不上不影响其余的;全部装上时只提示装了几个，有没装上的才列出结果。
 import { useEffect, useRef, useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
-import { GroupMemberOutcome, InstallPlanStatus, type AgentCode, type Group, type ProjectID, type Skill } from "@bindings/internal/library";
+import { GroupMemberOutcome, InstallPlanStatus, type AgentCode, type Group, type ProjectID, type Skill, type SkillInScope } from "@bindings/internal/library";
 import { copyable, copyDefaults, copyOverwriteCount, copyOverwrites, copyPlaceByDefault, type CopyPlanned } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
@@ -42,7 +42,7 @@ import { ListBox, ListRow } from "@/components/ui/list";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Notice } from "@/components/ui/notice";
 import { memberRows, showResults, type ResultRow } from "@/components/app/results";
-import { occupiedReason } from "./install";
+import { occupiedReason, toastInstalled } from "./install";
 
 // CopyKind 是一种照装：照着谁(sources 的 key)、装到的那一处的名字(toName)、要装的各处、各处的标题与确认框里另外说的话。
 // 文案都在调用时取，跟随当前界面语言。
@@ -479,6 +479,7 @@ async function runCopy(
     rows.push({ label, outcome: a.failed, tone: "critical", reason: describeError(toLibraryError(e)) });
     failed = true;
   };
+  const placed: SkillInScope[] = [];
   await ui.run(
     async () => {
       for (const p of places) {
@@ -499,7 +500,11 @@ async function runCopy(
           try {
             const results = (await LibraryService.InstallGroup(g.id, scope, { overwrite: overwrite.has(key) })) ?? [];
             groups++;
-            for (const r of results) if (r.outcome === GroupMemberOutcome.MemberInstalled) installed.add(`${scopeKey(scope)}:${r.skill_id}`);
+            for (const r of results) {
+              if (r.outcome !== GroupMemberOutcome.MemberInstalled) continue;
+              installed.add(`${scopeKey(scope)}:${r.skill_id}`);
+              placed.push({ skill_id: r.skill_id, scope });
+            }
             const skipped = results.filter((r) => r.outcome === GroupMemberOutcome.MemberSkipped);
             // 有不是库装的同名文件夹而没勾覆盖的，是用户自己选的跳过，不再列出。
             rows.push(...memberRows(s, skipped.filter((r) => overwrite.has(key) || !untrackedSkip(plans.get(key), r.skill_id))));
@@ -525,6 +530,7 @@ async function runCopy(
           try {
             await LibraryService.Install(x.id, scope, { overwrite: copyOverwrites(plan.status) });
             installed.add(`${scopeKey(scope)}:${x.id}`);
+            placed.push({ skill_id: x.id, scope });
           } catch (e) {
             fail(`${x.name} → ${where}`, e);
           }
@@ -533,8 +539,13 @@ async function runCopy(
     },
     { failed: () => failed },
   );
-  if (rows.length) await showResults(t.resultsTitle(fromName, toName), rows, t.summary(installed.size, rows.length));
-  else ui.toast(t.done(fromName, toName, installed.size, groups));
+  // 装好后的提示和别处安装一样，写出装上的技能在那里找不到的被提到技能。
+  if (rows.length) {
+    await showResults(t.resultsTitle(fromName, toName), rows, t.summary(installed.size, rows.length));
+    await toastInstalled(placed);
+  } else {
+    await toastInstalled(placed, t.done(fromName, toName, installed.size, groups));
+  }
 }
 
 const untrackedSkip = (planned: Planned | undefined, id: number) =>

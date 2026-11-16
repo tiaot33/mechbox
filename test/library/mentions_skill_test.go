@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/tiaot33/mechbox/internal/library"
@@ -35,13 +34,22 @@ func install(t *testing.T, lib *library.Library, id library.SkillID, scope libra
 	}
 }
 
-func listMissingMentions(t *testing.T, lib *library.Library, without ...library.SkillInScope) []library.MissingMention {
+func listMissingMentions(t *testing.T, lib *library.Library) []library.MissingMention {
 	t.Helper()
-	missing, err := lib.ListMissingMentions(t.Context(), library.MissingMentionsRequest{Without: without})
+	missing, err := lib.ListMissingMentions(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 	return missing
+}
+
+func listLostMentions(t *testing.T, lib *library.Library, gone ...library.SkillInScope) []library.MissingMention {
+	t.Helper()
+	lost, err := lib.ListLostMentions(t.Context(), gone)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return lost
 }
 
 func requireMissingMentions(t *testing.T, got, want []library.MissingMention) {
@@ -50,7 +58,7 @@ func requireMissingMentions(t *testing.T, got, want []library.MissingMention) {
 		want = []library.MissingMention{}
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("ListMissingMentions =\n  %+v\nwant\n  %+v", got, want)
+		t.Fatalf("mentions =\n  %+v\nwant\n  %+v", got, want)
 	}
 }
 
@@ -180,13 +188,13 @@ func TestListMissingMentionsLooksInTheScopeAndTheAgentsGlobalDirectory(t *testin
 	})
 }
 
-// 卸载、从库里删除之前用 Without 看会有哪些技能因此找不到它:当那几处的文件夹已经不在,
-// 靠全局目录找到它的项目里的技能也算;卸掉的技能自己不再列出。作用域不合法返回 InvalidArgument。
-func TestListMissingMentionsWithoutPlacesAboutToGo(t *testing.T) {
+// 卸载、从库里删除之前看会有哪些技能因此找不到它:当那几处的文件夹已经不在,靠全局目录找到它的项目里的技能也算;
+// 卸掉的技能自己不再列出;卸掉之前就已经找不到的不算。作用域不合法返回 InvalidArgument。
+func TestListLostMentionsCountsOnlyWhatTheRemovalBreaks(t *testing.T) {
 	ctx := t.Context()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	root := mentionSource(t, map[string]string{"entry": "Run /ship.\n", "ship": "# ship\n"})
+	root := mentionSource(t, map[string]string{"entry": "Run /ship and /helper.\n", "ship": "# ship\n", "helper": "# helper\n"})
 	lib := openTestLibrary(t)
 	skills := fetchMentionSource(t, lib, root)
 	project, err := lib.RegisterProject(ctx, t.TempDir())
@@ -199,20 +207,23 @@ func TestListMissingMentionsWithoutPlacesAboutToGo(t *testing.T) {
 	install(t, lib, ship, global)
 	install(t, lib, entry, global)
 	install(t, lib, entry, inProject)
-	requireMissingMentions(t, listMissingMentions(t, lib), nil)
+	if got := listMissingMentions(t, lib); len(got) != 2 {
+		t.Fatalf("ListMissingMentions = %+v; want helper missing in both places", got)
+	}
 
-	requireMissingMentions(t, listMissingMentions(t, lib, library.SkillInScope{SkillID: ship, Scope: global}), []library.MissingMention{
+	requireMissingMentions(t, listLostMentions(t, lib, library.SkillInScope{SkillID: ship, Scope: global}), []library.MissingMention{
 		{SkillID: entry, Scope: global, Name: "ship", MentionedSkillID: ship},
 		{SkillID: entry, Scope: inProject, Name: "ship", MentionedSkillID: ship},
 	})
-	requireMissingMentions(t, listMissingMentions(t, lib,
+	requireMissingMentions(t, listLostMentions(t, lib,
 		library.SkillInScope{SkillID: ship, Scope: global}, library.SkillInScope{SkillID: entry, Scope: global},
 	), []library.MissingMention{
 		{SkillID: entry, Scope: inProject, Name: "ship", MentionedSkillID: ship},
 	})
-	requireMissingMentions(t, listMissingMentions(t, lib, library.SkillInScope{SkillID: ship, Scope: inProject}), nil)
+	requireMissingMentions(t, listLostMentions(t, lib, library.SkillInScope{SkillID: ship, Scope: inProject}), nil)
+	requireMissingMentions(t, listLostMentions(t, lib), nil)
 
-	_, err = lib.ListMissingMentions(ctx, library.MissingMentionsRequest{Without: []library.SkillInScope{{SkillID: ship, Scope: library.Scope{Kind: "nowhere", Agent: library.AgentClaudeCode}}}})
+	_, err = lib.ListLostMentions(ctx, []library.SkillInScope{{SkillID: ship, Scope: library.Scope{Kind: "nowhere", Agent: library.AgentClaudeCode}}})
 	requireLibraryError(t, err, library.InvalidArgument)
 }
 
@@ -232,35 +243,4 @@ func TestListMissingMentionsSkipsSkillsWhoseFolderIsGone(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireMissingMentions(t, listMissingMentions(t, lib), nil)
-}
-
-// 入库预览的候选写出它的 SKILL.md 提到了同一份预览里的哪些候选:点名写法和几个词连成的名字算,
-// 单个词的名字不交给 AI、不算;其他 Markdown 文件不读;整份预览里超过一半(至少 3 个)候选都有的一行不算。
-func TestPreviewFetchListsCandidatesMentionedInSkillMD(t *testing.T) {
-	shared := "Shared: always run /helper first."
-	root := mentionSource(t, map[string]string{
-		"entry":         "Run /ship, then writing-plans.\nCould you review this?\n" + shared + "\n",
-		"ship":          "# ship\n" + shared + "\n",
-		"writing-plans": "# writing-plans\n" + shared + "\n",
-		"review":        "# review\n",
-		"helper":        "# helper\n",
-	})
-	writeFile(t, filepath.Join(root, "entry", "references", "more.md"), []byte("Also /review.\n"), 0o644)
-	lib := openTestLibrary(t)
-	preview, err := lib.PreviewFetch(t.Context(), localRequest(root))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := map[string][]string{}
-	for _, candidate := range preview.Candidates {
-		if candidate.Mentions != nil {
-			got[candidate.Name] = candidate.Mentions
-		}
-	}
-	if want := map[string][]string{"entry": {"ship", "writing-plans"}}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("candidate mentions = %v; want %v", got, want)
-	}
-	if strings.Contains(strings.Join(got["entry"], ","), "helper") {
-		t.Fatal("a line shared by most candidates counts as a mention")
-	}
 }

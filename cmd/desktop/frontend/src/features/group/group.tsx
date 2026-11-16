@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
 import { DeleteNotes } from "@/components/app/link-notes";
-import { inspectedSnapshot } from "@/features/install/install";
+import { inspectedSnapshot, LostMentions, lostMentions, toastInstalled } from "@/features/install/install";
 import { memberRows, runEach, showResults, type ResultRow } from "@/components/app/results";
 
 export async function addSkillToGroup(groupID: GroupID, id: SkillID) {
@@ -31,8 +31,15 @@ export async function addSkillToGroup(groupID: GroupID, id: SkillID) {
   if (skipped.length) {
     await showResults(t.addedToGroupTitle(skillName(s, id), groupName(s, groupID)), memberRows(s, results), t.addedToGroupPartly);
   } else {
-    ui.toast(t.addedToGroup(skillName(s, id), groupName(s, groupID), results.length));
+    await toastInstalled(placedBy(results), t.addedToGroup(skillName(s, id), groupName(s, groupID), results.length));
+    return;
   }
+  await toastInstalled(placedBy(results));
+}
+
+// placedBy 是加进组时随组安装装上(或已经在那里)的各处，装好后的提示按它看提到的技能找不找得到。
+function placedBy(results: GroupMemberResult[]): GroupMemberResult[] {
+  return results.filter((r) => r.outcome !== GroupMemberOutcome.MemberSkipped);
 }
 
 // addCollectionToGroup 把集合里还不在组里的技能逐个加入组(集合拖到组上、左栏集合的右键菜单)。每个技能各是一次写操作，
@@ -96,8 +103,9 @@ async function addEachToGroup(
   if (!outcomes) return false;
   const added = outcomes.filter((o) => !o.error);
   const skipped = added.some((o) => o.results.some((r) => r.outcome === GroupMemberOutcome.MemberSkipped));
+  const placed = added.flatMap((o) => placedBy(o.results));
   if (added.length === ids.length && !skipped) {
-    ui.toast(text.done(ids.length, s.groupInstalls.filter((a) => a.group_id === groupID).length));
+    await toastInstalled(placed, text.done(ids.length, s.groupInstalls.filter((a) => a.group_id === groupID).length));
     return true;
   }
   const rows = outcomes.flatMap((o): ResultRow[] => {
@@ -106,6 +114,7 @@ async function addEachToGroup(
     return [{ label: skillName(s, o.id), outcome: t.memberAdded, tone: "plain" }];
   });
   await showResults(text.title(added.length, ids.length), rows, skipped ? t.membersAddedPartly : undefined);
+  await toastInstalled(placed);
   return added.length > 0;
 }
 
@@ -120,12 +129,15 @@ export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {
     const inspected = await inspectedSnapshot({ skill_id: id });
     if (!inspected) return;
     s = inspected;
+    const gone = folderPlaces(s, groupOnly(s, groupID, [id]));
+    const unfound = await lostMentions(gone);
     const choice = await ui.confirm({
       title: t.removeFromGroupTitle(skillName(s, id), groupName(s, groupID)),
       body: (
         <>
           <Hint>{t.removeFromGroupHint(installed.length)}</Hint>
-          <DeleteNotes deleted={folderPlaces(s, groupOnly(s, groupID, [id]))} prefix={t.ifUninstallToo} />
+          <DeleteNotes deleted={gone} prefix={t.ifUninstallToo} />
+          <LostMentions lost={unfound} prefix={t.ifUninstallToo} />
         </>
       ),
       choices: removalChoices(),
@@ -155,12 +167,15 @@ export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[])
     const inspected = await inspectedSnapshot({});
     if (!inspected) return false;
     s = inspected;
+    const gone = folderPlaces(s, groupOnly(s, groupID, ids));
+    const unfound = await lostMentions(gone);
     const choice = await ui.confirm({
       title: t.pickedRemoveFromGroupTitle(ids.length, group),
       body: (
         <>
           <Hint>{t.removeFromGroupHint(installed.length)}</Hint>
-          <DeleteNotes deleted={folderPlaces(s, groupOnly(s, groupID, ids))} prefix={t.ifUninstallToo} />
+          <DeleteNotes deleted={gone} prefix={t.ifUninstallToo} />
+          <LostMentions lost={unfound} prefix={t.ifUninstallToo} />
         </>
       ),
       choices: removalChoices(),
@@ -222,12 +237,15 @@ export async function deleteGroup(groupID: GroupID) {
     s = inspected;
   }
   const t = messages().actions;
+  const gone = folderPlaces(s, groupOnly(s, groupID, s.groups.find((g) => g.id === groupID)?.members ?? []));
+  const unfound = await lostMentions(gone);
   const choice = await ui.confirm({
     title: t.deleteGroupTitle(groupName(s, groupID)),
     body: (
       <>
         <Hint>{t.deleteGroupHint(installs)}</Hint>
-        <DeleteNotes deleted={folderPlaces(s, groupOnly(s, groupID, s.groups.find((g) => g.id === groupID)?.members ?? []))} prefix={t.ifUninstallToo} />
+        <DeleteNotes deleted={gone} prefix={t.ifUninstallToo} />
+        <LostMentions lost={unfound} prefix={t.ifUninstallToo} />
       </>
     ),
     choices: installs ? removalChoices() : undefined,

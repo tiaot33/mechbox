@@ -1092,17 +1092,6 @@ export interface MissingMention {
 }
 
 /**
- * MissingMentionsRequest 是 [Library.ListMissingMentions] 的参数。
- */
-export interface MissingMentionsRequest {
-    /**
-     * Without 当这几处的技能文件夹已经不在了:卸载、从库里删除之前,传入会删掉文件夹的那几处,
-     * 和不传时的结果比,多出来的就是会因此找不到它的技能。共用这个文件夹的其他 Agent 一并算不在;不是装在那里的忽略。
-     */
-    "without"?: SkillInScope[] | null;
-}
-
-/**
  * PlanFetchUnmanagedRequest 指定整批入库要看哪些作用域。
  */
 export interface PlanFetchUnmanagedRequest {
@@ -1789,7 +1778,7 @@ export enum SkillFileProblemKind {
 export type SkillID = number;
 
 /**
- * SkillInScope 是装在某个作用域的一个技能。
+ * SkillInScope 是装在某个作用域的一个技能,[Library.ListLostMentions] 用它指出要卸掉的那几处。
  */
 export interface SkillInScope {
     "skill_id": SkillID;

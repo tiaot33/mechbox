@@ -1,12 +1,12 @@
 // 技能详情里的提到关系：这个技能提到了谁、被谁提到。「提到了」的每一项写出在这个技能装着的地方找不找得到它
-// (按装出去的各处，没装到任何地方时只写库里有没有);提到它的那几行原文放在名字的悬停提示里;库里的技能点名字打开它的详情。
+// (按装出去、文件夹在这台机器上的各处，一处都没有时只写库里有没有);提到它的那几行原文放在名字的悬停提示里;库里的技能点名字打开它的详情。
 // 单个词的技能名照关系图的做法：打开时配了 AI 就判断还没判断的几处，判断完补上;没配时在底部提示去设置。
 // 两栏都空、也没有要判断的时候不显示这张卡片。
 import { useQuery } from "@tanstack/react-query";
 import type { MentionLine, Skill, SkillMention } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { skillMentionsQuery, useSnapshot } from "@/lib/library";
-import { mergeProjectPlaces, scopeLabel, skillScopesOf } from "@/lib/model";
+import { folderPresent, mergeProjectPlaces, scopeLabel, skillScopesOf } from "@/lib/model";
 import { toggleDrawer } from "@/lib/view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,7 +41,7 @@ export function MentionsCard({ skill }: { skill: Skill }) {
           ))}
         </Column>
       </div>
-      <JudgeLine judging={judging} unjudged={data.unjudged} retry={retry} t={t.judge} className="mt-2" />
+      <JudgeLine judging={judging} unjudged={data.unjudged} retry={retry} texts={t.judge} className="mt-2" />
     </Card>
   );
 }
@@ -88,12 +88,13 @@ function Lines({ lines }: { lines: MentionLine[] }) {
   );
 }
 
-// Status 是「提到了」的一项在这个技能装着的地方找不找得到;没装到任何地方时只写库里有没有。
+// Status 是「提到了」的一项在这个技能装着的地方找不找得到。只看文件夹在这台机器上的那几处(项目不在这台机器上、
+// 文件夹不在了的，技能库没法核对，安装卡片里另有说明);一处都没有时只写库里有没有。
 function Status({ skill, mention }: { skill: Skill; mention: SkillMention }) {
   const s = useSnapshot();
   const t = useT().drawer;
-  const installed = skillScopesOf(s, skill.id).length > 0;
-  if (!installed) {
+  const checked = mergeProjectPlaces(s, skillScopesOf(s, skill.id).filter(folderPresent));
+  if (!checked.length) {
     return mention.skill_id ? (
       <span className="mention-status shrink-0 text-caption text-muted-foreground">{t.mentionInLibrary}</span>
     ) : (
@@ -113,7 +114,7 @@ function Status({ skill, mention }: { skill: Skill; mention: SkillMention }) {
   // 项目里共用一个目录的几个 Agent 在界面上是一处，合起来写。
   const wheres = mergeProjectPlaces(s, missing).map((m) => scopeLabel(s, m.scope));
   // 装着的地方都找不到时不再逐个写出作用域(几项都一样，太长),悬停时列出。
-  const everywhere = wheres.length > 1 && wheres.length === mergeProjectPlaces(s, skillScopesOf(s, skill.id)).length;
+  const everywhere = wheres.length > 1 && wheres.length === checked.length;
   return (
     <Badge tone="info" className="mention-status min-w-0 shrink" title={t.mentionMissingTitle(wheres)}>
       <span className="truncate">{everywhere ? t.mentionMissingEverywhere : t.mentionMissing(wheres)}</span>

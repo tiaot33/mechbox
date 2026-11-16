@@ -141,16 +141,14 @@ export const en = {
 
   actions: {
     installedMissing: (done: string, skills: number, names: string[]) =>
-      `${done}. ${skills > 1 ? `${count(skills, "of them", "of them")} mention` : "It mentions"} ${quoted(names.slice(0, 3))}${names.length > 3 ? ` and ${count(names.length - 3, "more skill")}` : ""}, which ${names.length > 1 ? "aren’t" : "isn’t"} there`,
+      `${done}. ${skills > 1 ? `${count(skills, "of them", "of them")} mention` : "It mentions"} ${quoted(names)}, which ${names.length > 1 ? "aren’t" : "isn’t"} there`,
     missingThere: (skills: number, names: string[]) =>
-      `${skills > 1 ? `${count(skills, "installed skill")} mention` : "The installed skill mentions"} ${quoted(names.slice(0, 3))}${names.length > 3 ? ` and ${count(names.length - 3, "more skill")}` : ""}, which ${names.length > 1 ? "aren’t" : "isn’t"} there`,
+      `${skills > 1 ? `${count(skills, "installed skill")} mention` : "The installed skill mentions"} ${quoted(names)}, which ${names.length > 1 ? "aren’t" : "isn’t"} there`,
     installMentioned: (n: number) => (n > 1 ? `Install ${n} too` : "Install it too"),
     installMentionedTitle: (n: number) => `Install ${count(n, "mentioned skill")}`,
     installedMentioned: (n: number) => `Installed ${count(n, "mentioned skill")}`,
-    lostMentionsLead: (removing: boolean) =>
-      removing
-        ? "If you delete the installed folders, these skills can no longer find skills they mention, and Agents may not be able to use them fully:"
-        : "After uninstalling, these skills can no longer find skills they mention, and Agents may not be able to use them fully:",
+    lostMentionsLead: "After uninstalling, these skills can no longer find skills they mention, and Agents may not be able to use them fully:",
+    removeLostMentions: (desc: string, lines: string[]) => `${desc}. Afterwards these skills can’t find skills they mention: ${lines.join("; ")}`,
     lostMention: (from: string, where: string, name: string) => `“${from}” · ${where}: “${name}” not found`,
     gotIt: "OK",
     memberInstalled: "Installed",
@@ -556,24 +554,19 @@ export const en = {
     mentionMissing: (wheres: string[]) => `Not found in ${and(wheres)}`,
     mentionMissingTitle: (wheres: string[]) => `Agents can’t find this skill in ${and(wheres)}; where it’s needed, this skill may not work fully`,
     mentionMissingEverywhere: "Missing wherever installed",
-    mentionInLibrary: "In Library, not installed",
+    mentionInLibrary: "In Library",
     mentionNotInLibrary: "Not in Library",
     mentionNotInLibraryTitle: "This skill isn’t in the Library; it’s only in an Agent directory (an Unmanaged skill)",
     mentionLinesTitle: (n: number) => `${count(n, "line")} mentioning it`,
     openMentioned: (name: string) => `Open details of “${name}”`,
     judge: {
-      judging: (n: number) => `Still judging whether ${count(n, "single-word skill name")} refer to that skill; results fill in when done`,
-      judgingShort: (n: number) => `Judging ${count(n, "single-word skill name")}`,
+      judging: (n: number) => `Checking ${count(n, "place")} where a one-word skill name may mean that skill; they’re added when done`,
       unjudged: (n: number) =>
-        `${count(n, "single-word skill name")} (like review, spec) haven’t been judged and aren’t listed here; set up AI in Settings to judge them`,
-      unjudgedShort: (n: number) => `${count(n, "single-word skill name")} not judged`,
-      setUpAI: "Settings",
-      retry: "Retry",
-      judgeStoppedShort: (n: number) => `Judging stopped; ${n.toLocaleString("en")} not judged`,
-      judgeStopped: (n: number) => `Judging paused. What was judged is kept; ${n.toLocaleString("en")} not judged yet. Try again in a while`,
-      judgeNeedsSettings: (n: number) => `Judging stopped. What was judged is kept; ${n.toLocaleString("en")} not judged yet. Fix the AI settings, then open the skill details again to continue`,
-      judgeSkippedShort: (n: number) => `Some places in ${count(n, "skill")} weren’t judged`,
-      judgeSkipped: (names: string[]) => `Couldn’t judge some places in ${quoted(names)}; the rest were filled in. Will try again next time you open the skill details`,
+        `${count(n, "place")} where a one-word skill name (such as review or spec) appears ${n === 1 ? "isn’t" : "aren’t"} checked yet and ${n === 1 ? "isn’t" : "aren’t"} listed. Set up AI in Settings to check them`,
+      unjudgedShort: (n: number) => `${n} one-word skill ${n === 1 ? "name isn't" : "names aren't"} judged`,
+      judgeNeedsSettings: (n: number) =>
+        `Checking stopped with ${count(n, "place")} left; what was checked is kept. Fix the AI settings and open the skill details again to continue`,
+      judgeSkipped: (names: string[]) => `Couldn’t check the names in ${quoted(names)}; the rest were added. It tries again next time you open the skill details`,
     },
     checkAvailable: "New Version",
     checkCurrent: "Up to date",
@@ -700,8 +693,7 @@ export const en = {
 
   list: {
     mentionsMissing: (n: number) => `${count(n, "mentioned skill")} missing`,
-    mentionsMissingTitle: (names: string[], installable: boolean) =>
-      `It mentions ${quoted(names)}, which ${names.length > 1 ? "aren’t" : "isn’t"} here; Agents may not be able to use it fully${installable ? ". Click to install the ones in the Library here" : ""}`,
+    mentionsMissingTitle: (names: string[]) => `It mentions ${quoted(names)}, which ${names.length > 1 ? "aren’t" : "isn’t"} here; Agents may not be able to use it fully`,
     emptyLibrary: "The Library is empty",
     originalTitle: (text: string) => `Original: ${text}`,
     emptyHint: "Fetch skills from a local directory, GitHub or the skill market.",
@@ -1279,8 +1271,8 @@ export const en = {
   },
 
   review: {
-    mentionsUnpicked: (n: number) => `Also check ${count(n, "mentioned skill")}`,
-    mentionsUnpickedTitle: (names: string[]) => `Its SKILL.md mentions ${quoted(names)}, not checked yet`,
+    mentionsUnpicked: (names: string[]) => `Mentions ${names.join(", ")} · Check too`,
+    mentionsUnpickedTitle: (names: string[]) => `Its SKILL.md mentions ${quoted(names)}, not checked yet; click to check them too`,
     kindGitHub: "GitHub repo",
     kindGit: "Git repo",
     kindURL: "Direct download",

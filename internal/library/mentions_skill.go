@@ -72,7 +72,9 @@ func (l *Library) GetSkillMentions(ctx context.Context, id SkillID) (result Skil
 			result.Unjudged++
 		}
 	}
-	byName := func(a, b SkillMention) int { return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.SkillID, b.SkillID)) }
+	byName := func(a, b SkillMention) int {
+		return cmp.Or(cmp.Compare(a.Name, b.Name), cmp.Compare(a.SkillID, b.SkillID))
+	}
 	slices.SortFunc(result.Mentions, byName)
 	slices.SortFunc(result.MentionedBy, byName)
 	return result, nil
@@ -105,17 +107,10 @@ func (l *Library) JudgeSkillMentions(ctx context.Context, id SkillID) (JudgeMent
 	})
 }
 
-// SkillInScope 是装在某个作用域的一个技能。
+// SkillInScope 是装在某个作用域的一个技能,[Library.ListLostMentions] 用它指出要卸掉的那几处。
 type SkillInScope struct {
 	SkillID SkillID `json:"skill_id"`
 	Scope   Scope   `json:"scope"`
-}
-
-// MissingMentionsRequest 是 [Library.ListMissingMentions] 的参数。
-type MissingMentionsRequest struct {
-	// Without 当这几处的技能文件夹已经不在了:卸载、从库里删除之前,传入会删掉文件夹的那几处,
-	// 和不传时的结果比,多出来的就是会因此找不到它的技能。共用这个文件夹的其他 Agent 一并算不在;不是装在那里的忽略。
-	Without []SkillInScope `json:"without,omitempty"`
 }
 
 // MissingMention 是装在某个作用域的技能提到了一个技能,而 Agent 在这个作用域里找不到它。
@@ -129,70 +124,107 @@ type MissingMention struct {
 }
 
 // ListMissingMentions 列出装在各作用域的库里技能提到了、Agent 在那个作用域里却找不到的技能:作用域页的提醒、
-// 装好后的提示与卸载前的确认都用它。提到按 [Library.GetSkillMentions] 的规则,AI 只用已经存下的结论,没判断的不算。
+// 技能详情与装好后的提示都用它。提到按 [Library.GetSkillMentions] 的规则,AI 只用已经存下的结论,没判断的不算。
 //
 // 找不找得到看磁盘上的技能文件夹(按文件夹名),库装的和未纳管技能都算:项目作用域里看这个 Agent 在项目里的目录
 // 和它的全局目录,全局作用域只看全局目录。Agent 目录、项目不在这台机器上的作用域不列;装着的技能自己的文件夹已经不在了的也不列。
 // 只读,不联网。结果按技能 ID、Agent、作用域(全局在前,项目按 ID)、名字排序;没有时为空列表。
-// Without 里的作用域组合不合法时返回 InvalidArgument。
-func (l *Library) ListMissingMentions(ctx context.Context, req MissingMentionsRequest) (missing []MissingMention, err error) {
+func (l *Library) ListMissingMentions(ctx context.Context) (missing []MissingMention, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	for _, without := range req.Without {
-		if _, err := scopeOf("list missing mentions", without.Scope); err != nil {
+	scan, installed, err := l.scanInstalled(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return scan.missing(installed, nil), nil
+}
+
+// ListLostMentions 在卸载、从库里删除之前给出:gone 这几处的技能文件夹不在了以后,哪些装着的技能会因此找不到它们提到的技能
+// (现在找得到、之后找不到的,规则同 [Library.ListMissingMentions])。共用这个文件夹的其他 Agent 一并算不在,gone 里的技能
+// 自己不再算;不是装在那里的忽略。只读,一次扫描算出,排序同 ListMissingMentions;没有时为空列表。
+// gone 里的作用域组合不合法时返回 InvalidArgument。
+func (l *Library) ListLostMentions(ctx context.Context, gone []SkillInScope) (lost []MissingMention, err error) {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	for _, place := range gone {
+		if _, err := scopeOf("list lost mentions", place.Scope); err != nil {
 			return nil, err
 		}
 	}
-	scan, err := l.scanLibrary(ctx)
+	scan, installed, err := l.scanInstalled(ctx)
 	if err != nil {
 		return nil, err
 	}
-	installed, err := l.listSkillScopes(ctx, 0, nil)
-	if err != nil {
-		return nil, err
-	}
-	type place struct {
-		scope Scope
-		name  string
-	}
-	gone := map[place]bool{}
-	for _, without := range req.Without {
+	removed := map[folderAt]bool{}
+	for _, place := range gone {
 		for _, in := range installed {
-			if in.SkillID != without.SkillID || in.Scope != without.Scope {
+			if in.SkillID != place.SkillID || in.Scope != place.Scope {
 				continue
 			}
 			name := agentdir.FolderName(in.Folder)
-			gone[place{in.Scope, name}] = true
+			removed[folderAt{in.Scope, name}] = true
 			for _, agent := range in.SharedWith {
 				shared := in.Scope
 				shared.Agent = agent
-				gone[place{shared, name}] = true
+				removed[folderAt{shared, name}] = true
 			}
 		}
 	}
-	present := map[place]bool{}
-	for _, folder := range scan.folders {
-		if at := (place{folder.target.scope(), folder.Name}); !gone[at] {
+	before := map[MissingMention]bool{}
+	for _, m := range scan.missing(installed, nil) {
+		before[m] = true
+	}
+	lost = []MissingMention{}
+	for _, m := range scan.missing(installed, removed) {
+		if !before[m] {
+			lost = append(lost, m)
+		}
+	}
+	return lost, nil
+}
+
+type folderAt struct {
+	scope Scope
+	name  string
+}
+
+func (l *Library) scanInstalled(ctx context.Context) (*libraryScan, []SkillScope, error) {
+	scan, err := l.scanLibrary(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	installed, err := l.listSkillScopes(ctx, 0, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	return scan, installed, nil
+}
+
+func (s *libraryScan) missing(installed []SkillScope, removed map[folderAt]bool) []MissingMention {
+	present := map[folderAt]bool{}
+	for _, folder := range s.folders {
+		if at := (folderAt{folder.target.scope(), folder.Name}); !removed[at] {
 			present[at] = true
 		}
 	}
 	visible := func(scope Scope, name string) bool {
-		return present[place{scope, name}] || scope.Kind == ScopeProject && present[place{GlobalScope(scope.Agent), name}]
+		return present[folderAt{scope, name}] || scope.Kind == ScopeProject && present[folderAt{GlobalScope(scope.Agent), name}]
 	}
-	missing = []MissingMention{}
+	missing := []MissingMention{}
 	for _, in := range installed {
-		if !scan.readable[in.Scope] || !present[place{in.Scope, agentdir.FolderName(in.Folder)}] {
+		if !present[folderAt{in.Scope, agentdir.FolderName(in.Folder)}] {
 			continue
 		}
-		from := scan.byID[int64(in.SkillID)]
-		names, _ := scan.mentioned(from)
+		from := s.byID[int64(in.SkillID)]
+		names, _ := s.mentioned(from)
 		for _, name := range names {
 			if visible(in.Scope, name) {
 				continue
 			}
 			mention := MissingMention{SkillID: in.SkillID, Scope: in.Scope, Name: name}
-			if to, ok := scan.target(from, name); ok {
+			if to, ok := s.target(from, name); ok {
 				mention.MentionedSkillID = SkillID(to.ID)
 			}
 			missing = append(missing, mention)
@@ -202,7 +234,7 @@ func (l *Library) ListMissingMentions(ctx context.Context, req MissingMentionsRe
 		return cmp.Or(cmp.Compare(a.SkillID, b.SkillID), cmp.Compare(a.Scope.Agent, b.Scope.Agent),
 			cmp.Compare(a.Scope.ProjectID, b.Scope.ProjectID), cmp.Compare(a.Name, b.Name))
 	})
-	return missing, nil
+	return missing
 }
 
 type libraryScan struct {
@@ -210,7 +242,6 @@ type libraryScan struct {
 	byID      map[int64]store.Skill
 	byName    map[string][]store.Skill
 	folders   []scopeFolder
-	readable  map[Scope]bool
 	unmanaged map[string]string
 	docs      map[int64]docMentions
 	judgments map[int64]map[string]bool
@@ -221,7 +252,7 @@ func (l *Library) scanLibrary(ctx context.Context) (*libraryScan, error) {
 	if err != nil {
 		return nil, err
 	}
-	folders, readable, err := l.listScopeFolders(ctx, nil, true)
+	folders, err := l.readableScopeFolders(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +261,7 @@ func (l *Library) scanLibrary(ctx context.Context) (*libraryScan, error) {
 		return nil, err
 	}
 	scan := &libraryScan{
-		rows: rows, byID: map[int64]store.Skill{}, byName: map[string][]store.Skill{}, folders: folders, readable: readable,
+		rows: rows, byID: map[int64]store.Skill{}, byName: map[string][]store.Skill{}, folders: folders,
 		unmanaged: map[string]string{}, docs: map[int64]docMentions{}, judgments: judgments,
 	}
 	collections := map[int64]bool{}

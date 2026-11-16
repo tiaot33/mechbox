@@ -67,7 +67,7 @@ function Loaded({ members, mentions, unjudged, filter, group }: { members: Skill
         <Tipped tip={t.hint} className="shrink-0 text-foreground-secondary">
           {t.summary(members.length, graph.edges.length, outside, group)}
         </Tipped>
-        <JudgeLine judging={judging} unjudged={unjudged} retry={retry} t={t} />
+        <JudgeLine judging={judging} unjudged={unjudged} retry={retry} texts={t} />
       </div>
       {graph.nodes.length ? (
         <Canvas graph={graph} />

@@ -71,7 +71,6 @@ export type {
     Mentions,
     MentionsFilter,
     MissingMention,
-    MissingMentionsRequest,
     PlanFetchUnmanagedRequest,
     PlannedSkill,
     PlannedUnmanagedSkill,

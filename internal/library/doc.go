@@ -58,8 +58,8 @@
 //   - [Library.GetSkillMentions] 给技能详情:这个技能提到了谁、库里谁提到了它;[Library.JudgeSkillMentions] 判断其中单个词的名字,
 //     结论和关系图共用。
 //   - [Library.ListMissingMentions] 列出装在各作用域的技能提到了、Agent 在那里却找不到的技能(看磁盘上的技能文件夹,
-//     项目作用域连同这个 Agent 的全局目录):作用域页的提醒、装好后的提示用它;卸载、从库里删除之前传入要删掉的那几处,
-//     比较前后的结果,就是会因此找不到它的技能。
+//     项目作用域连同这个 Agent 的全局目录):作用域页的提醒、装好后的提示用它。
+//   - [Library.ListLostMentions] 在卸载、从库里删除之前给出:要删的那几处不在了以后,哪些装着的技能会因此找不到它们提到的技能。
 //   - 入库预览的候选上带着 [Candidate].Mentions:它的 SKILL.md 提到了同一份预览里的哪些候选,勾选时提示一起勾上。
 //
 // 更新(check.go、plan.go、update.go、history.go):
