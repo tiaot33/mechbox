@@ -28,6 +28,7 @@ import {
   collectionSkills,
   folderKey,
   folderPlaces,
+  mergeProjectPlaces,
   groupName,
   placeOf,
   projectName,
@@ -382,7 +383,8 @@ export async function installGroup(groupID: GroupID, scope: Scope) {
   }
 }
 
-export async function uninstallGroup(groupID: GroupID, scope: Scope) {
+// confirm 为 true 时(节标题上组安装的标签点 ×)总是先确认，写出会从这里卸载几个技能：那里一点就卸载整组，容易误点。
+export async function uninstallGroup(groupID: GroupID, scope: Scope, { confirm = false }: { confirm?: boolean } = {}) {
   const s = await inspectedSnapshot({});
   if (!s) return;
   const t = messages().actions;
@@ -407,11 +409,12 @@ export async function uninstallGroup(groupID: GroupID, scope: Scope) {
   const detached = detachedBy(deleted);
   // 要删的文件夹被手动改过时，修改会一起删掉，先列出是哪几处。
   const lost = lostEdits(deleted);
-  if (removed.length || detached.length || lost.length) {
+  if (confirm || removed.length || detached.length || lost.length) {
     const ok = await ui.confirm({
       title: t.groupUninstallTitle(groupName(s, groupID), scopeLabel(s, scope)),
       body: (
         <>
+          <p>{t.groupUninstallBody(mergeProjectPlaces(s, gone).length, scopeLabel(s, scope))}</p>
           {removed.length > 0 && (
             <>
               <Notice alert>{t.groupUninstallShared(removed.length)}</Notice>

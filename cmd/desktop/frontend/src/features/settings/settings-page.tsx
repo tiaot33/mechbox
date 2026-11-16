@@ -217,19 +217,19 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                 null,
                 settings && <ChecksSection settings={settings} save={save} />,
               )}
-              {card("github", t.tokenInLibrary, <div className="py-3"><GitHubSection /></div>)}
+              {card("github", t.tokenInLibrary, <div className="pb-3"><GitHubSection /></div>)}
               {card(
                 "ai",
                 t.aiInLibrary,
                 <>
                   {settings && <TranslateSection settings={settings} save={save} />}
-                  {/* 上面的开关改了就生效，和下面要点保存的表单用分隔线分开。 */}
-                  <div className="border-t border-row-line py-3">
+                  {/* 上面的开关改了就生效，和下面要点保存的表单用分隔线分开;表单也是一行一项(标签在左、控件在右),和其他分区一样。 */}
+                  <div className="border-t border-row-line pb-3">
                     <AISection />
                   </div>
                 </>,
               )}
-              {card("sync", t.syncOnThisMachine, <div className="py-3"><SyncSection /></div>, credentialsT.syncHint)}
+              {card("sync", t.syncOnThisMachine, <div className="pb-3"><SyncSection /></div>, credentialsT.syncHint)}
               {card(
                 "about",
                 null,

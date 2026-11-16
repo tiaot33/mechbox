@@ -53,7 +53,9 @@ export async function reinstall(filter: SkillScopeFilter, what: string) {
   }
   let chosen: ReinstallChoices = { overwrite: new Set(), missing: new Map() };
   if (modified.length || missing.length) {
-    const picked = await ui.open<ReinstallChoices>((close) => <ReinstallDialog modified={modified} missing={missing} close={close} />);
+    // rest 是不用问、确认后照样重新安装的几处(版本落后的)。
+    const rest = targets.length - modified.length - missing.length;
+    const picked = await ui.open<ReinstallChoices>((close) => <ReinstallDialog modified={modified} missing={missing} rest={rest} close={close} />);
     if (!picked) return;
     chosen = picked;
   }
@@ -93,13 +95,16 @@ export async function reinstall(filter: SkillScopeFilter, what: string) {
 }
 
 // ReinstallDialog 在重新安装前问用户两类地方：文件夹不在了的(不动、装回去还是卸载，默认不动)与被改过的(勾选的才覆盖，默认都不覆盖)。
+// 一处都没选要动、也没有别的要重新安装的(rest)时，确认按钮点不了：点了什么都不会做。
 function ReinstallDialog({
   modified,
   missing,
+  rest,
   close,
 }: {
   modified: SkillScopeInspection[];
   missing: SkillScopeInspection[];
+  rest: number;
   close: (value?: ReinstallChoices) => void;
 }) {
   const s = useSnapshot();
@@ -109,6 +114,7 @@ function ReinstallDialog({
   const folders = [...new Map(missing.map((p) => [folderKey(p), missing.filter((x) => folderKey(x) === folderKey(p))])).entries()];
   const choose = (key: string, value: MissingChoice) => setChoices((prev) => new Map(prev).set(key, value));
   const toggle = (key: string) => setOverwrite((prev) => toggled(prev, key));
+  const nothing = !rest && !overwrite.size && ![...choices.values()].some((c) => c !== "keep");
   return (
     <Modal
       title={missing.length ? t.actions.reinstallConfirmTitle : t.actions.modifiedTitle}
@@ -121,7 +127,14 @@ function ReinstallDialog({
             </Button>
           )}
           <Button onClick={() => close()}>{t.common.cancel}</Button>
-          <Button variant={overwrite.size ? "solid" : "primary"} onClick={() => close({ overwrite, missing: choices })} autoFocus>
+          <Button
+            className="reinstall-confirm"
+            variant={overwrite.size ? "solid" : "primary"}
+            disabled={nothing}
+            title={nothing ? t.actions.reinstallNothingPicked : undefined}
+            onClick={() => close({ overwrite, missing: choices })}
+            autoFocus={!nothing}
+          >
             {missing.length ? t.common.ok : overwrite.size ? t.actions.reinstallOverwrite(overwrite.size) : t.actions.reinstall}
           </Button>
         </>

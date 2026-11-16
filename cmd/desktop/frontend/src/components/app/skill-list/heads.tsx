@@ -6,8 +6,11 @@ import {
   agentName,
   agentNameIn,
   groupStateIn,
+  editedHere,
   needsReinstall,
+  needsRepair,
   reinstallLevel,
+  skillScopeIn,
   parseScope,
   placeOf,
   projectName,
@@ -16,7 +19,6 @@ import {
   skillScopesIn,
   splitIdentical,
   unmanagedIn,
-  viaGroupCount,
   wslTitle,
   type ScopeKey,
 } from "@/lib/model";
@@ -46,7 +48,10 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
   const s = useSnapshot();
   const t = useT().list;
   const installed = skillScopesIn(s, scope);
-  const issues = installed.filter(needsReinstall).length;
+  // 真要重新安装的(文件夹不在了、版本落后)和被手动改过的分开数：被手动改过的是用户自己的修改，不催用户重新安装。
+  const broken = installed.filter(needsRepair);
+  const issues = broken.length;
+  const edited = installed.filter(editedHere).length;
   // 和库里某个技能一样的文件夹就是那个技能，不算"不在技能库里",单独数。
   const split = splitIdentical(unmanagedIn(s, scope));
   const unmanaged = split.unmanaged.length;
@@ -63,7 +68,8 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
         <b className="scope-sees min-w-0 grow truncate text-heading">
           {sc.project_id ? t.scopeSeesProject(agent, projectName(s, sc.project_id), sees) : t.scopeSeesGlobal(agent, sees)}
         </b>
-        {issues > 0 && (
+        {/* 被手动改过的也能在这里一次覆盖(确认里默认不勾),所以只要有和当前版本不一样的就给这个入口。 */}
+        {installed.some(needsReinstall) && (
           <Button className="shrink-0" onClick={() => reinstall({ scope: sc }, scopeLabel(s, sc))}>
             <Icon name="refresh" />
             {t.reinstallAll}
@@ -89,7 +95,8 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
         {identical > 0 && <Stat value={identical} label={t.statIdentical} />}
         {unmanaged > 0 && <Stat value={unmanaged} label={t.statNotInLibrary} />}
         {global > 0 && <Stat value={global} label={t.statGlobal} />}
-        {issues > 0 && <Stat value={issues} label={t.statStale} level={reinstallLevel(installed)} />}
+        {issues > 0 && <Stat value={issues} label={t.statStale} level={reinstallLevel(broken)} />}
+        {edited > 0 && <Stat value={edited} label={t.statEdited} level="info" title={t.statEditedTitle} />}
       </div>
       {s.groups.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
@@ -97,6 +104,9 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
           {groups.map((g) => {
             const state = groupStateIn(s, g, scope);
             const on = state === "on";
+            const size = g.members?.length ?? 0;
+            // 组在这里的情况直接写出来：组安装了写「已组安装」;没有时写成员里装在这里的有几个(直接安装的也算)。
+            const here = (g.members ?? []).filter((id) => !!skillScopeIn(s, id, scope)).length;
             return (
               <button
                 type="button"
@@ -107,14 +117,12 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
                   "gchip inline-flex h-[22px] shrink-0 items-center gap-1.5 rounded-control border border-tag-border bg-tag px-2 text-caption text-foreground-secondary transition-colors hover:bg-fill",
                   on && "text-foreground",
                 )}
-                onClick={() => (on ? uninstallGroup(g.id, sc) : installGroup(g.id, sc))}
+                onClick={() => (on ? uninstallGroup(g.id, sc, { confirm: true }) : installGroup(g.id, sc))}
                 title={t.groupChipTitle(g.name, on)}
               >
                 <i className={cn("size-[7px] rounded-full border-[1.5px] border-muted-foreground", on && "border-primary bg-primary")} />
                 {g.name}
-                <span className="text-caption text-muted-foreground tabular-nums">
-                  {viaGroupCount(s, g, scope)}/{g.members?.length ?? 0}
-                </span>
+                <span className="gchip-state text-caption text-muted-foreground">{on ? t.groupInstalledHere(size) : t.groupMembersHere(here, size)}</span>
               </button>
             );
           })}
@@ -125,7 +133,7 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
 }
 
 // ProjectSummary 是项目页顶部的摘要：项目里一共装了几个技能(几个 Agent 都装了的只算一个)与项目目录，
-// 其中不在技能库里的几个与全部入库(范围和登记项目后弹出的那次一样，是各 Agent 在这个项目里),
+// 其中不是 app 装的、不在技能库里的几个与全部入库(范围和登记项目后弹出的那次一样，是各 Agent 在这个项目里;和库里一样、只是不是 app 装的也算),
 // 以及照着其他项目装(别的已登记项目里装了库里的技能时才有)。
 export function ProjectSummary({ project, total, unmanaged }: { project: RegisteredProject; total: number; unmanaged: number }) {
   const s = useSnapshot();
@@ -133,11 +141,14 @@ export function ProjectSummary({ project, total, unmanaged }: { project: Registe
   const c = useT().copy;
   const others = s.skillScopes.some((p) => !!p.scope.project_id && p.scope.project_id !== project.id);
   const name = projectName(s, project.id);
+  // 不是库装的文件夹都算(和库里某个技能一样的也算：入库只记下装在这里):有就在顶部放一次入库的入口。
+  const notOurs = new Set(s.unmanaged.filter((u) => placeOf(u.scope) === project.id).map((u) => u.folder));
+  const identical = new Set(s.unmanaged.filter((u) => placeOf(u.scope) === project.id && !!u.skill_id).map((u) => u.folder)).size;
   return (
     <div className={cn(barClass, nameIndent, "pr-3")}>
       <div className="flex min-w-0 items-center gap-1.5">
         <b className="project-sum min-w-0 grow truncate text-heading">{t.projectHas(name, total)}</b>
-        {unmanaged > 0 && (
+        {notOurs.size > 0 && (
           <Button className="fetch-all-unmanaged shrink-0" title={t.fetchAllTitle} onClick={() => void offerFetchProject(s.agents, project, false)}>
             {t.fetchAll}
           </Button>
@@ -157,6 +168,7 @@ export function ProjectSummary({ project, total, unmanaged }: { project: Registe
             {shortPath(s, project.path)}
           </span>
         </span>
+        {identical > 0 && <Stat value={identical} label={t.statIdentical} />}
         {unmanaged > 0 && <Stat value={unmanaged} label={t.statNotInLibrary} />}
       </div>
     </div>
@@ -164,9 +176,9 @@ export function ProjectSummary({ project, total, unmanaged }: { project: Registe
 }
 
 // level 是这一项要提醒时的级别(需重新安装的按最重的那一处)。
-function Stat({ value, label, level }: { value: number; label: string; level?: Level }) {
+function Stat({ value, label, level, title }: { value: number; label: string; level?: Level; title?: string }) {
   return (
-    <span className="stat shrink-0 whitespace-nowrap" data-tone={level}>
+    <span className="stat shrink-0 whitespace-nowrap" data-tone={level} title={title}>
       {level ? (
         <Badge tone={level}>
           {value} {label}

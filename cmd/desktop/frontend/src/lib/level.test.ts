@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { byLevel, worstLevel, type Level, type Mark } from "./level";
+import { byLevel, byUrgency, worstLevel, type Level, type Mark } from "./level";
 
 describe("worstLevel", () => {
   it("取几条里最重的一级", () => {
@@ -27,5 +27,16 @@ describe("byLevel", () => {
 
   it("更新不算提醒的级别", () => {
     expect(worstLevel(["update", "plain"])).toBeUndefined();
+  });
+});
+
+describe("byUrgency", () => {
+  it("一行的状态先写严重、注意，再写能做的更新、可能改名，提示最后", () => {
+    const list: Mark[] = ["info", "rename", "update", "warn", "critical"];
+    expect(list.sort(byUrgency)).toEqual(["critical", "warn", "update", "rename", "info"]);
+  });
+
+  it("可能改名和有新版本是两种，都不算提醒的级别", () => {
+    expect(worstLevel(["rename", "update"])).toBeUndefined();
   });
 });

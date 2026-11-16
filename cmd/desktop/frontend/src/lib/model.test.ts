@@ -11,6 +11,7 @@ import {
   type Collection,
   type Group,
   type GroupInstall,
+  type PlannedUnmanagedSkill,
   type RegisteredProject,
   type Scope,
   type Skill,
@@ -24,13 +25,18 @@ import {
   copyProjectSources,
   copySources,
   copyTarget,
+  editedHere,
   folderNotes,
   folderPresent,
   homePath,
   installedSummary,
   isDefaultOrder,
+  needsRepair,
   needsReinstall,
   reinstallAlerts,
+  sameNameCopies,
+  sameNameScopes,
+  sourceShort,
   reinstallLevel,
   legacyOrder,
   missingFromGroup,
@@ -674,7 +680,8 @@ describe("folderNotes", () => {
     const plain = unmanaged("x", "claude-code");
     expect(folderNotes(plain)).toEqual([]);
     const notes = folderNotes({ ...plain, in_repository: true, in_project_lock: true, link_outside: true, link_target: "/home/code/x" });
-    expect(notes.map((x) => x.text)).toEqual(["在项目仓库里", "指向 Agent 目录以外"]);
+    expect(notes.map((x) => x.text)).toEqual(["在项目仓库里", "链到 /home/code/x"]);
+    expect(folderNotes({ ...plain, link_outside: true, link_target: "/home/me/code/x" }, "/home/me")[0].text).toBe("链到 ~/code/x");
     expect(notes[1].title).toContain("/home/code/x");
     expect(folderNotes({ ...plain, in_project_lock: true }).map((x) => x.text)).toEqual(["记在 skills-lock.json 里"]);
   });
@@ -695,5 +702,86 @@ describe("sameNameNote", () => {
     expect(sameNameNote(snapshot({ ...base, unmanaged: [{ ...copy, skill_id: undefined }] } as Partial<Snapshot>), "claude-code@1", pair.project.folder)?.text).toBe(
       "全局也有同名的 x（不在技能库里）",
     );
+  });
+});
+
+describe("被手动改过是用户自己的修改", () => {
+  const scope = { kind: ScopeKind.ScopeGlobal, agent: AgentCode.AgentClaudeCode } as Scope;
+  const place = (status: SkillScopeStatus, source_latest = false) =>
+    ({ skill_id: 1, scope, folder: "f1", direct: true, status, source_latest }) as SkillScopeInspection;
+  const s = snapshot({
+    agents: [{ code: AgentCode.AgentClaudeCode, name: "Claude Code", global_directory: "/home/.claude/skills", project_directory: ".claude/skills" }] as Agent[],
+    skills: [{ id: 1, name: "s1" }] as Skill[],
+    skillScopes: [place(SkillScopeStatus.SkillScopeModified)],
+  });
+
+  it("不算要修的问题：不计入需重新安装，提醒是提示一级", () => {
+    const edited = place(SkillScopeStatus.SkillScopeModified);
+    expect(editedHere(edited)).toBe(true);
+    expect(needsRepair(edited)).toBe(false);
+    // 重新安装时仍能勾上覆盖它。
+    expect(needsReinstall(edited)).toBe(true);
+    expect(reinstallLevel([edited])).toBe("info");
+    expect(installedSummary(s, 1).bad).toBe(false);
+  });
+
+  it("文件夹不在了、版本落后才要重新安装;在 app 外更新到作者新版的不算被手动改过", () => {
+    expect(needsRepair(place(SkillScopeStatus.SkillScopeMissing))).toBe(true);
+    expect(needsRepair(place(SkillScopeStatus.SkillScopeStale))).toBe(true);
+    expect(editedHere(place(SkillScopeStatus.SkillScopeModified, true))).toBe(false);
+    expect(reinstallLevel([place(SkillScopeStatus.SkillScopeModified), place(SkillScopeStatus.SkillScopeMissing)])).toBe("critical");
+  });
+
+  it("技能库页的一行：说明里不写「要重新安装」，写可以用这里的修改更新", () => {
+    const [alert] = reinstallAlerts(s, 1);
+    expect(alert.tone).toBe("info");
+    expect(alert.tip.split("\n")).toEqual(["在这些地方被手动改过，可以用这里的修改更新技能库：", "Claude Code · 全局"]);
+  });
+});
+
+describe("installedSummary", () => {
+  it("全局写出装在哪几个 Agent,装在列出的每一个 Agent 时也照样写出名字", () => {
+    const agents = ["claude-code", "codex", "cursor"].map((code) => ({ code, name: code.toUpperCase(), detected: true }) as Agent);
+    const s = snapshot({
+      agents,
+      projects: [{ id: 2, name: "web" }] as RegisteredProject[],
+      skills: [skill(1, "s1", "o/r")],
+      skillScopes: [installed(1, "claude-code"), installed(1, "codex"), installed(1, "cursor"), installed(1, "codex", 2)],
+    });
+    expect(installedSummary(s, 1).text).toBe("CLAUDE-CODE、CODEX、CURSOR 全局、web");
+  });
+});
+
+describe("sourceShort", () => {
+  it("本地目录来源写目录，和左栏、节标题是同一个名字", () => {
+    const s = snapshot({ info: { home_dir: "/home/me" } as Snapshot["info"] });
+    expect(sourceShort(s, { type: SourceType.SourceLocal, label: "/home/me/code/my-skills" })).toBe("~/code/my-skills");
+  });
+});
+
+describe("同名不同内容的几份", () => {
+  const u = (name: string, agent: string, folder: string, project_id?: number) => ({ name, folder, scope: where(agent, project_id) }) as UnmanagedSkill;
+  const here = u("notes", "claude-code", "/home/.claude/skills/notes");
+  const there = u("notes", "codex", "/home/.agents/skills/notes");
+
+  it("和同一层的别处比：全局比各 Agent 的全局，项目里的不算", () => {
+    const s = snapshot({ unmanaged: [here, there, u("notes", "codex", "/p/.agents/skills/notes", 2), u("other", "codex", "/home/.agents/skills/other")] });
+    expect(sameNameScopes(s, "claude-code@0")).toEqual([where("claude-code"), where("codex")]);
+  });
+
+  it("别处是同一个文件夹(符号链接指过来的)时不用比", () => {
+    const linked = { ...there, link_target: here.folder } as UnmanagedSkill;
+    expect(sameNameScopes(snapshot({ unmanaged: [here, linked] }), "claude-code@0")).toEqual([]);
+  });
+
+  it("技能库比出内容不同(conflict)时，按这里的文件夹列出别处的那几份;内容一样的合成一条，不算", () => {
+    const plan = [
+      { name: "notes", conflict: true, folders: [here] },
+      { name: "notes", conflict: true, folders: [there] },
+      { name: "same", folders: [u("same", "claude-code", "/a"), u("same", "codex", "/b")] },
+    ] as PlannedUnmanagedSkill[];
+    const copies = sameNameCopies(plan, "claude-code@0");
+    expect([...copies.keys()]).toEqual([here.folder]);
+    expect(copies.get(here.folder)).toEqual([there]);
   });
 });

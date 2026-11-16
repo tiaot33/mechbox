@@ -58,13 +58,14 @@ export function SourceEditor({ edit }: { edit: SourceEdit }) {
 }
 
 // PlannedRow 是按来源分组里的一条：勾选才入库;标出在项目仓库里的、项目 skills-lock.json 记录的、指向 Agent 目录以外的、
-// 库里已有同名的、库里技能在来源里的新版，写明在哪几个 Agent 里，可以改来源。和库里某个技能一样的就是那个技能，不改来源。
+// 库里已有同名的、库里技能在来源里的新版、同一层的别处有同名不同内容的，写明在哪几个 Agent 里，可以改来源。和库里某个技能一样的就是那个技能，不改来源。
 export function PlannedRow({
   planned: p,
   picked,
   onToggle,
   home,
   sameNameInLibrary,
+  elsewhere,
   agents,
   edit,
 }: {
@@ -73,6 +74,7 @@ export function PlannedRow({
   onToggle: () => void;
   home: string;
   sameNameInLibrary: boolean; // 库里已有同名的技能(内容可能不同)
+  elsewhere?: string[]; // 只看一个作用域时，同一层的别处有同名、内容不同的(那几处的名字)
   agents: string;
   edit: SourceEdit;
 }) {
@@ -96,6 +98,11 @@ export function PlannedRow({
             </Badge>
           ) : (
             sameNameInLibrary && !p.skill_id && <SameNameInLibrary name={p.name} sourced={!!sourceOf(p, edit.link).input} />
+          )}
+          {elsewhere && elsewhere.length > 0 && (
+            <Badge tone="warn" className="fetch-unmanaged-elsewhere" title={t.elsewhereTitle(p.name, elsewhere)}>
+              {t.elsewhere(elsewhere)}
+            </Badge>
           )}
           <span className="min-w-0 grow truncate text-caption text-muted-foreground">{agents}</span>
           {!p.skill_id && (

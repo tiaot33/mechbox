@@ -173,6 +173,11 @@ export function currentSnapshot(): Snapshot {
   return s;
 }
 
+// currentSnapshotOrNull 是已读到的快照;还没读到时为 undefined。
+export function currentSnapshotOrNull(): Snapshot | undefined {
+  return queryClient.getQueryData(snapshotQuery.queryKey);
+}
+
 // ---------- 其他只读数据 ----------
 
 // configQuery 是 GitHub 令牌与同步设置有没有配置;设置页保存后经 reloadLibrary 或 invalidateConfig 重读。
@@ -235,6 +240,17 @@ export function scopeDirectoryQuery(scope: ScopeKey | null, home: string | undef
     queryKey: ["scope-directory", scope, home],
     queryFn: ({ signal }) => wails(signal, LibraryService.ScopeDirectory(parseScope(scope!))),
     enabled: !!scope,
+    meta: ids,
+  });
+}
+
+// sameNameCopiesQuery 比较几个作用域里不是库装的技能文件夹的内容(整批入库的计划，见 PlanFetchUnmanaged),
+// 用来认出同名但内容不同的几份;作用域页只在别处有同名的未纳管技能时才查(见 model 的 sameNameScopes)。只读，随写操作重读。
+export function sameNameCopiesQuery(scopes: Scope[]) {
+  return queryOptions({
+    queryKey: ["same-name-copies", scopes.map(scopeKey).sort()],
+    queryFn: ({ signal }) => list(wails(signal, LibraryService.PlanFetchUnmanaged({ scopes }))),
+    enabled: scopes.length > 1,
     meta: ids,
   });
 }

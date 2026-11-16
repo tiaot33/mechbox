@@ -6,12 +6,13 @@
 // 技能库页、作用域页与项目页的行开头有勾选框，勾选的几个技能用底部的操作栏一起操作，拖勾选着的一行就是拖它们全部。
 import { useEffect, useRef } from "react";
 import { AppService } from "@bindings/cmd/desktop";
-import { SkillScopeStatus, type Skill, type SkillID, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
-import { useT } from "@/lib/i18n";
+import { SkillScopeStatus, UpdateCheckStatus, type Skill, type SkillID, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
+import { useT, type Messages } from "@/lib/i18n";
 import { foundSource, useFoundSources, useSnapshot } from "@/lib/library";
 import {
-  changedAt,
   identicalIn,
+  isLocal,
+  notTakenOver,
   deletedInSource,
   folderNotes,
   identicalState,
@@ -28,6 +29,7 @@ import {
   sameNameInLibrary,
   sameNameNote,
   scopeKey,
+  scopeLabel,
   skillSameNameNote,
   shortPath,
   skillScopeIn,
@@ -41,34 +43,35 @@ import {
 } from "@/lib/model";
 import { ui } from "@/lib/ui";
 import { cn } from "@/lib/utils";
-import { doneFlash, toggleDrawer, useView } from "@/lib/view";
+import { doneFlash, doneFresh, toggleDrawer, useView } from "@/lib/view";
 import { fetchUnmanaged } from "@/features/fetch/fetch-unmanaged";
 import { installSkill, uninstallSkill } from "@/features/install/install";
 import { openUpdate } from "@/features/update/update";
-import { AlertIcon, Badge } from "@/components/ui/badge";
+import { AlertIcon, type Alert } from "@/components/ui/badge";
+import type { Mark } from "@/lib/level";
 import { Button } from "@/components/ui/button";
 import { Switch, SwitchMark } from "@/components/ui/switch";
 import { useDnD } from "@/components/app/dnd";
 import { Icon } from "@/components/ui/icon";
 import { Truncated } from "@/components/app/parts";
 import { PickBox } from "./pick";
-import { SameNameBadge, sameNameAlert } from "./same-name";
+import { sameNameAlert } from "./same-name";
 import { flash } from "./flash";
 
-// 列宽：技能库页是 名字 | 描述 | 装在哪 | 最近变化;作用域页是 开关 | 名字 | 描述 | 在这里的状态。
+// 列宽：技能库页是 名字 | 描述 | 装在哪 | 状态(要处理的事);作用域页是 开关 | 名字 | 描述 | 在这里的状态。
 // 能勾选的行(更新页以外)前面多一列勾选框。
-// 列表窄了(开着技能详情)时每行两层：描述挪到名字下面;技能库页的装在哪和日期上下叠在最后一列(where、date),
-// 作用域页的状态跨两层。名字、装在哪(在这里的状态)和日期仍然看得全;列表的宽度按 .a-list 这个容器算。
+// 列表窄了(开着技能详情)时每行两层：描述挪到名字下面;技能库页的装在哪和状态上下叠在最后一列(where、date),
+// 作用域页的状态跨两层。名字、装在哪(在这里的状态)和状态仍然看得全;列表的宽度按 .a-list 这个容器算。
 // 各列宽下 desc、where、date 是窄的时候它们放的格子，勾选框和开关跨两层、上下居中(span)。
 const layouts = {
   library: {
-    cols: "grid-cols-[minmax(140px,220px)_minmax(0,1fr)_minmax(80px,160px)_92px] @max-[600px]/list:grid-cols-[minmax(0,1fr)_minmax(110px,170px)]",
+    cols: "grid-cols-[minmax(140px,220px)_minmax(0,1fr)_minmax(80px,180px)_minmax(96px,170px)] @max-[600px]/list:grid-cols-[minmax(0,1fr)_minmax(110px,170px)]",
     desc: "@max-[600px]/list:col-start-1 @max-[600px]/list:row-start-2",
     where: "@max-[600px]/list:col-start-2 @max-[600px]/list:row-start-1",
     date: "@max-[600px]/list:col-start-2 @max-[600px]/list:row-start-2 @max-[600px]/list:justify-start",
   },
   pickLibrary: {
-    cols: "grid-cols-[14px_minmax(140px,220px)_minmax(0,1fr)_minmax(80px,160px)_92px] @max-[600px]/list:grid-cols-[14px_minmax(0,1fr)_minmax(110px,170px)]",
+    cols: "grid-cols-[14px_minmax(140px,220px)_minmax(0,1fr)_minmax(80px,180px)_minmax(96px,170px)] @max-[600px]/list:grid-cols-[14px_minmax(0,1fr)_minmax(110px,170px)]",
     desc: "@max-[600px]/list:col-start-2 @max-[600px]/list:row-start-2",
     where: "@max-[600px]/list:col-start-3 @max-[600px]/list:row-start-1",
     date: "@max-[600px]/list:col-start-3 @max-[600px]/list:row-start-2 @max-[600px]/list:justify-start",
@@ -101,8 +104,6 @@ const span = "@max-[600px]/list:row-span-2";
 const rowClass =
   "grid h-8 content-center items-center gap-x-4 border-b border-row-line px-3 text-body last:border-b-0 @max-[600px]/list:h-12 @max-[600px]/list:gap-y-0";
 
-// 最近几天内的变化用次要档，更早的用标注档;日期本身写成「今天」「3 天前」,近的一眼能认出来。
-const recentDays = 7;
 
 // SkillRow 是库里一个技能的一行。scope 为空时是技能库页 / 更新页的样子;有 scope 时是作用域页、项目页的样子:
 // 开头一格表示 Agent 在这里用不用(见下),最后一列写是谁装的;fromGlobal 表示它是同一个 Agent 全局装的(项目里也看得到),这里不能开关。
@@ -132,12 +133,40 @@ export function SkillRow(props: {
   // 作用域页说这一处的同名后果;技能库页、更新页说它装出去的各处。
   const folder = here?.folder ?? identical?.folder;
   const same = scope ? (folder ? sameNameNote(s, scope, folder) : undefined) : skillSameNameNote(s, skill.id);
-  const groups = s.groups.filter((g) => g.members?.includes(skill.id) && g.id !== props.hideGroup);
+  // 这里的那一份提交在项目仓库里或链到 Agent 目录以外：归团队、归作者自己管，只是内容和库里的一样。
+  // 行上不带库里这个技能的组和提醒，免得看上去像是库装过来的那一份;只留这个文件夹自己的同名提醒。
+  const foreign = !!identical && !notTakenOver(identical);
+  const groups = foreign ? [] : s.groups.filter((g) => g.members?.includes(skill.id) && g.id !== props.hideGroup);
   const twins = sameNameInLibrary(s, skill);
-  // 技能库页上，要重新安装的那几处合进名字后面的图标;作用域页的行在最后一列写这一处的状态，不再合进来。
-  const places = scope ? [] : reinstallAlerts(s, skill.id);
   const translated = translatedDescription(skill);
   const ref = useFlash(skill.id, scope);
+  const plan = () => void openUpdate(skill.collection_id, { focus: skill.id });
+  // 这一行的状态：技能本身的、它装出去的几处(技能库页)或这一处(作用域页)的提醒与更新，在最后一列只写最要紧的一条，
+  // 鼠标停住时逐条列出;一行只有这一个图标。
+  const placeAlerts: Alert[] = scope
+    ? [place && needsReinstall(place) && (skillScopeStatus(place.status, place.source_latest) as Alert)].filter((x): x is Alert => !!x)
+    : reinstallAlerts(s, skill.id);
+  const alerts: Alert[] = (foreign ? [same && sameNameAlert(same, t.list.sameName)] : [
+    same && sameNameAlert(same, t.list.sameName),
+    ...placeAlerts.map((x) => ({ ...x, onClick: x.tone === "update" ? plan : undefined })),
+    // 作者从来源里删掉了它：不是新版本，是一条提示。
+    deletedInSource(skill) && !skill.kept_deleted && { tone: "info" as const, label: t.list.deleted, tip: t.list.deletedTitle },
+    // 当前版本里有用户的修改(用目录里的修改更新过，或入库时说不清):不论有没有新版本都标出来。
+    skill.edited && { tone: "info" as const, label: t.list.hasEdits, tip: t.list.hasEditsTitle, className: "has-edits" },
+    // 有新版本、但更新会换掉用户的修改：更新计划里它默认不勾。
+    pending(skill) && updateAvailable(skill) && skill.edited && { tone: "warn" as const, label: t.list.edited, tip: t.list.editedTitle, className: "update-edited-note" },
+    // 库里同名的几个技能(内容不同，不合并):写出各装在哪里，免得只能靠描述分辨。
+    twins.length > 0 && { tone: "info" as const, label: t.list.twinsShort, tip: t.list.twins(twins.length + 1, skill.name, installedWhere(s, skill.id)), className: "dup-name-note" },
+    // 有新版本、可能改名：点它打开所在集合的更新计划;只标计入角标的。两种图标不同。
+    pending(skill) &&
+      hasUpdate(skill) &&
+      (renamedTo(skill)
+        ? { tone: "rename" as const, label: t.list.maybeRenamedTo(renamedTo(skill)), tip: t.list.renamedTitle(renamedTo(skill)), onClick: plan }
+        : { tone: "update" as const, label: t.list.newVersion, tip: t.list.availableTitle, onClick: plan }),
+    // 本地目录来源：目录里的这个技能改过了(读目录时比出来的),在详情里或集合的「…」里重新读取。
+    localChanged(skill) && { tone: "update" as const, label: t.list.localChanged, tip: t.list.localChangedTitle, className: "local-changed" },
+  ]).filter((x): x is Alert => !!x);
+  const keptDeleted = deletedInSource(skill) && skill.kept_deleted ? { text: t.list.keptDeleted, title: t.list.keptDeletedTitle } : undefined;
 
   const toggle = () => {
     if (!scope) return;
@@ -192,46 +221,13 @@ export function SkillRow(props: {
         </span>
       )}
       <div className="flex min-w-0 items-center gap-1.5 overflow-hidden">
-        {/* 一行：名字放不下时截断，后面的提醒只画图标(不被截掉),再后面是组名。 */}
+        {/* 一行：名字放不下时截断，后面是组名;提醒与更新都在最后一列。 */}
         <span
           className={cn("skill-name min-w-0 truncate text-body font-semibold", scope && !here && !identical && !props.fromGlobal && "font-normal text-foreground-secondary")}
           title={skill.note || undefined}
         >
           {skill.name}
         </span>
-        {/* 这一行的提醒(技能本身的，加上要重新安装的那几处)合成一个图标，按最重的一级，鼠标停住时逐条列出。 */}
-        <AlertIcon
-          items={[
-            same && sameNameAlert(same, t.list.sameName),
-            ...places.filter((x) => x.tone !== "update"),
-            // 作者从来源里删掉了它：不是新版本，是一条提示，和这一行的其他提醒合在一起。
-            deletedInSource(skill) && !skill.kept_deleted && { tone: "info", label: t.list.deleted, tip: t.list.deletedTitle },
-            // 当前版本里有用户的修改(用目录里的修改更新过，或入库时说不清):不论有没有新版本都标出来。
-            skill.edited && { tone: "info", label: t.list.hasEdits, tip: t.list.hasEditsTitle, className: "has-edits" },
-            // 有新版本、但更新会换掉用户的修改：更新计划里它默认不勾。
-            pending(skill) && updateAvailable(skill) && skill.edited && { tone: "warn", label: t.list.edited, tip: t.list.editedTitle, className: "update-edited-note" },
-            // 库里同名的几个技能(内容不同，不合并):写出各装在哪里，免得只能靠描述分辨。
-            twins.length > 0 && { tone: "info", label: t.list.twins(twins.length + 1, skill.name, installedWhere(s, skill.id)), className: "dup-name-note" },
-          ]}
-        />
-        {/* 更新不是提醒：另画一个主题绿的向上箭头，点它打开所在集合的更新计划;只标计入角标的。 */}
-        <AlertIcon
-          items={[
-            pending(skill) &&
-              hasUpdate(skill) && {
-                tone: "update",
-                label: renamedTo(skill) ? t.list.maybeRenamed : t.list.newVersion,
-                tip: renamedTo(skill) ? t.list.renamedTitle(renamedTo(skill)) : t.list.availableTitle,
-                onClick: () => void openUpdate(skill.collection_id, { focus: skill.id }),
-              },
-            ...places.filter((x) => x.tone === "update").map((x) => ({ ...x, onClick: () => void openUpdate(skill.collection_id, { focus: skill.id }) })),
-          ]}
-        />
-        {deletedInSource(skill) && skill.kept_deleted && (
-          <span className="shrink-0 text-caption text-muted-foreground" title={t.list.keptDeletedTitle}>
-            {t.list.keptDeleted}
-          </span>
-        )}
         {groups.length > 0 && (
           // 组名不是状态，不套标签的框：只是标注档的灰字，和前面「要处理」的标签分得开。
           <span className="skill-groups max-w-24 min-w-0 shrink-[100] truncate text-caption text-muted-foreground" title={t.list.groupsTitle(groups.map((g) => g.name))}>
@@ -256,7 +252,7 @@ export function SkillRow(props: {
           }
         >
           <p className="skill-desc truncate text-small text-muted-foreground">
-            {props.showSource && (
+            {props.showSource && !foreign && (
               <span className="text-muted-foreground" title={`${sourceKindLabel(skill.source.type)} · ${sourceLabel(s, skill.source)}`}>
                 {sourceShort(s, skill.source)} ·{" "}
               </span>
@@ -265,21 +261,23 @@ export function SkillRow(props: {
           </p>
         </Truncated>
       </div>
-      <div className={cn("flex min-w-0", layout.where)}>
-        {scope ? (
-          identical ? (
-            <IdenticalState identical={identical} skill={skill} />
+      {scope ? (
+        <div className={cn("flex min-w-0", layout.where)}>
+          {identical ? (
+            <IdenticalState identical={identical} skill={skill} alerts={alerts} />
           ) : (
-            <ScopeState place={place} via={via} fromGlobal={!!props.fromGlobal} />
-          )
-        ) : (
-          <Where skill={skill} />
-        )}
-      </div>
-      {!scope && (
-        <div className={cn("flex min-w-0 justify-end", layout.date)}>
-          <Changed skill={skill} />
+            <RowState alerts={alerts} plain={scopePlain(t.list, place, via, !!props.fromGlobal)} className="skill-state" />
+          )}
         </div>
+      ) : (
+        <>
+          <div className={cn("flex min-w-0", layout.where)}>
+            <Where skill={skill} />
+          </div>
+          <div className={cn("flex min-w-0", layout.date)}>
+            <RowState alerts={alerts} plain={keptDeleted} className="skill-status" />
+          </div>
+        </>
       )}
     </article>
   );
@@ -287,9 +285,17 @@ export function SkillRow(props: {
 
 // useFlash 是作用域页、项目页里刚入库的那一行：滚到视口中间(不被吸顶的节标题盖住)闪一下。
 // 同一个技能在页上有几行(项目页的几个 Agent 都装了)时，闪入库的那个作用域的那一行;没有那一行(来自全局一节里的)时闪第一行。
+// 技能库页上(没有 scope)刚从来源入库的几行(view 的 fresh)一起闪，只滚到第一行。
 function useFlash(id: SkillID, scope: ScopeKey | undefined) {
   const ref = useRef<HTMLElement>(null);
   const target = useView((v) => (scope && v.flash?.skill === id ? v.flash : null));
+  const fresh = useView((v) => (!scope && v.fresh?.ids.has(id) ? v.fresh : null));
+  useEffect(() => {
+    const el = ref.current;
+    if (!fresh || !el) return;
+    const first = [...document.querySelectorAll<HTMLElement>(".skill-row:not([data-scope])")].find((r) => fresh.ids.has(Number(r.dataset.skillId)));
+    return flash(el, first === el ? "center" : null, first === el ? () => doneFresh(fresh.n) : undefined);
+  }, [id, fresh]);
   useEffect(() => {
     const el = ref.current;
     if (!target || !el) return;
@@ -315,45 +321,39 @@ function Where({ skill }: { skill: Skill }) {
   );
 }
 
-function Changed({ skill }: { skill: Skill }) {
-  const t = useT().model;
-  const c = changedAt(skill);
-  if (!c) return <span />;
-  const recent = (Date.now() - c.date.getTime()) / 864e5 < recentDays;
+// RowState 是一行的最后一列：有提醒或更新时写最要紧的那一条(图标 + 一句话，还有别的写 +N,鼠标停住逐条列出;
+// 有新版本、可能改名时点它打开更新计划);没有时写 plain(随组安装、来自全局这类要说明的情况),都没有时空着。
+function RowState({ alerts, plain, className }: { alerts: Alert[]; plain?: { text: string; title?: string }; className?: string }) {
+  if (alerts.length) return <AlertIcon labeled items={alerts} className={className} />;
+  if (!plain) return null;
   return (
-    <span className={cn("skill-changed truncate text-right text-caption tabular-nums", recent ? "text-foreground-secondary" : "text-muted-foreground")} title={c.date.toLocaleString()}>
-      {t.changed(c.kind, c.date)}
+    <span className={cn("min-w-0 truncate text-caption text-muted-foreground", className)} title={plain.title ?? plain.text}>
+      {plain.text}
     </span>
   );
 }
 
-// ScopeState 是作用域页最后一列：直接安装 / 随组安装 / 来自全局 / 未安装，要重新安装时带上原因。
-// place 是这一处(来自全局的是全局那一处)的安装，via 是随哪几个组装。
-function ScopeState({ place, via, fromGlobal }: { place: SkillScopeInspection | undefined; via: string[]; fromGlobal: boolean }) {
-  const t = useT().list;
-  const text = fromGlobal ? t.fromGlobal : place ? t.hereState(place.direct, via) : t.notInstalled;
-  return (
-    <span className="skill-state flex min-w-0 items-center gap-1.5 text-caption text-muted-foreground">
-      <span className="min-w-0 truncate" title={text}>
-        {text}
-      </span>
-      {place && needsReinstall(place) && (
-        <Badge tone={skillScopeStatus(place.status, place.source_latest).tone} className="font-sans">
-          {skillScopeStatus(place.status, place.source_latest).label}
-        </Badge>
-      )}
-    </span>
-  );
+// scopePlain 是作用域页一行没有提醒时最后一列写的：直接安装是常态，不写;随组安装写随哪几个组，来自全局写来自全局。
+function scopePlain(t: Messages["list"], place: SkillScopeInspection | undefined, via: string[], fromGlobal: boolean) {
+  if (fromGlobal) return { text: t.fromGlobal, title: t.sectionGlobalTitle };
+  if (!place || !via.length) return undefined;
+  return { text: t.hereState(place.direct, via) };
+}
+
+// localChanged 是本地目录来源的技能在目录里改过了：读目录时(见 features/update/check 的 checkLocalDirectories)比出来和库里的当前版本不一样。
+function localChanged(skill: Skill): boolean {
+  return isLocal(skill.source) && skill.last_update_check?.status === UpdateCheckStatus.UpdateAvailable;
 }
 
 // TakeOverButton 是和库里技能一模一样、不是库装的那一处的"入库":入库只补记安装，文件夹原样不动。
+// 提交在项目仓库里、指向 Agent 目录以外的默认不入库，按钮是普通的灰底。
 function TakeOverButton({ identical, name }: { identical: UnmanagedSkill; name: string }) {
   const t = useT().list;
   return (
     <Button
       size="sm"
-      variant="pill"
-      className="take-over"
+      variant={notTakenOver(identical) ? "pill" : "default"}
+      className={cn("take-over", !notTakenOver(identical) && "rounded-pill px-3")}
       title={t.identicalHereTitle(name)}
       onClick={() => void fetchUnmanaged(identical)}
     >
@@ -364,23 +364,18 @@ function TakeOverButton({ identical, name }: { identical: UnmanagedSkill; name: 
 
 // IdenticalState 是那一处的最后一列：不是 app 装的，接着写归谁管、是不是指向 Agent 目录以外(folderNotes);
 // 和库里的旧版本一样时标出来，下面是在文件管理器中显示。
-function IdenticalState({ identical, skill }: { identical: UnmanagedSkill; skill: Skill }) {
+function IdenticalState({ identical, skill, alerts }: { identical: UnmanagedSkill; skill: Skill; alerts: Alert[] }) {
   const { common, list } = useT();
   const stale = skillScopeStatus(SkillScopeStatus.SkillScopeStale);
-  const state = identicalState(skill, identical);
+  const state = identicalState(skill, identical, useSnapshot().info.home_dir);
+  const title = identical.link_target ? `${state.title}\n${list.linkTitle(identical.link_target)}` : state.title;
   return (
     <div className="flex min-w-0 items-center gap-1.5">
-      <span
-        className="skill-state identical-state flex min-w-0 items-center gap-1.5 text-caption text-muted-foreground"
-        title={identical.link_target ? `${state.title}\n${list.linkTitle(identical.link_target)}` : state.title}
-      >
-        <span className="min-w-0 truncate">{state.text}</span>
-        {state.stale && (
-          <Badge tone={stale.tone} className="font-sans">
-            {stale.label}
-          </Badge>
-        )}
+      {/* 先写这一份不是 app 装的、归谁管;有提醒时后面只跟一个图标。 */}
+      <span className="skill-state identical-state min-w-0 truncate text-caption text-muted-foreground" title={title}>
+        {state.text}
       </span>
+      <AlertIcon items={[...(state.stale ? [{ tone: stale.tone as Mark, label: stale.label }] : []), ...alerts]} />
       <RevealButton
         label={common.reveal()}
         onClick={(e) => {
@@ -408,7 +403,18 @@ function RevealButton({ label, onClick }: { label: string; onClick: (e: React.Mo
 // 最后一列写"不在技能库里"(headed:作用域页"不在技能库里"一节里的，节标题已经写了，不再写;fromGlobal:"来自全局"一节里的，先写"来自全局"),
 // 提交在项目仓库里、记在 skills-lock.json 里、指向 Agent 目录以外的接着写出来，下面是在文件管理器中显示;符号链接在描述下写出指向哪里。
 // 不能拖动、不打开详情。
-export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { skill: UnmanagedSkill; fromGlobal?: boolean; headed?: boolean }) {
+// copies 是同一层的别处同名、内容不同的几份(见 model 的 sameNameCopies):不合成一个技能，行上说出来。
+export function UnmanagedRow({
+  skill,
+  fromGlobal = false,
+  headed = false,
+  copies,
+}: {
+  skill: UnmanagedSkill;
+  fromGlobal?: boolean;
+  headed?: boolean;
+  copies?: UnmanagedSkill[];
+}) {
   const s = useSnapshot();
   const { list: t, common } = useT();
   const same = sameNameNote(s, scopeKey(skill.scope), skill.folder);
@@ -427,7 +433,7 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
         : headed
           ? undefined
           : { text: t.notInLibrary, title: t.notInLibraryTitle },
-    ...folderNotes(skill),
+    ...folderNotes(skill, s.info.home_dir),
   ].filter((x) => !!x);
   // 行高固定，来源和符号链接指向哪里不占一行：写在描述的悬停提示里，同一份留在 DOM 里给读屏(className 是测试钩子)。
   // 没有描述时描述那一格直接写来源和链接(来源是怎么认出来的那句 detail 只在提示里),不留一块悬停不到的空白。
@@ -453,10 +459,11 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
             {t.update}
           </Button>
         ) : (
+          // 提交在项目仓库里、指向 Agent 目录以外的默认不入库(归团队管、作者留在自己目录里改):按钮是普通的灰底，不推用户去入库。
           <Button
             size="sm"
-            variant="pill"
-            className="fetch-unmanaged"
+            variant={notTakenOver(skill) ? "pill" : "default"}
+            className={cn("fetch-unmanaged", !notTakenOver(skill) && "rounded-pill px-3")}
             title={t.fetchTitle}
             onClick={() => void fetchUnmanaged(skill)}
           >
@@ -466,7 +473,6 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
       </span>
       <div className="flex min-w-0 items-center gap-1.5">
         <span className="unmanaged-name min-w-0 truncate text-body font-semibold">{skill.name}</span>
-        {same && <SameNameBadge note={same} />}
       </div>
       <div className={cn("min-w-0", layouts.pickScope.desc)}>
         <Truncated always={notes.length > 0} tip={[skill.description, ...notes.map((x) => x.text)].filter(Boolean).join("\n")}>
@@ -486,6 +492,19 @@ export function UnmanagedRow({ skill, fromGlobal = false, headed = false }: { sk
             {state.map((x) => x.text).join(" · ")}
           </span>
         )}
+        {/* 同名的提醒(和同一个 Agent 另一层级同名、同一层的别处同名不同内容)只画一个图标;前面没有字时图标后面写最要紧的那一条。 */}
+        <AlertIcon
+          labeled={!state.length}
+          items={[
+            same && sameNameAlert(same, t.sameName),
+            !!copies?.length && {
+              tone: "warn",
+              label: t.sameNameCopies,
+              tip: t.sameNameCopiesTitle(skill.name, [...new Set(copies.map((x) => scopeLabel(s, x.scope)))]),
+              className: "same-name-copies",
+            },
+          ]}
+        />
         <RevealButton label={common.reveal()} onClick={() => void ui.run(() => AppService.RevealInFileManager(skill.folder), { reload: false })} />
       </div>
     </article>

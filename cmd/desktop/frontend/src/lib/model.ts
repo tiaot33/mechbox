@@ -11,6 +11,7 @@ import {
   type CollectionID,
   type Group,
   type GroupID,
+  type PlannedUnmanagedSkill,
   type ProjectID,
   type RegisteredProject,
   type Scope,
@@ -238,9 +239,10 @@ export function identicalIn(s: Snapshot, key: ScopeKey, skillID: SkillID): Unman
 
 // identicalState 是这个技能那一份不是库装的文件夹(identicalIn)怎么说：不是 app 装的，接着写归谁管、指向哪里(folderNotes),
 // 符号链接时 title 里写出指向哪里;stale 表示和库里的旧版本一样。作用域页的行和技能详情的安装表都用它。
-export function identicalState(skill: Skill, u: UnmanagedSkill): { text: string; title: string; stale: boolean } {
+export function identicalState(skill: Skill, u: UnmanagedSkill, home?: string): { text: string; title: string; stale: boolean } {
   const t = messages().list;
-  const notes = [{ text: t.identicalHere, title: t.identicalHereTitle(skill.name) }, ...folderNotes(u)];
+  // 归谁管写在前面(在项目仓库里、链到哪里),一眼看得出这一份不是库装过来的。
+  const notes = [...folderNotes(u, home), { text: t.identicalHere, title: t.identicalHereTitle(skill.name) }];
   const titles = [...notes.map((x) => x.title), ...(u.link_target ? [t.linkTitle(u.link_target)] : [])];
   return { text: notes.map((x) => x.text).join(" · "), title: titles.join("\n"), stale: u.version_id !== skill.version_id };
 }
@@ -265,8 +267,8 @@ export const repoOwned = (u: Pick<Ownership, "in_repository" | "in_project_lock"
 export const notTakenOver = (u: Ownership) => !repoOwned(u) && !u.link_outside;
 
 // folderNotes 是未纳管文件夹归谁管、指向哪里的标注，写在行的最后一列：提交在项目仓库里或记在 skills-lock.json 里、
-// 指向 Agent 目录以外。"不在技能库里"的一行和显示成库里技能一行的副本(identicalIn)都写这几条。
-export function folderNotes(u: Ownership & Pick<UnmanagedSkill, "link_target">): { text: string; title: string }[] {
+// 指向 Agent 目录以外(写出链到哪里，home 是用户主目录，路径缩写成 ~)。"不在技能库里"的一行和显示成库里技能一行的副本(identicalIn)都写这几条。
+export function folderNotes(u: Ownership & Pick<UnmanagedSkill, "link_target">, home?: string): { text: string; title: string }[] {
   const t = messages().list;
   return [
     u.in_repository
@@ -274,7 +276,9 @@ export function folderNotes(u: Ownership & Pick<UnmanagedSkill, "link_target">):
       : u.in_project_lock
         ? { text: t.inLock, title: t.inLockTitle }
         : undefined,
-    u.link_outside ? { text: t.linkOutside, title: t.linkOutsideTitle(u.link_target ?? "") } : undefined,
+    u.link_outside
+      ? { text: u.link_target ? t.linkOutsideTo(homePath(home, u.link_target)) : t.linkOutside, title: t.linkOutsideTitle(u.link_target ?? "") }
+      : undefined,
   ].filter((x) => !!x);
 }
 
@@ -329,6 +333,34 @@ export function skillSameNameNote(s: Snapshot, skillID: SkillID): { text: string
   return texts.length ? { text: texts[0], title: texts.join("\n") } : undefined;
 }
 
+// ---------- 同名不同内容的几份 ----------
+// 同一个技能名在几个作用域里都有不是库装的文件夹、内容又不同时，不合成一个技能(入库时只入一份),界面要把同名说出来。
+// 和这个作用域比的是同一层的别处：全局比各 Agent 的全局，项目比这个项目里的各 Agent。内容同不同由技能库比(sameNameCopiesQuery)。
+
+// sameNameScopes 是这个作用域要和哪几处比：这里的未纳管技能在同一层的别处有同名的(文件夹不同)时，返回这里加上那几处;没有时为空。
+export function sameNameScopes(s: Snapshot, key: ScopeKey): Scope[] {
+  const place = placeOf(parseScope(key));
+  const here = unmanagedIn(s, key);
+  const names = new Set(here.map((u) => u.name));
+  const folders = new Set(here.map((u) => u.link_target || u.folder));
+  const others = s.unmanaged.filter(
+    (u) => scopeKey(u.scope) !== key && placeOf(u.scope) === place && names.has(u.name) && !folders.has(u.link_target || u.folder),
+  );
+  if (!others.length) return [];
+  return [parseScope(key), ...new Map(others.map((u) => [scopeKey(u.scope), u.scope])).values()];
+}
+
+// sameNameCopies 从技能库比出的计划里取出同名不同内容的几份：按这个作用域里的文件夹，列出别处内容不同的同名文件夹。
+export function sameNameCopies(plan: PlannedUnmanagedSkill[], key: ScopeKey): Map<string, UnmanagedSkill[]> {
+  const result = new Map<string, UnmanagedSkill[]>();
+  const conflicted = plan.filter((p) => p.conflict && !p.error);
+  for (const p of conflicted) {
+    const others = conflicted.filter((x) => x !== p && x.name === p.name).flatMap((x) => (x.folders ?? []).filter((f) => scopeKey(f.scope) !== key));
+    for (const f of p.folders ?? []) if (scopeKey(f.scope) === key && others.length) result.set(f.folder, others);
+  }
+  return result;
+}
+
 // sameNameInLibrary 是库里和它同名的其他技能(同名但内容不同的不合并，见入库)。
 export function sameNameInLibrary(s: Snapshot, skill: Pick<Skill, "id" | "name">): Skill[] {
   return s.skills.filter((x) => x.name === skill.name && x.id !== skill.id);
@@ -371,33 +403,44 @@ export const folderPresent = (p: Pick<SkillScopeInspection, "status">) =>
 // canInstall 是能装到的地方：项目不在这台机器上的装不上。
 export const canInstall = (p: Pick<SkillScopeInspection, "status">) => p.status !== SkillScopeStatus.SkillScopeRootMissing;
 
-// needsReinstall 是这一处要重新安装。项目不在这台机器上的不算：那里装不回去，要处理的是项目本身，
-// 提醒只在项目上(作用域栏、设置页的项目行),不落到装在那里的每个技能上。
+// needsReinstall 是这一处和库里的当前版本不一样、可以重新安装。项目不在这台机器上的不算：那里装不回去，要处理的是项目本身，
+// 提醒只在项目上(作用域栏、设置页的项目行),不落到装在那里的每个技能上。被手动改过的也算(重新安装时默认不覆盖),
+// 但那是用户自己的修改，不是要修的问题：提醒和计数用 needsRepair,被手动改过的另用 editedHere。
 export function needsReinstall(p: SkillScopeInspection): boolean {
   return p.status !== SkillScopeStatus.SkillScopeCurrent && canInstall(p);
 }
 
-// reinstallLevel 是几处安装里要重新安装的那些最重到哪一级提醒(作用域栏 Agent 行、作用域页摘要的提醒图标按它取级别):
-// 有文件夹不在了的是严重，有被手动改过、版本落后的是注意;在 app 外更新到了作者新版的不是提醒(是更新),不算;都不用重新安装时没有。
+// editedHere 是这一处被手动改过(用户或 Agent 直接在 Agent 目录里改的):是用户自己的修改，可以用这里的修改更新技能库。
+// 在 app 外更新到了作者新版的不算(那是更新)。
+export const editedHere = (p: Pick<SkillScopeInspection, "status" | "source_latest">) =>
+  p.status === SkillScopeStatus.SkillScopeModified && !p.source_latest;
+
+// needsRepair 是这一处真要重新安装：文件夹不在了、版本落后于库里。被手动改过的、在 app 外更新到作者新版的都不算。
+export const needsRepair = (p: SkillScopeInspection) =>
+  canInstall(p) && (p.status === SkillScopeStatus.SkillScopeMissing || p.status === SkillScopeStatus.SkillScopeStale);
+
+// reinstallLevel 是几处安装里和当前版本不一样的那些最重到哪一级提醒(作用域栏 Agent 行、作用域页摘要的提醒图标按它取级别):
+// 有文件夹不在了的是严重，版本落后的是注意，只有被手动改过的是提示;在 app 外更新到了作者新版的不是提醒(是更新),不算;都一样时没有。
 export function reinstallLevel(places: SkillScopeInspection[]): Level | undefined {
   return worstLevel(places.filter(needsReinstall).map((p) => skillScopeStatus(p.status, p.source_latest).tone));
 }
 
-// ReinstallAlert 是一个技能要重新安装的原因之一：级别、原因(label)、tip 逐行写出是哪几处。
+// ReinstallAlert 是一个技能在几处和当前版本不一样的原因之一：级别、原因(label)、tip 逐行写出是哪几处。
 export type ReinstallAlert = { tone: Mark; label: string; tip: string };
 
-// reinstallAlerts 是一个技能要重新安装的那几处，按原因(文件夹不在了、被手动改过……)各合成一条;
-// 技能库页把它们合进技能名后面的图标。在 app 外更新到了作者新版的那条是更新(tone 为 update),画在更新的图标里，
-// tip 只列地方;其余的 tip 先写一句要重新安装，免得「旧版本」被读成库里的是旧版。
+// reinstallAlerts 是一个技能和当前版本不一样的那几处，按原因(文件夹不在了、被手动改过……)各合成一条;
+// 技能库页把它们合进这一行的状态。真要重新安装的(needsRepair)tip 先写一句要重新安装，免得「旧版本」被读成库里的是旧版;
+// 被手动改过的只列地方(是用户自己的修改);在 app 外更新到了作者新版的那条是更新(tone 为 update),也只列地方。
 export function reinstallAlerts(s: Snapshot, id: SkillID): ReinstallAlert[] {
-  const head = messages().model.reinstallAt;
+  const m = messages().model;
   const by = new Map<string, ReinstallAlert>();
   for (const p of mergeProjectPlaces(s, skillScopesOf(s, id)).filter(needsReinstall)) {
     const st = skillScopeStatus(p.status, p.source_latest);
     if (st.tone === "plain") continue;
     const at = scopeLabel(s, p.scope);
     const had = by.get(st.label);
-    by.set(st.label, had ? { ...had, tip: `${had.tip}\n${at}` } : { tone: st.tone, label: st.label, tip: st.tone === "update" ? at : `${head}\n${at}` });
+    const head = needsRepair(p) ? `${m.reinstallAt}\n` : editedHere(p) ? `${m.editedAt}\n` : "";
+    by.set(st.label, had ? { ...had, tip: `${had.tip}\n${at}` } : { tone: st.tone, label: st.label, tip: head + at });
   }
   return [...by.values()];
 }
@@ -409,7 +452,8 @@ export function skillScopeStatus(status: SkillScopeStatus, sourceLatest = false)
   return {
     [SkillScopeStatus.SkillScopeCurrent]: { label: m.model.statusCurrent, tone: "plain" as const },
     [SkillScopeStatus.SkillScopeStale]: { label: m.model.statusStale, tone: "warn" as const },
-    [SkillScopeStatus.SkillScopeModified]: { label: m.model.statusModified, tone: "warn" as const },
+    // 被手动改过是用户自己的修改，不是要修的错误：提示一级。
+    [SkillScopeStatus.SkillScopeModified]: { label: m.model.statusModified, tone: "info" as const },
     [SkillScopeStatus.SkillScopeMissing]: { label: m.model.statusMissing, tone: "critical" as const },
     // 项目不在这台机器上是项目的事：技能详情里那一行照实写出来，不算这个技能的提醒。
     [SkillScopeStatus.SkillScopeRootMissing]: { label: m.model.statusRootMissing, tone: "plain" as const },
@@ -421,10 +465,6 @@ export function skillScopeStatus(status: SkillScopeStatus, sourceLatest = false)
 // 成员各自的直接安装不算组安装。
 export function groupStateIn(s: Snapshot, group: Group, key: ScopeKey): "on" | "off" {
   return s.groupInstalls.some((a) => a.group_id === group.id && scopeKey(a.scope) === key) ? "on" : "off";
-}
-
-export function viaGroupCount(s: Snapshot, group: Group, key: ScopeKey): number {
-  return (group.members ?? []).filter((id) => skillScopeIn(s, id, key)?.groups?.includes(group.id)).length;
 }
 
 // ---------- 照着装 ----------
@@ -815,7 +855,7 @@ export function sourceLabel(s: Snapshot, source: Source): string {
 }
 
 // sourceShort 是技能行里的来源短名：GitHub 取 owner,Git 仓库取主机后的第一段(owner 或 group),well-known 取站点主机,
-// URL 取文件名，本地一律"自研"。
+// URL 取文件名;本地目录写目录(和左栏、节标题的名字一样，同一个来源在各处叫同一个名字),没有来源的写"没有来源"。
 export function sourceShort(s: Snapshot, source: Source): string {
   switch (source.type) {
     case SourceType.SourceGitHub:
@@ -828,6 +868,8 @@ export function sourceShort(s: Snapshot, source: Source): string {
       return source.label.split("/")[0];
     case SourceType.SourceURL:
       return sourceLabel(s, source).replace(/\.zip$/, "");
+    case SourceType.SourceLocal:
+      return sourceLabel(s, source);
     default:
       return sourceKindLabel(source.type);
   }
@@ -962,17 +1004,15 @@ export function arrangeSkills(
   return sections.filter((x) => x.skills.length > 0 || (emptyGroups && !search.trim() && x.kind === "group"));
 }
 
-// installedSummary 是技能库页上一行的"装在哪":显示的 Agent 全局都装了就只写"全局",否则写出是哪几个 Agent;
-// 项目只有一个时写项目名，多个时写个数。没装在任何地方时 text 为空。title 逐处列出;bad 表示有地方要重新安装。
+// installedSummary 是技能库页上一行的"装在哪":全局写出装在哪几个 Agent(按 Agent 列表的先后，后面跟"全局"),
+// 项目只有一个时写项目名，多个时写个数。没装在任何地方时 text 为空。title 逐处列出;bad 表示有地方真要重新安装(needsRepair)。
 export function installedSummary(s: Snapshot, skillID: SkillID): { text: string; title: string; bad: boolean } {
   const m = messages().model;
   const places = skillScopesOf(s, skillID);
   const globals = s.agents.filter((a) => places.some((p) => !placeOf(p.scope) && p.scope.agent === a.code));
-  const open = agentsIn(s, 0).open;
-  const everyAgent = globals.length > 0 && open.every((a) => globals.includes(a));
   const projects = [...new Set(places.map((p) => placeOf(p.scope)).filter(Boolean))];
   const text = [
-    !globals.length ? "" : everyAgent ? m.global : m.agentsGlobal(globals.map((a) => a.name)),
+    !globals.length ? "" : m.agentsGlobal(globals.map((a) => a.name)),
     !projects.length ? "" : projects.length === 1 ? projectName(s, projects[0]) : m.projectCount(projects.length),
   ]
     .filter(Boolean)
@@ -980,7 +1020,7 @@ export function installedSummary(s: Snapshot, skillID: SkillID): { text: string;
   const title = mergeProjectPlaces(s, places)
     .map((p) => scopeLabel(s, p.scope))
     .join("\n");
-  return { text, title, bad: places.some(needsReinstall) };
+  return { text, title, bad: places.some(needsRepair) };
 }
 
 // changedAt 是技能最近一次变化：更新带来新版本的时间，从没更新过时是入库时间。Go 的零值时间当作没有。

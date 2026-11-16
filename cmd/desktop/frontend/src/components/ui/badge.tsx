@@ -3,16 +3,18 @@
 // - critical(严重):已经坏了，不处理就用不了(文件夹不在了、项目不在这台机器上、操作失败)。红色的圆里一个叉;字是红色、半粗;
 // - warn(注意):有风险或有冲突，不处理可能丢东西或用错(被手动改过、更新改动了脚本、需要重新安装、同名、更新会换掉你的修改)。橙色的三角里一个叹号;字是橙色;
 // - info(提示):有一件可以做的事，放着也没事(有你的修改、来源里已删除、库里有几个同名的)。蓝色的圆里一个 i;字是次要档的灰色;
-// - update(更新):不是提醒，是来源里有新版本可以更新(有新版本、可能改名、在 app 外更新到了作者的新版)。绿色(primary)的圆里一个向上的箭头;字是次要档的灰色。
-//   它不用红橙蓝，和三级提醒分开画：列表的一行里提醒一个图标、更新一个图标。
+// - update(更新):不是提醒，是来源里有新版本可以更新(有新版本、在 app 外更新到了作者的新版、本地目录里改过)。绿色(primary)的圆里一个向上的箭头;字是次要档的灰色。
+// - rename(可能改名):同样不是提醒，但要用户确认是不是同一个技能，和有新版本分开：绿色的圆里一个向右的箭头。
+//   这两种不用红橙蓝，和三级提醒分开画。
 // - plain(平常):只是信息(已是最新、未安装、「直接安装」这类标记)。灰字，没有图标。
 // 三种样子：带文字的标签(Badge:图标 + 字);MarkIcon 是单独的图标，给自己排版的地方用;
-// AlertIcon 是占地小的地方(列表的行、侧栏)用的：一处的一条或几条提醒只画一个图标，文字在悬停提示里;更新另用一个 AlertIcon。
+// AlertIcon 是占地小的地方(列表的行、侧栏)用的：一处的一条或几条提醒只画一个图标，文字在悬停提示里;
+// labeled 时(列表一行的状态列)图标后面写最要紧的那一条，还有别的时写 +N,一行只有这一个图标。
 import type { ComponentProps } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { Slot } from "radix-ui";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { byLevel, type Mark, type Tone } from "@/lib/level";
+import { byLevel, byUrgency, type Mark, type Tone } from "@/lib/level";
 import { cn } from "@/lib/utils";
 
 const badgeVariants = cva("inline-flex shrink-0 items-center gap-1.5 text-caption whitespace-nowrap tabular-nums", {
@@ -22,6 +24,7 @@ const badgeVariants = cva("inline-flex shrink-0 items-center gap-1.5 text-captio
       warn: "text-warn-fg",
       info: "text-foreground-secondary",
       update: "text-foreground-secondary",
+      rename: "text-foreground-secondary",
       plain: "text-muted-foreground",
     } satisfies Record<Tone, string>,
   },
@@ -35,9 +38,10 @@ const markPath: Record<Mark, string> = {
   warn: "M6.7 2.2a1.5 1.5 0 0 1 2.6 0l5.6 9.8a1.5 1.5 0 0 1-1.3 2.25H2.4a1.5 1.5 0 0 1-1.3-2.25ZM7.15 5.6l.25 4.2h1.2l.25-4.2ZM8 10.85a.95.95 0 1 0 0 1.9.95.95 0 0 0 0-1.9Z",
   info: "M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 2.9a1 1 0 1 0 0 2 1 1 0 0 0 0-2ZM7.15 7v5h1.7V7Z",
   update: "M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm0 3.2L4.6 7.6l1.06 1.06 1.59-1.59v4.73h1.5V7.07l1.59 1.59L11.4 7.6Z",
+  rename: "M8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1Zm4.8 7L8.4 4.6 7.34 5.66l1.59 1.59H4.2v1.5h4.73l-1.59 1.59 1.06 1.06Z",
 };
 
-const markColor: Record<Mark, string> = { critical: "text-critical", warn: "text-warn", info: "text-info", update: "text-primary" };
+const markColor: Record<Mark, string> = { critical: "text-critical", warn: "text-warn", info: "text-info", update: "text-primary", rename: "text-primary" };
 
 // MarkIcon 是提醒或更新的小图标:12 px,形状各不相同(圆里一个叉、三角里一个叹号、圆里一个 i、圆里一个向上的箭头),不只靠颜色分。
 function MarkIcon({ tone, className, title, ...props }: ComponentProps<"svg"> & { tone: Mark; title?: string }) {
@@ -73,14 +77,26 @@ type Alert = { tone: Mark; label: string; tip?: string; className?: string; onCl
 // AlertIcon 把一处的一条或几条提醒合成一个图标：图标按最重的一级画，鼠标停住时从重到轻逐条列出(图标 + 一句话 + 说明)。
 // 提示里的每一条同时留在 DOM 里(读屏和测试读到的和提示里显示的是同一份),界面上不占地方。
 // 有带 onClick 的一条时整个图标是按钮，点它(或聚焦后按回车、空格)做那件事。
-function AlertIcon({ items, className }: { items: (Alert | false | null | undefined | "")[]; className?: string }) {
-  const alerts = items.filter((x): x is Alert => !!x).sort((a, b) => byLevel(a.tone, b.tone));
+function AlertIcon({ items, className, labeled = false }: { items: (Alert | false | null | undefined | "")[]; className?: string; labeled?: boolean }) {
+  const alerts = items.filter((x): x is Alert => !!x).sort((a, b) => (labeled ? byUrgency : byLevel)(a.tone, b.tone));
   if (!alerts.length) return null;
   const act = alerts.find((x) => x.onClick)?.onClick;
-  const box = cn("relative inline-grid size-4 shrink-0 place-items-center rounded-full outline-none", className);
+  const box = labeled
+    ? cn("relative flex h-6 max-w-full min-w-0 items-center gap-1.5 rounded-control px-1 -mx-1 text-left text-caption outline-none", className)
+    : cn("relative inline-grid size-4 shrink-0 place-items-center rounded-full outline-none", className);
   const inner = (
     <>
       <MarkIcon tone={alerts[0].tone} />
+      {labeled && (
+        <span aria-hidden className={cn("min-w-0 truncate", badgeVariants({ tone: alerts[0].tone }), "shrink")}>
+          {alerts[0].label}
+        </span>
+      )}
+      {labeled && alerts.length > 1 && (
+        <span aria-hidden className="shrink-0 text-caption text-muted-foreground tabular-nums">
+          +{alerts.length - 1}
+        </span>
+      )}
       {alerts.map((a) => (
         <span key={a.label} data-slot="badge" data-tone={a.tone} className={cn("sr-only", a.className)}>
           {a.label}
@@ -96,7 +112,7 @@ function AlertIcon({ items, className }: { items: (Alert | false | null | undefi
           <button
             type="button"
             data-slot="alert-dot"
-            className={cn(box, "cursor-pointer focus-visible:ring-3 focus-visible:ring-primary-soft")}
+            className={cn(box, "cursor-pointer focus-visible:ring-3 focus-visible:ring-primary-soft", labeled && "hover:bg-fill")}
             onClick={(e) => {
               e.stopPropagation();
               act();

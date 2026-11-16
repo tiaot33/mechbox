@@ -43,7 +43,8 @@ export type Where =
   | { kind: "first-open" }
   | { kind: "everywhere"; projects: RegisteredProject[] }
   | { kind: "project"; project: RegisteredProject }
-  | { kind: "scope"; label: string };
+  // elsewhere:这个作用域里的技能在同一层的别处有同名、内容不同的，按技能名列出那几处。
+  | { kind: "scope"; label: string; elsewhere?: Map<string, string[]> };
 
 // offerFirstOpen 在这台机器上第一次打开 app 时，把用户带到各 Agent 全局目录里不是库装的技能;没有就什么都不做。
 export async function offerFirstOpen(agents: Agent[]) {
@@ -65,9 +66,11 @@ export async function offerFetchProject(agents: Agent[], project: RegisteredProj
 
 // planEverywhere 为各 Agent 的全局目录和全部已登记项目生成整批入库的计划，返回打开确认的函数;
 // 用户自己点的，计划为空或读不出时告诉一声并返回 null。signal 取消时停下读取，什么都不说，返回 null。
+// 不在这台机器上的项目读不到，不算进去：确认里说的范围和实际读到的一致。
 export function planEverywhere(agents: Agent[], projects: RegisteredProject[], signal: AbortSignal) {
-  const scopes = [0, ...projects.map((p) => p.id)].flatMap((place) => agents.map((a) => scopeOf(a.code, place)));
-  return planFetchUnmanaged(agents, scopes, { kind: "everywhere", projects }, false, signal);
+  const here = projects.filter((p) => !p.missing);
+  const scopes = [0, ...here.map((p) => p.id)].flatMap((place) => agents.map((a) => scopeOf(a.code, place)));
+  return planFetchUnmanaged(agents, scopes, { kind: "everywhere", projects: here }, false, signal);
 }
 
 // offerFetchUnmanaged 生成整批入库的计划并打开确认;quiet 为 false 时(用户自己点的)计划为空也告诉一声。
@@ -301,6 +304,7 @@ function FetchUnmanagedDialog({
                     onToggle={() => toggle(i)}
                     home={home}
                     sameNameInLibrary={library.has(plan[i].name)}
+                    elsewhere={where.kind === "scope" ? where.elsewhere?.get(plan[i].name) : undefined}
                     agents={agentNames(plan[i])}
                     edit={edit(i)}
                   />

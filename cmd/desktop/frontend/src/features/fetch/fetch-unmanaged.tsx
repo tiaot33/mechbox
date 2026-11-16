@@ -42,12 +42,12 @@ export async function fetchUnmanaged(skill: UnmanagedSkill) {
     <FetchUnmanagedDialog place={place} skill={skill} twins={twins} same={same} outside={outside} close={close} />
   ));
   if (!r) return;
-  // 说清它已在技能库里、文件夹没动，给下一步"装到别处…";它那一行换成库里技能的一行，闪一下。
+  // 一句话说清它已在技能库里(提示要一眼读完),给下一步"装到别处…";它那一行换成库里技能的一行，闪一下。
   const message = r.matched
-    ? t.matchedVersion(skill.name, r.skill.name, place)
+    ? t.matchedVersion(skill.name, r.skill.name)
     : r.skill.collection_id
-      ? t.fetchedTracking(r.skill.name, r.skill.source.label, place)
-      : t.fetched(r.skill.name, place);
+      ? t.fetchedTracking(r.skill.name, r.skill.source.label)
+      : t.fetched(r.skill.name);
   ui.toast(message, "ok", { label: t.installElsewhere, onClick: () => void chooseAndInstall([r.skill.id]) });
   flashSkill(r.skill.id, scopeKey(skill.scope));
 }

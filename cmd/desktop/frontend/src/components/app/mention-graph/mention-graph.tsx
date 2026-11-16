@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Icon } from "@/components/ui/icon";
 import { SearchLine } from "@/components/app/skill-list/search-line";
+import { Tipped } from "@/components/app/parts";
 import { useJudgeMentions, type Judging } from "@/features/graph/judge";
 
 // MentionGraphPage 是关系图页的内容：members 是这个集合或组里的技能。
@@ -61,11 +62,13 @@ function Loaded({ members, mentions, unjudged, filter, group }: { members: Skill
       <div className="[&>.search-line]:mb-0">
         <SearchLine results={searchHits(graph, search)} />
       </div>
-      <div className="graph-summary flex min-w-0 items-center gap-2 text-caption text-muted-foreground">
-        <span className="shrink-0 text-foreground-secondary">{t.summary(members.length, graph.edges.length, outside, group)}</span>
-        <span className="min-w-0 truncate">{t.hint}</span>
+      {/* 顶部一行读完：数字在前，怎么看图的说明收进旁边的悬停提示;单个词的技能名的判断状态跟在同一行后面。 */}
+      <div className="graph-summary flex min-w-0 items-center gap-4 text-caption text-muted-foreground">
+        <Tipped tip={t.hint} className="shrink-0 text-foreground-secondary">
+          {t.summary(members.length, graph.edges.length, outside, group)}
+        </Tipped>
+        <JudgeLine judging={judging} unjudged={unjudged} retry={retry} />
       </div>
-      <JudgeLine judging={judging} unjudged={unjudged} retry={retry} />
       {graph.nodes.length ? (
         <Canvas graph={graph} />
       ) : (
@@ -95,10 +98,10 @@ function JudgeLine({ judging, unjudged, retry }: { judging: Judging; unjudged: n
   let action: { label: string; run: () => void; away?: boolean } | undefined;
   switch (judging.state) {
     case "judging":
-      text = t.judging(judging.count);
+      [text, reason] = [t.judgingShort(judging.count), t.judging(judging.count)];
       break;
     case "unconfigured":
-      [text, action] = [t.unjudged(judging.count), { label: t.setUpAI, run: () => openSettings("ai"), away: true }];
+      [text, reason, action] = [t.unjudgedShort(judging.count), t.unjudged(judging.count), { label: t.setUpAI, run: () => openSettings("ai"), away: true }];
       break;
     case "stopped":
       [text, reason] = [judging.fix === "settings" ? t.judgeNeedsSettings(unjudged) : t.judgeStopped(unjudged), judging.reason];
@@ -114,23 +117,21 @@ function JudgeLine({ judging, unjudged, retry }: { judging: Judging; unjudged: n
       return null;
   }
   const warn = judging.state === "stopped" || judging.state === "done";
+  // 一行写完：短句在前，原因和细节在悬停提示里。
   return (
     <div
-      className={cn("graph-judge flex min-w-0 items-start gap-2 text-caption", warn ? "text-foreground" : "text-muted-foreground")}
+      className={cn("graph-judge flex min-w-0 items-center gap-2 text-caption", warn ? "text-foreground" : "text-muted-foreground")}
       data-state={judging.state}
     >
-      {judging.state === "judging" && <Spinner className="mt-[3px]" />}
-      <div className="flex min-w-0 flex-col select-text">
-        <span>
-          {text}
-          {action && (
-            <Button variant={action.away ? "link" : "ghost"} size="inline" className="graph-judge-action ml-2 text-caption" onClick={action.run}>
-              {action.label}
-            </Button>
-          )}
-        </span>
-        {reason && <span className="whitespace-pre-line text-muted-foreground">{reason}</span>}
-      </div>
+      {judging.state === "judging" && <Spinner />}
+      <Tipped tip={reason && <span className="whitespace-pre-line select-text">{reason}</span>} className="min-w-0">
+        <span className="min-w-0 truncate">{text}</span>
+      </Tipped>
+      {action && (
+        <Button variant={action.away ? "link" : "ghost"} size="inline" className="graph-judge-action shrink-0 text-caption" onClick={action.run}>
+          {action.label}
+        </Button>
+      )}
     </div>
   );
 }
@@ -204,6 +205,8 @@ function Canvas({ graph }: { graph: MentionGraph }) {
   const s = useSnapshot();
   const search = useView((v) => v.search);
   const drawer = useView((v) => v.drawer);
+  // 装在至少一个地方的技能画实心圆，没装的画淡色的圆加一圈同色的边：一眼分得出哪些已安装。
+  const installed = useMemo(() => new Set(s.skillScopes.map((p) => p.skill_id)), [s.skillScopes]);
   const markers = useId().replace(/:/g, "");
   const box = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
@@ -506,11 +509,15 @@ function Canvas({ graph }: { graph: MentionGraph }) {
                   onMouseLeave={() => setHoverNode(null)}
                 >
                   {isSelected && <circle r={r + 4} fill="none" stroke="var(--color-primary)" strokeWidth={2} />}
+                  {!n.outside && !installed.has(id) && <circle r={r} fill="var(--color-panel)" />}
                   <circle
+                    className="graph-node-dot"
+                    data-installed={n.outside || installed.has(id) || undefined}
                     r={r}
                     fill={n.outside ? "var(--color-panel)" : color}
-                    stroke={n.outside ? color : "var(--color-panel)"}
-                    strokeWidth={n.outside ? 1.6 : 2}
+                    fillOpacity={n.outside || installed.has(id) ? 1 : 0.28}
+                    stroke={n.outside || !installed.has(id) ? color : "var(--color-panel)"}
+                    strokeWidth={n.outside ? 1.6 : installed.has(id) ? 2 : 1.6}
                     strokeDasharray={n.outside ? "3 2" : undefined}
                   />
                   {showName && (

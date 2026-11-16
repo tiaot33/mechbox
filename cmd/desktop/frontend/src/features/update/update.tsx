@@ -140,6 +140,24 @@ export async function rereadSkill(skill: Skill) {
   else if (o) await reportUpdates([o]);
 }
 
+// rereadDirectory 是本地目录来源整个目录的"重新读取":目录里改过的技能都读出当前内容成为新版本，并换到装过它们的地方
+// (用户改过的、文件夹不在了的地方不动);和逐个技能的重新读取一样是一次更新，有版本历史、可以回滚。都没改过时只提示一句。
+export async function rereadDirectory(collectionID: CollectionID) {
+  const s = currentSnapshot();
+  const t = messages().update;
+  const label = collectionName(s, collectionID);
+  const plan = await ui.run(() => LibraryService.PlanUpdate(collectionID));
+  if (!plan) return;
+  const changed = new Set((plan.skills ?? []).filter((p) => p.change === PlannedChange.PlannedChanged).map((p) => p.skill.id));
+  if (!changed.size) {
+    ui.toast(t.directoryUnchanged(label));
+    return;
+  }
+  const o = await runUpdate(plan, label, changed, defaultInstallOn, undefined, true);
+  if (o === "conflict") ui.toast(t.directoryMoved, "error");
+  else if (o) await reportUpdates([o]);
+}
+
 // refreshInstalls 是目录内容没变时的"重新读取":库里已是目录现在的内容，但装出去的地方可能还没换上(上次没换上、
 // 落后于库里的版本),把这些换成当前版本;用户改过的、文件夹不在了的地方不动，项目不在这台机器上的装不上。都已是当前版本时只提示一句。
 // 带来当前版本的那次更新里列过的地方，补装算进那次更新，回滚它时一起装回去;其余的是普通的重新安装。

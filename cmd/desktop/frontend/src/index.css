@@ -69,7 +69,7 @@
   /* 中性的小标签(带 × 的小标签、组的整组开关):浅色下透明底加细边，深色下半透明的浅底、不描边。 */
   --color-tag: transparent;
   --color-tag-border: rgba(0, 0, 0, 0.14);
-  /* 计数的底：浅色下没有底，只是一个灰色的数字;深色下是半透明的浅底。 */
+  /* 计数的底：浅色、深色下都没有底，只是一个灰色的数字，两种外观下样子一致。 */
   --color-count: transparent;
   /* 实心强调：确认删除的按钮。 */
   --color-solid: #000;
@@ -197,7 +197,7 @@
     --color-info: #5eb0ff;
     --color-tag: rgba(255, 255, 255, 0.1);
     --color-tag-border: transparent;
-    --color-count: rgba(255, 255, 255, 0.07);
+    --color-count: transparent;
     --color-solid: #fff;
     --color-on-solid: #000;
     --color-border: rgba(255, 255, 255, 0.14);

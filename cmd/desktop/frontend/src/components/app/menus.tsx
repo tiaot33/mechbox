@@ -7,7 +7,7 @@ import { collectionSkills, hasUpdate, isLocal, missingFromGroup, sourceLabel } f
 import { useBusy } from "@/lib/ui";
 import { openGraph } from "@/lib/view";
 import { checkUpdates } from "@/features/update/check";
-import { openHistory, openUpdate } from "@/features/update/update";
+import { openHistory, openUpdate, rereadDirectory } from "@/features/update/update";
 import { previewCollection } from "@/features/fetch/preview";
 import { addCollectionToGroup, createGroup, deleteGroup, renameGroup } from "@/features/group/group";
 import {
@@ -31,7 +31,7 @@ export type MenuEntry =
   | { label: string; sub: MenuEntry[] }
   | { label: string; onSelect: () => void; disabled?: boolean; note?: string };
 
-// useCollectionMenu 是一个集合的菜单：关系图(graph 为 true 时)、检查更新与更新(本地目录来源没有)、看来源里的其他技能、更新历史、加入组。
+// useCollectionMenu 是一个集合的菜单：关系图(graph 为 true 时)、检查更新与更新(本地目录来源换成重新读取整个目录)、看来源里的其他技能、更新历史、加入组。
 export function useCollectionMenu(c: Collection, { graph }: { graph: boolean }): MenuEntry[] {
   const s = useSnapshot();
   const busy = useBusy();
@@ -44,6 +44,9 @@ export function useCollectionMenu(c: Collection, { graph }: { graph: boolean }):
   if (!local) {
     entries.push({ label: tt.toolbar.check, disabled: busy, onSelect: () => checkUpdates([c.id], c.id) });
     if (collectionSkills(s, c).some(hasUpdate)) entries.push({ label: t.update, onSelect: () => openUpdate(c.id) });
+  } else {
+    // 本地目录来源：一次把整个目录里改过的技能读进来，不用逐个点开详情。
+    entries.push({ label: t.rereadDirectory, disabled: busy, onSelect: () => void rereadDirectory(c.id) });
   }
   entries.push(
     { label: t.otherSkills, onSelect: () => previewCollection(c.id) },

@@ -5,7 +5,8 @@
 // 组的重命名与删除这类不常用的收在标题右边的「⋯」里，右键节标题是同一个菜单。
 // 节标题和技能行对齐：标题的图标在行首勾选框那一列(鼠标移上去或勾了技能以后换成这一节的勾选框),标题的名字和行里的技能名在同一条线上;
 // 名字和后面的数字说明按基线对齐;收起箭头在最右边，和行尾的日期右对齐。
-import type { Collection, Group, Skill, SkillID } from "@bindings/internal/library";
+import { UpdateCheckStatus, type Collection, type Group, type Skill, type SkillID } from "@bindings/internal/library";
+import { useEffect } from "react";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import {
@@ -13,7 +14,7 @@ import {
   hasUpdate,
   isLocal,
   placeOf,
-  projectName,
+  scopeLabel,
   revisionSummary,
   revisionText,
   scopeKey,
@@ -26,7 +27,7 @@ import { cn } from "@/lib/utils";
 import { toggleSection, toggleUnfolded, useView } from "@/lib/view";
 import { notInterested, previewNewSkills } from "@/features/fetch/preview";
 import { uninstallGroup } from "@/features/install/install";
-import { openUpdate } from "@/features/update/update";
+import { openUpdate, rereadDirectory } from "@/features/update/update";
 import { Button } from "@/components/ui/button";
 import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -162,7 +163,8 @@ function UseCounts({ skills }: { skills: Skill[] }) {
   return <Counts>{t.inUse(inUse(s, skills).length, skills.length)}</Counts>;
 }
 
-// CollectionSection 是集合的一节。标题：来源、在用几个(作用域页给 count,写装在这里几个)、来源版本与有变化的个数，有更新时右边是「更新」;
+// CollectionSection 是集合的一节。标题：来源、在用几个(作用域页给 count,写装在这里几个)、来源版本与有变化的个数，有更新时右边是「更新」,
+// 本地目录来源的目录里有改过的技能时右边是「重新读取」;
 // 「⋯」里是关系图(技能库页)、看来源里的其他技能与历史。标题可以整个拖到作用域，也接受拖来的集合(调整先后);标题下面是来源里新发布的技能。
 export function CollectionSection({
   id,
@@ -187,8 +189,10 @@ export function CollectionSection({
   // "有变化"只算来源里有新内容的技能(跳过了的也算);来源里已删除、推测出改名的不算。
   const changed = skills.filter(updateAvailable).length;
   const local = isLocal(collection.source);
+  // 本地目录来源：目录里改过的技能(读目录时比出来的),右边是「重新读取」,一次读进整个目录的修改。
+  const edited = local ? skills.filter((x) => x.last_update_check?.status === UpdateCheckStatus.UpdateAvailable).length : 0;
   const label = sourceLabel(s, collection.source);
-  const facts = [revisionText(revisionSummary(skills)), changed ? t.drawer.changedCount(changed) : ""].filter(Boolean);
+  const facts = [revisionText(revisionSummary(skills)), changed ? t.drawer.changedCount(changed) : "", edited ? t.list.localChangedCount(edited) : ""].filter(Boolean);
   const menu = useCollectionMenu(collection, { graph: showGraph });
   const head = (
     <>
@@ -210,11 +214,17 @@ export function CollectionSection({
       </span>
     </>
   );
-  const actions = !local && skills.some(hasUpdate) && (
-    <Button variant="pill" onClick={() => openUpdate(collection.id)}>
-      {t.list.update}
-    </Button>
-  );
+  const actions = local
+    ? edited > 0 && (
+        <Button variant="pill" className="reread-directory" title={t.list.rereadDirectoryTitle} onClick={() => void rereadDirectory(collection.id)}>
+          {t.list.reread}
+        </Button>
+      )
+    : skills.some(hasUpdate) && (
+        <Button variant="pill" onClick={() => openUpdate(collection.id)}>
+          {t.list.update}
+        </Button>
+      );
   return (
     <Section
       id={id}
@@ -291,9 +301,10 @@ export function GroupSection({
           <>
             {t.list.groupInstalledIn}
             {scopes.map((sc) => (
-              <Chip key={scopeKey(sc)} small removeTitle={t.list.uninstallGroupHere} onRemove={() => uninstallGroup(group.id, sc)}>
+              // 写全哪个 Agent 的哪一处(和作用域页的标题一样);× 卸载这一处的整组安装，总是先确认。
+              <Chip key={scopeKey(sc)} small removeTitle={t.list.uninstallGroupHere} onRemove={() => uninstallGroup(group.id, sc, { confirm: true })}>
                 <PlaceAgentMark code={sc.agent} place={placeOf(sc)} />
-                {sc.project_id ? projectName(s, sc.project_id) : t.model.global}
+                {scopeLabel(s, sc)}
               </Chip>
             ))}
           </>
@@ -330,6 +341,11 @@ export function SkillRows({ id, skills, render }: { id: string; skills: Skill[];
   const unfolded = useView((v) => v.unfolded.has(id));
   const used = inUse(s, skills);
   const idle = skills.filter((x) => !used.includes(x));
+  // 刚入库的技能还没装，折在「没装的」里：展开，好让它们闪出来。
+  const fresh = useView((v) => idle.some((x) => v.fresh?.ids.has(x.id)));
+  useEffect(() => {
+    if (fresh && !unfolded) toggleUnfolded(id);
+  }, [fresh, unfolded, id]);
   const foldable = !searching && used.length > 0 && idle.length > 0;
   const label = unfolded ? t.hideNotInstalled : t.notInstalledFold(idle.map((x) => x.name));
   const shown = foldable && !unfolded ? used : [...used, ...idle];

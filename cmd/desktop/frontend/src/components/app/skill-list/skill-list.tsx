@@ -7,10 +7,14 @@
 // - 关系图(这些技能之间谁提到谁):一个集合或组的技能画成一张图，见 mention-graph。
 // 搜索只在当前页里找，顶上写出搜的是什么、几个结果。
 import { useEffect, useLayoutEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type { UnmanagedSkill } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
-import { useSnapshot } from "@/lib/library";
+import { sameNameCopiesQuery, useSnapshot } from "@/lib/library";
 import { cn } from "@/lib/utils";
 import {
+  sameNameCopies,
+  sameNameScopes,
   agentNameIn,
   parseScope,
   placeOf,
@@ -52,6 +56,7 @@ export function SkillList() {
   const listing = usePageListing();
   const scroller = useRef<HTMLDivElement>(null);
   const restore = useView((v) => v.restoreScroll);
+  const picking = useView((v) => v.picked.size > 0);
   const busy = useRef(false);
   // 从关系图页返回：列表滚回打开关系图之前的位置。
   useLayoutEffect(() => {
@@ -88,7 +93,8 @@ export function SkillList() {
       <div
         ref={scroller}
         key={page}
-        className={cn("a-list min-h-0 flex-1 overflow-y-auto px-3.5 pb-15", nameIndentVars)}
+        // 勾选了技能时底部浮着操作栏(PickBar,换行时两层):多留出它的高度，滚到底时最后一行不被盖住。
+        className={cn("a-list min-h-0 flex-1 overflow-y-auto px-3.5 pb-15", picking && listing.kind !== "updates" && "pb-28", nameIndentVars)}
         data-page={listing.kind}
         // 点空白处关上技能详情，和关系图里点画布空白处一样;点技能行是切换，点控件照常用，都不关。
         // 抽屉忙不忙在按下时看：松开前弹层已经收起了。选中了文字(拖选)也不关。
@@ -267,6 +273,12 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
   const global = l.global.length + l.globalUnmanaged.length;
   const inUse = l.hereSections.length > 0 || l.hereUnmanaged.length > 0 || (project && global > 0);
   const empty = !inUse && !l.notHereSkills.length;
+  // 这里的未纳管技能在同一层的别处有同名、内容不同的：行上和整批入库的确认里都说出来。
+  const plan = useQuery(sameNameCopiesQuery(sameNameScopes(s, scope))).data;
+  const copies = plan ? sameNameCopies(plan, scope) : new Map<string, UnmanagedSkill[]>();
+  const elsewhere = new Map<string, string[]>(
+    l.hereUnmanaged.flatMap((u): [string, string[]][] => (copies.has(u.folder) ? [[u.name, [...new Set(copies.get(u.folder)!.map((x) => scopeLabel(s, x.scope)))]]] : [])),
+  );
   return (
     <>
       <ScopeSummary scope={scope} directory={directory} sees={page.total} global={page.global} />
@@ -295,7 +307,7 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
                     variant="ghost"
                     className="fetch-all-unmanaged shrink-0"
                     title={t.fetchAllTitle}
-                    onClick={() => void offerFetchUnmanaged(s.agents, [parseScope(scope)], { kind: "scope", label: scopeLabel(s, parseScope(scope)) }, false)}
+                    onClick={() => void offerFetchUnmanaged(s.agents, [parseScope(scope)], { kind: "scope", label: scopeLabel(s, parseScope(scope)), elsewhere }, false)}
                   >
                     {t.fetchAll}
                   </Button>
@@ -303,7 +315,7 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
               }
             >
               {l.hereUnmanaged.map((u) => (
-                <UnmanagedRow key={u.folder} skill={u} headed />
+                <UnmanagedRow key={u.folder} skill={u} headed copies={copies.get(u.folder)} />
               ))}
             </Section>
           )}

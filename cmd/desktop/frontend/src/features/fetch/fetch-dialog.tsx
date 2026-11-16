@@ -145,6 +145,17 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
       onClose={close}
       footer={
         <>
+          {/* 另一个流程(从 Agent 目录入库)的入口放在底部最左边，是轻按钮，不夹在输入地址、入库预览这条主流程中间。 */}
+          <Button
+            variant="ghost"
+            className="fetch-existing mr-auto"
+            title={t.existingHint}
+            disabled={working}
+            loading={scanning}
+            onClick={() => void fetchExisting()}
+          >
+            {t.existing}
+          </Button>
           <Button onClick={close}>{t.cancel}</Button>
           <Button variant="primary" disabled={!ready || scanning} loading={working} onClick={previewFetch}>
             {t.preview}
@@ -189,13 +200,6 @@ export function FetchDialog({ home, onClose }: { home: string; onClose: () => vo
           {failure}
         </Notice>
       )}
-      <div className="fetch-existing flex items-center gap-1.5 border-t border-row-line pt-2.5 text-caption text-muted-foreground">
-        <span>{t.existingHint}</span>
-        <span className="grow" />
-        <Button className="shrink-0" disabled={working} loading={scanning} onClick={() => void fetchExisting()}>
-          {t.existing}
-        </Button>
-      </div>
     </Modal>
   );
 }
@@ -311,6 +315,7 @@ function selectedRef(refs: SourceRefs, chosen: string | null): string {
 }
 
 // RefPicker 是分支 / tag 下拉：分支和 tag 分组列出，可输入文字筛选，默认选中输入里带的分支，没带时选中默认分支。
+// 输入不是 Git 仓库(还没输入、本地路径、认不出)时也占着位置，只是点不了：取回分支列表时下面的按钮不挪位置。
 // locked 时(输入里带了分支，但认不出它在输入里的位置，换不掉)只显示输入里的分支，要换分支得改输入。
 function RefPicker({
   refs,
@@ -327,7 +332,6 @@ function RefPicker({
   const [open, setOpen] = useState(false);
   const labelId = useId();
   const triggerId = useId();
-  if (refs.status === "hidden") return null;
   const ready = refs.status === "ready" ? refs.refs : null;
   const selected = ready ? selectedRef(ready, chosen) : "";
   const item = (kind: "b" | "t", name: string) => (
@@ -347,7 +351,7 @@ function RefPicker({
     </CommandItem>
   );
   return (
-    <div className="fetch-refs flex min-w-0 flex-col gap-1">
+    <div className="fetch-refs flex min-w-0 flex-col gap-1" data-state={refs.status}>
       <span id={labelId} className="text-body text-muted-foreground">
         {t.refs}
       </span>
@@ -359,7 +363,9 @@ function RefPicker({
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild disabled={!ready || locked}>
             <Button id={triggerId} aria-labelledby={`${labelId} ${triggerId}`} className="refs-trigger w-72 max-w-full justify-between px-3 font-normal">
-              {ready ? (
+              {refs.status === "hidden" ? (
+                <span className="truncate">{t.refsNotGit}</span>
+              ) : ready ? (
                 <span className="truncate font-mono">{selected || t.defaultBranch}</span>
               ) : (
                 <span className="inline-flex items-center gap-1.5">
