@@ -3,7 +3,7 @@
 // 删掉被手动改过的文件夹前说出是哪几处，修改会跟着丢掉。
 import { LibraryService } from "@bindings/cmd/desktop";
 import type { Scope, SkillID, SkillScopeInspection } from "@bindings/internal/library";
-import { linkWrites, placeKey, type Detached } from "@/lib/consent";
+import { detachedBy, linkWrites, lostEdits, placeKey, type Detached } from "@/lib/consent";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { agentName, mergeProjectPlaces, projectName, scopeLabel, shortPath, skillName, wslTitle } from "@/lib/model";
@@ -100,14 +100,28 @@ export function LinkedPlaces({ places }: { places: SkillScopeInspection[] }) {
   );
 }
 
+// DeleteNotes 是删掉 deleted 这几处的文件夹之前的说明：被手动改过的几处修改会丢掉，别处链接指着的先换上独立的一份。
+// prefix 用在只和某个选项有关时(如"选「一并卸载」时:")。
+export function DeleteNotes({ deleted, prefix = "" }: { deleted: SkillScopeInspection[]; prefix?: string }) {
+  return (
+    <>
+      <LostEdits places={lostEdits(deleted)} prefix={prefix} />
+      <DetachNotice items={detachedBy(deleted)} when="delete" prefix={prefix} />
+    </>
+  );
+}
+
 // LostEdits 列出删掉文件夹时修改会跟着丢掉的几处(lostEdits 找出的);没有时不显示。
-export function LostEdits({ places }: { places: SkillScopeInspection[] }) {
+function LostEdits({ places, prefix }: { places: SkillScopeInspection[]; prefix: string }) {
   const s = useSnapshot();
   const t = useT();
   if (!places.length) return null;
   return (
     <>
-      <Notice alert>{t.actions.losesEdits(places.length)}</Notice>
+      <Notice alert>
+        {prefix}
+        <span className="block">{t.actions.losesEdits(places.length)}</span>
+      </Notice>
       <ListBox>
         {places.map((p) => (
           <ListRow key={placeKey(p)} compact className="lost-edits">

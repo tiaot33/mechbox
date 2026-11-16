@@ -10,7 +10,6 @@ import {
   type SkillID,
   type SkillScopeInspection,
 } from "@bindings/internal/library";
-import { detachedBy } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { describeError } from "@/lib/errors";
 import { currentSnapshot, toLibraryError, useSnapshot, type LibraryError, type Snapshot } from "@/lib/library";
@@ -19,7 +18,8 @@ import { Modal, ui } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
-import { DetachNotice } from "@/components/app/link-notes";
+import { DeleteNotes } from "@/components/app/link-notes";
+import { inspectedSnapshot } from "@/features/install/install";
 import { memberRows, runEach, showResults, type ResultRow } from "@/components/app/results";
 
 export async function addSkillToGroup(groupID: GroupID, id: SkillID) {
@@ -110,18 +110,22 @@ async function addEachToGroup(
 }
 
 export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {
-  const s = currentSnapshot();
+  let s = currentSnapshot();
   const t = messages().actions;
   // 该组安装到的作用域上，这个技能可能只随本组安装;有组安装时让用户决定去留。
+  // 选「一并卸载」会删掉的文件夹里哪几处被手动改过，先现查磁盘再说。
   const installed = s.groupInstalls.filter((a) => a.group_id === groupID);
   let policy = MemberRemovalPolicy.KeepAsDirectInstall;
   if (installed.length) {
+    const inspected = await inspectedSnapshot({ skill_id: id });
+    if (!inspected) return;
+    s = inspected;
     const choice = await ui.confirm({
       title: t.removeFromGroupTitle(skillName(s, id), groupName(s, groupID)),
       body: (
         <>
           <Hint>{t.removeFromGroupHint(installed.length)}</Hint>
-          <DetachNotice items={detachedBy(folderPlaces(s, groupOnly(s, groupID, [id])))} when="delete" prefix={t.ifUninstallToo} />
+          <DeleteNotes deleted={folderPlaces(s, groupOnly(s, groupID, [id]))} prefix={t.ifUninstallToo} />
         </>
       ),
       choices: removalChoices(),
@@ -139,7 +143,7 @@ export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {
 // 先问只随本组安装的留着(改为直接安装)还是一并卸载，一批只问一次。有失败的才列出结果。
 // 返回是否至少移出了一个：都不在组里、取消了、都失败了时是 false。
 export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[]): Promise<boolean> {
-  const s = currentSnapshot();
+  let s = currentSnapshot();
   const t = messages().actions;
   const group = groupName(s, groupID);
   const ids = picked.filter((id) => s.groups.find((g) => g.id === groupID)?.members?.includes(id));
@@ -148,12 +152,15 @@ export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[])
   // 选组的弹窗里已经点过"移出";没有组安装时不再问，和移出一个成员一样直接移出。
   let policy = MemberRemovalPolicy.KeepAsDirectInstall;
   if (installed.length) {
+    const inspected = await inspectedSnapshot({});
+    if (!inspected) return false;
+    s = inspected;
     const choice = await ui.confirm({
       title: t.pickedRemoveFromGroupTitle(ids.length, group),
       body: (
         <>
           <Hint>{t.removeFromGroupHint(installed.length)}</Hint>
-          <DetachNotice items={detachedBy(folderPlaces(s, groupOnly(s, groupID, ids)))} when="delete" prefix={t.ifUninstallToo} />
+          <DeleteNotes deleted={folderPlaces(s, groupOnly(s, groupID, ids))} prefix={t.ifUninstallToo} />
         </>
       ),
       choices: removalChoices(),
@@ -206,20 +213,21 @@ export async function renameGroup(groupID: GroupID) {
 }
 
 export async function deleteGroup(groupID: GroupID) {
-  const s = currentSnapshot();
-  // 有组安装时，只随本组安装的技能由用户决定去留，与移出成员一致。
+  let s = currentSnapshot();
+  // 有组安装时，只随本组安装的技能由用户决定去留，与移出成员一致;选「一并卸载」会删掉的文件夹先现查磁盘。
   const installs = s.groupInstalls.filter((a) => a.group_id === groupID).length;
+  if (installs) {
+    const inspected = await inspectedSnapshot({});
+    if (!inspected) return;
+    s = inspected;
+  }
   const t = messages().actions;
   const choice = await ui.confirm({
     title: t.deleteGroupTitle(groupName(s, groupID)),
     body: (
       <>
         <Hint>{t.deleteGroupHint(installs)}</Hint>
-        <DetachNotice
-          items={detachedBy(folderPlaces(s, groupOnly(s, groupID, s.groups.find((g) => g.id === groupID)?.members ?? [])))}
-          when="delete"
-          prefix={t.ifUninstallToo}
-        />
+        <DeleteNotes deleted={folderPlaces(s, groupOnly(s, groupID, s.groups.find((g) => g.id === groupID)?.members ?? []))} prefix={t.ifUninstallToo} />
       </>
     ),
     choices: installs ? removalChoices() : undefined,

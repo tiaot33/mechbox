@@ -1,7 +1,7 @@
 // 技能详情抽屉(原型变体 A 的右侧抽屉):描述(译文)、备注、元数据与组成员、各作用域的安装、文件、版本历史，以及更新 / 重新安装 / 移除。
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { SourceType, type FileMetadata, type Skill, type SkillID, type SkillVersion } from "@bindings/internal/library";
+import { SourceType, type FileMetadata, type Skill, type SkillVersion } from "@bindings/internal/library";
 import { endEditing, startEditing, type Editing } from "@/lib/editing";
 import { useT } from "@/lib/i18n";
 import { aiSettingsQuery, useSnapshot, versionFilesQuery, versionsQuery } from "@/lib/library";
@@ -80,14 +80,14 @@ function DrawerSheet({
 
   const [stored, setWidth] = useStoredWidth(drawerWidth);
   const width = Math.min(stored, max);
-  // 正在写的备注：换了技能就结束，切回来要重新点编辑;之前那一次的保存晚到时只结束它自己(见 lib/editing.ts)。
-  const [noteEditing, setNoteEditing] = useState<Editing<SkillID> | null>(null);
+  // 正在写的这一次备注编辑：换了技能、抽屉关上(包括拉回整库时)就结束，没保存的草稿不再能保存;
+  // 之前那一次的保存晚到时只结束它自己(见 lib/editing.ts)。抽屉退场动画期间又打开同一个编号的技能时，也要重新点编辑。
+  const [editingNote, setNoteEditing] = useState<Editing | null>(null);
   const [noteSkill, setNoteSkill] = useState(id);
-  if (noteSkill !== id) {
+  if (noteSkill !== id || (!open && editingNote)) {
     setNoteSkill(id);
     setNoteEditing(null);
   }
-  const editingNote = noteEditing?.id === id ? noteEditing : null;
 
   return (
     <Sheet open={open} onOpenChange={(next) => !next && onClose()}>
@@ -121,14 +121,14 @@ function DrawerSheet({
             </div>
             {skill.description && <Description key={`description-${id}`} skill={skill} />}
             <Notices skill={skill} onClose={onClose} />
-            <Actions skill={skill} onAddNote={!skill.note && !editingNote ? () => setNoteEditing(startEditing(id)) : undefined} />
+            <Actions skill={skill} onAddNote={!skill.note && !editingNote ? () => setNoteEditing(startEditing()) : undefined} />
 
             {(skill.note || editingNote) && (
               <NoteCard
                 key={`note-${id}`}
                 skill={skill}
                 editing={editingNote}
-                onEdit={() => setNoteEditing(startEditing(id))}
+                onEdit={() => setNoteEditing(startEditing())}
                 onDone={(session) => setNoteEditing((cur) => endEditing(cur, session))}
               />
             )}
@@ -203,9 +203,9 @@ function NoteCard({
   onDone,
 }: {
   skill: Skill;
-  editing: Editing<SkillID> | null;
+  editing: Editing | null;
   onEdit: () => void;
-  onDone: (session: Editing<SkillID>) => void;
+  onDone: (session: Editing) => void;
 }) {
   const t = useT();
   const d = t.drawer;
@@ -216,7 +216,7 @@ function NoteCard({
     setDraft(saved);
     onEdit();
   };
-  const save = async (session: Editing<SkillID>) => {
+  const save = async (session: Editing) => {
     setSaving(true);
     if (await saveNote(skill.id, draft)) onDone(session);
     setSaving(false);

@@ -70,7 +70,8 @@ export const queryClient = new QueryClient({
 });
 
 // stable 标记写操作后不用重读的查询：内容只由 key 决定(某个版本的文件列表),或者来自技能库以外(skills.sh 的审计)。
-// ids 标记 key 里带技能库 ID(技能、版本、集合、组、项目)的查询：拉回整库之后，新库里同一个 ID 可能是另一样东西。
+// ids 标记 key 里带技能库 ID(技能、版本、集合、组、项目)的查询：拉回整库之后，新库里同一个 ID 可能是另一样东西，
+// forgetLibraryCaches 清空它们重读。
 declare module "@tanstack/react-query" {
   interface Register {
     queryMeta: { stable?: boolean; ids?: boolean };
@@ -84,10 +85,16 @@ export function reloadLibrary(): Promise<void> {
   return queryClient.invalidateQueries({ predicate: (q: Query) => !q.meta?.stable });
 }
 
-// forgetLibraryIDs 在拉回整库之后丢掉 key 里带技能库 ID 的查询缓存(包括写操作后不重读的版本、文件列表与审计):
-// 新库里同一个 ID 可能是另一个技能或版本，旧内容一刻也不再显示;正在用的随即重读，其余下次用到时再读。
-export function forgetLibraryIDs(): Promise<void> {
-  return queryClient.resetQueries({ predicate: (q: Query) => !!q.meta?.ids });
+// forgetLibraryCaches 在拉回整库之后丢掉按旧库缓存的内容，等快照和界面上正在用的查询都按新库重读完：
+// key 里带技能库 ID 的查询(包括写操作后不重读的版本、文件列表与审计)清空重读，新库里同一个 ID 可能是另一个技能或版本;
+// 在 skills.sh 上找到的来源按作用域(带项目 ID)记着，也清掉，还没返回的那一轮作废。其余查询照常重读。
+// 由 view.ts 的 forgetLibrary 调用，界面上按 ID 记下的状态在那里一起作废。
+export async function forgetLibraryCaches(): Promise<void> {
+  foundRound++;
+  found = new Map();
+  searching.clear();
+  for (const listener of listeners) listener();
+  await Promise.all([queryClient.resetQueries({ predicate: (q: Query) => !!q.meta?.ids }), reloadLibrary()]);
 }
 
 // wails 把绑定返回的可取消调用接到查询的 signal 上：查询被取消(组件卸载、重读)时取消 Go 端的调用。
@@ -317,6 +324,8 @@ export function invalidateRelease() {
 // 找的过程中出错(取消、技能库报错)的不记，下次重读时再找。
 let found: ReadonlyMap<string, string> = new Map();
 const searching = new Set<string>();
+// foundRound 在拉回整库时加一：之前发出、晚返回的那一轮按旧库的作用域找的，结果不再记下。
+let foundRound = 0;
 const listeners = new Set<() => void>();
 
 function folderKey(scope: Scope, name: string): string {
@@ -331,8 +340,10 @@ function findSources(unmanaged: UnmanagedSkill[]) {
   if (pending.length === 0) return;
   const keys = pending.map((u) => folderKey(u.scope, u.name));
   for (const key of keys) searching.add(key);
+  const round = foundRound;
   LibraryService.FindUnmanagedSources({ folders: pending.map((u) => ({ scope: u.scope, name: u.name })) }).then(
     (results) => {
+      if (round !== foundRound) return;
       const next = new Map(found);
       for (const key of keys) next.set(key, "");
       for (const r of results ?? []) next.set(folderKey(r.scope, r.name), r.source_input);
@@ -341,7 +352,7 @@ function findSources(unmanaged: UnmanagedSkill[]) {
       for (const listener of listeners) listener();
     },
     () => {
-      for (const key of keys) searching.delete(key);
+      if (round === foundRound) for (const key of keys) searching.delete(key);
     },
   );
 }

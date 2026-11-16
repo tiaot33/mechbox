@@ -4043,10 +4043,9 @@ await step("照着另一个项目装：在项目页照着它，各 Agent 装到�
   assert((await card("cq-beta").locator('[role="switch"][aria-checked="true"]').count()) === 1, "cq-beta 是直接安装");
 });
 
-// ============ 卸载 Mechbox(最后一步：卸载后 server 退出) ============
 // ============ 卸载会丢掉的修改 ============
 group("uninstall-edited", []);
-await step("卸载被手动改过的文件夹：单个卸载、勾选几个一起卸载、整组卸载，确认里都列出修改会丢的那几处，取消则不动", async () => {
+await step("卸载被手动改过的文件夹：单个卸载、勾选几个一起卸载、整组卸载，先现查磁盘，确认里都列出修改会丢的那几处，取消则不动", async () => {
   for (const name of ["ue-a", "ue-b", "ue-c"]) {
     fs.mkdirSync(`${HOME}/code/uninstall-edited/${name}`, { recursive: true });
     fs.writeFileSync(`${HOME}/code/uninstall-edited/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name}"\n---\n`);
@@ -4074,13 +4073,10 @@ await step("卸载被手动改过的文件夹：单个卸载、勾选几个一�
   await page.locator(".gchip", { hasText: "改过的组" }).click();
   await toast("已把「改过的组」组安装到");
   await settle();
+  // 窗口一直在前台时在磁盘上改：快照里还是当前版本，卸载前要现查出来。
   const skillsDir = `${HOME}/.claude/skills`;
   for (const name of ["ue-a", "ue-b", "ue-c"]) fs.appendFileSync(`${skillsDir}/${name}/SKILL.md`, "\nedited by hand\n");
-  await refocus();
-  await settle();
-  for (const name of ["ue-a", "ue-b", "ue-c"]) {
-    await card(name).getByText("被手动改过").first().waitFor({ timeout: 5000 }).catch(() => assert.fail(`${name} 应显示被手动改过`));
-  }
+  assert.equal(await card("ue-a").getByText("被手动改过").count(), 0, "快照里还没看到修改");
   const lost = (name) => modal().locator(".lost-edits", { hasText: `${name} · Claude Code · 全局` });
 
   // 单个卸载：只有 Claude Code 用这个文件夹、也没有链接指着它，以前直接删掉。
@@ -4153,7 +4149,7 @@ await step("备注保存得慢：切到别的技能再切回来重新写，前�
   await closeDrawer();
 });
 
-await step("连着点两个版本的「查看文件」：显示最后点的那个;点了收起以后，晚返回的读取不再展开", async () => {
+await step("「查看文件」:点了收起以后，晚返回的读取不再展开;先点的版本晚返回时，仍显示最后点的那个", async () => {
   const dir = `${HOME}/code/late-versions/vr`;
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(`${dir}/SKILL.md`, '---\nname: vr\ndescription: "vr"\n---\n');
@@ -4161,29 +4157,24 @@ await step("连着点两个版本的「查看文件」：显示最后点的那�
   await fetchLocal(`${HOME}/code/late-versions`);
   await toast("已入库 1 个技能");
   await settle();
-  fs.writeFileSync(`${dir}/SKILL.md`, '---\nname: vr\ndescription: "vr"\n---\nversion two\n');
   await openDrawer("vr");
-  await btn(drawer(), "重新读取").click();
-  await toast("已重新读取「vr」");
-  await settle();
   const rows = drawer().locator(".versions li");
-  await until(async () => (await rows.count()) === 2, "重新读取后有 2 个版本");
+  for (const n of [2, 3]) {
+    fs.writeFileSync(`${dir}/SKILL.md`, `---\nname: vr\ndescription: "vr"\n---\nversion ${n}\n`);
+    await btn(drawer(), "重新读取").click();
+    await toast("已重新读取「vr」");
+    await settle();
+    await until(async () => (await rows.count()) === n, `重新读取后有 ${n} 个版本`);
+  }
   const view = (n) => btn(rows.filter({ hasText: `版本 ${n}` }), "查看文件").click();
   const shown = drawer().locator("b", { hasText: /^版本 \d+ 的文件$/ });
 
+  // 版本 1、2 当过当前版本，文件列表已在缓存里;重新载入后只有打开详情时读的版本 3 在缓存里。
+  await page.reload();
+  await page.waitForSelector(".a-list");
+  await clearScope();
+  await openDrawer("vr");
   let hold = await holdCall(methodID("ListVersionFiles"));
-  try {
-    await view(1);
-    await hold.requested();
-    await view(2);
-    await drawer().locator("b", { hasText: "版本 2 的文件" }).waitFor();
-    await hold.release();
-  } finally {
-    await hold.close();
-  }
-  assert.deepStrictEqual(await shown.allTextContents(), ["版本 2 的文件"], "先点的版本 1 晚返回时，仍显示最后点的版本 2");
-
-  hold = await holdCall(methodID("ListVersionFiles"));
   try {
     await view(1);
     await hold.requested();
@@ -4193,6 +4184,18 @@ await step("连着点两个版本的「查看文件」：显示最后点的那�
     await hold.close();
   }
   assert.equal(await shown.count(), 0, "点了收起以后，晚返回的读取不再展开文件列表");
+
+  hold = await holdCall(methodID("ListVersionFiles"));
+  try {
+    await view(2);
+    await hold.requested();
+    await view(3);
+    await drawer().locator("b", { hasText: "版本 3 的文件" }).waitFor();
+    await hold.release();
+  } finally {
+    await hold.close();
+  }
+  assert.deepStrictEqual(await shown.allTextContents(), ["版本 3 的文件"], "先点的版本 2 晚返回时，仍显示最后点的版本 3");
   await closeDrawer();
 });
 
@@ -4338,7 +4341,17 @@ await step("拉回另一台机器的库：技能详情关上，没保存的备�
     await modal().locator(".sync-backup", { hasText: "other-device-abc123" }).waitFor();
     const pull = btn(modal(), "拉回并替换本机的库");
     await until(async () => await pull.isEnabled(), "同步计划读完，可以拉回");
-    await pull.click();
+    // 拉回进行中关不掉弹窗：盖着的旧库界面点不到，不会按旧库的编号打开详情、弹出确认或写备注。
+    const hold = await holdCall(methodID("SyncPull"));
+    try {
+      await pull.click();
+      await hold.requested();
+      await page.keyboard.press("Escape");
+      assert.equal(await modal().locator('[data-slot="dialog-title"]', { hasText: "同步" }).count(), 1, "拉回进行中按 Esc 不关同步弹窗");
+      await hold.release();
+    } finally {
+      await hold.close();
+    }
     await toast("已从 S3 拉回并替换本机的技能库");
     await idle();
     await page.keyboard.press("Escape");
@@ -4370,6 +4383,7 @@ await step("拉回另一台机器的库：技能详情关上，没保存的备�
   }
 });
 
+// ============ 卸载 Mechbox(最后一步：卸载后 server 退出) ============
 group("uninstall", []);
 await step("卸载 Mechbox：现查被改过的几处，移走其余的，退出后删除数据库", async () => {
   const appDir = path.dirname(LIBRARY);

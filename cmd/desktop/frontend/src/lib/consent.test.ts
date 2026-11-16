@@ -259,6 +259,11 @@ describe("删掉文件夹之前说明会丢的修改", () => {
     expect(lostEdits([edited, current, latest])).toEqual([edited]);
   });
 
+  it("是符号链接的那一处只删链接，指着的文件夹和修改都还在，不算", () => {
+    const link = place(1, global(claude), SkillScopeStatus.SkillScopeModified, { link_target: "/home/.agents/skills/s1" });
+    expect(lostEdits([link])).toEqual([]);
+  });
+
   it("共用一个文件夹的几处只算一处", () => {
     const a = place(1, project(claude, 1), SkillScopeStatus.SkillScopeModified);
     const b = { ...place(1, project(codex, 1), SkillScopeStatus.SkillScopeModified), folder: a.folder };

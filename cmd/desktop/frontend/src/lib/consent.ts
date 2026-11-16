@@ -174,11 +174,11 @@ export function linkWrites(places: SkillScopeInspection[], written: (p: SkillSco
 // ---------- 删除文件夹 ----------
 
 // lostEdits 是删掉 deleted 这几处的文件夹时，修改会跟着丢掉的地方：被手动改过的(在 app 外更新到作者新版的不算，
-// 那是作者的内容)。共用一个文件夹的几处只算一处。
+// 那是作者的内容)。是符号链接的那一处只删链接，链接指着的文件夹和里面的修改都还在，不算。共用一个文件夹的几处只算一处。
 export function lostEdits(deleted: SkillScopeInspection[]): SkillScopeInspection[] {
   const folders = new Set<string>();
   return deleted.filter((p) => {
-    if (!edited(p) || folders.has(folderKey(p))) return false;
+    if (!edited(p) || p.link_target || folders.has(folderKey(p))) return false;
     folders.add(folderKey(p));
     return true;
   });
