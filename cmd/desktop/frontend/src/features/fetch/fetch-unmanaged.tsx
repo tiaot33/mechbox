@@ -5,7 +5,7 @@ import type { FetchUnmanagedResult, UnmanagedSkill } from "@bindings/internal/li
 import { unmanagedSourceError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, foundSource, useFoundSources, type LibraryError } from "@/lib/library";
-import { installedWhere, noSource, outsideLinkNote, sameNameFetchNote, scopeKey, scopeLabel, shortPath, sourceLabel } from "@/lib/model";
+import { noSource, outsideLinkNote, sameNameFetchNote, sameNameInLibrary, scopeKey, scopeLabel, shortPath, sourceLabel, twinNote } from "@/lib/model";
 import { Modal, ui, useUI } from "@/lib/ui";
 import { flashSkill } from "@/lib/view";
 import { chooseAndInstall } from "@/features/install/install-to";
@@ -32,14 +32,12 @@ export async function fetchUnmanaged(skill: UnmanagedSkill) {
       : t.fetchIdenticalOld(library.name, from!, place)
     : undefined;
   // 库里已有同名的技能时确认里说出来：内容不同不合并，入库后会有两个同名的。
-  const twins = library
-    ? []
-    : s.skills
-        .filter((x) => x.name === skill.name)
-        .map((x) => t.twin(noSource(x.source) ? messages().model.noSource : sourceLabel(s, x.source), installedWhere(s, x.id)));
+  const twins = library ? [] : sameNameInLibrary(s, { id: 0, name: skill.name }).map((x) => twinNote(s, x));
   const outside = skill.link_outside && skill.link_target ? outsideLinkNote(shortPath(s, skill.link_target)) : undefined;
+  // 别的作用域里是同一个文件夹(这里链过去，或那里链过来，见 UnmanagedSkill.same_folder)的，库一起记为装在那里：确认时说出来。
+  const companions = (skill.same_folder ?? []).map((sc) => scopeLabel(s, sc));
   const r = await ui.open<FetchUnmanagedResult>((close) => (
-    <FetchUnmanagedDialog place={place} skill={skill} twins={twins} same={same} outside={outside} close={close} />
+    <FetchUnmanagedDialog place={place} skill={skill} twins={twins} same={same} outside={outside} companions={companions} close={close} />
   ));
   if (!r) return;
   // 一句话说清它已在技能库里(提示要一眼读完),给下一步"装到别处…";它那一行换成库里技能的一行，闪一下。
@@ -59,6 +57,7 @@ function FetchUnmanagedDialog({
   twins,
   same,
   outside,
+  companions,
   close,
 }: {
   place: string;
@@ -67,6 +66,7 @@ function FetchUnmanagedDialog({
   same?: string; // 和库里某个技能一模一样时的说明：不问来源
 
   outside?: string; // 指向 Agent 目录以外的符号链接时的说明
+  companions: string[]; // 别的作用域里是同一个文件夹的那几处，一起记为安装
   close: (value?: FetchUnmanagedResult) => void;
 }) {
   const ui = useUI();
@@ -107,6 +107,7 @@ function FetchUnmanagedDialog({
     >
       <Hint>{t.actions.fetchHandOver(place)}</Hint>
       {same && <Hint className="unmanaged-same-as">{same}</Hint>}
+      {companions.length > 0 && <Hint className="unmanaged-same-folder">{t.actions.fetchSameFolder(companions)}</Hint>}
       <Hint>{t.actions.fetchCliCost}</Hint>
       {skill.in_repository && <Notice alert>{t.actions.fetchInRepository}</Notice>}
       {outside && (

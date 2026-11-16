@@ -5,6 +5,7 @@ import {
   AgentCode,
   SameNameRule,
   ScopeKind,
+  SkillFileProblemKind,
   SkillScopeStatus,
   SourceType,
   UpdateCheckStatus,
@@ -21,6 +22,7 @@ import {
 } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
 import {
+  changePending,
   copyFromAgent,
   copyFromProject,
   copyProjectSources,
@@ -47,8 +49,16 @@ import {
   pickRange,
   placeOf,
   projectAgents,
+  projectSkillCount,
+  identicalState,
   sameNameNote,
+  pageListing,
+  deletionPending,
+  fetchable,
+  scopeHereCount,
+  skillFileProblemText,
   scopeListing,
+  skillSameNameNote,
   sortSkills,
   foldCollections,
   uncopiedProjectUnmanaged,
@@ -289,6 +299,16 @@ describe("scopeListing", () => {
     expect(l.hereCount).toBe(3);
   });
 
+  it("右栏和标题的数字：这个目录里的都算(不是 app 装的也算),来自全局的不算", () => {
+    const copy = { ...unmanaged("a2", "claude-code", 1), skill_id: 11, version_id: 1 };
+    const withFolders = { ...s, unmanaged: [copy, unmanaged("mine", "claude-code", 1), unmanaged("g", "claude-code")] };
+    expect(scopeHereCount(withFolders, "claude-code@1")).toBe(4);
+    expect(scopeHereCount(withFolders, "claude-code@0")).toBe(2);
+    // 右栏收起时顶栏读 pageListing 的 total:和右栏、摘要标题同一个数，来自全局的另算在 global 里。
+    const page = pageListing(withFolders, { kind: "scope", scope: "claude-code@1" }, "collection", "");
+    expect(page.kind === "scope" && [page.total, page.global]).toEqual([4, 2]);
+  });
+
   it("搜索时两块都只留匹配的", () => {
     const l = scopeListing(s, "claude-code@1", "collection", "2");
     expect(l.hereSections).toEqual([]);
@@ -328,6 +348,11 @@ describe("projectAgents", () => {
     expect(agents[0].skills.map((x) => x.name)).toEqual(["beta"]);
     expect(agents[0].unmanaged.map((u) => u.name)).toEqual(["mine"]);
     expect(agents[0].all).toBe(2);
+  });
+
+  it("右栏和项目页标题的数字：几个 Agent 都装了的只算一个，不是 app 装的也算", () => {
+    expect(projectSkillCount(s, 1)).toBe(3);
+    expect(projectSkillCount(s, 2)).toBe(1);
   });
 
   it("搜索时只留有结果的节，all 不随搜索变", () => {
@@ -707,6 +732,21 @@ describe("sameNameNote", () => {
   });
 });
 
+describe("skillSameNameNote", () => {
+  it("库里的技能在全局和项目里各装一份时，这一对只说一次：哪两处、后果", () => {
+    const pair = { agent: "codex", project_id: 1, name: "docs", global: { folder: "/home/.codex/skills/docs", skill_id: 4 }, project: { folder: "/home/web/.agents/skills/docs", skill_id: 4 } };
+    const s = snapshot({
+      agents: [{ ...agent("codex", ".agents/skills"), name: "Codex", same_name: SameNameRule.SameNameBothShown }],
+      projects: [{ id: 1, name: "web-app", path: "/home/web" }] as Snapshot["projects"],
+      sameName: [pair, pair],
+    } as Partial<Snapshot>);
+    const note = skillSameNameNote(s, 4);
+    expect(note?.text).toBe("Codex 的全局（库装的）和项目「web-app」（库装的）里都有 docs：Codex 在「web-app」里两份都会出现");
+    expect(note?.title).toBe(note?.text);
+    expect(skillSameNameNote(s, 5)).toBeUndefined();
+  });
+});
+
 describe("被手动改过是用户自己的修改", () => {
   const scope = { kind: ScopeKind.ScopeGlobal, agent: AgentCode.AgentClaudeCode } as Scope;
   const place = (status: SkillScopeStatus, source_latest = false) =>
@@ -813,3 +853,50 @@ describe("localChanged", () => {
     expect(localChanged(local({}, true))).toBe(false);
   });
 });
+
+describe("changePending", () => {
+  const tracked = (check: Partial<Skill["last_update_check"]>) =>
+    ({ id: 1, name: "foo", source: { type: SourceType.SourceGit, label: "git.dev.test/a/skills" }, last_update_check: check }) as Skill;
+
+  it("有新版本、推测出改名而没跳过的才算有变化，和集合标题、更新页一致", () => {
+    expect(changePending(tracked({ status: UpdateCheckStatus.UpdateAvailable, pending: true }))).toBe(true);
+    expect(changePending(tracked({ status: UpdateCheckStatus.UpdateDeleted, renamed_to: "bar", pending: true }))).toBe(true);
+  });
+
+  it("跳过的、回滚掉的、来源里已删除的不算有变化", () => {
+    expect(changePending(tracked({ status: UpdateCheckStatus.UpdateAvailable, skipped: true }))).toBe(false);
+    expect(changePending(tracked({ status: UpdateCheckStatus.UpdateDeleted, renamed_to: "bar", skipped: true }))).toBe(false);
+    expect(changePending(tracked({ status: UpdateCheckStatus.UpdateDeleted, pending: true }))).toBe(false);
+  });
+
+  it("来源里已删除的另算：集合标题和技能行都按 deletionPending,选了继续保留的不算", () => {
+    expect(deletionPending(tracked({ status: UpdateCheckStatus.UpdateDeleted, pending: true }))).toBe(true);
+    expect(deletionPending(tracked({ status: UpdateCheckStatus.UpdateDeleted }))).toBe(false);
+    expect(deletionPending(tracked({ status: UpdateCheckStatus.UpdateDeleted, renamed_to: "bar", pending: true }))).toBe(false);
+  });
+});
+
+describe("skillFileProblemText", () => {
+  it("说出是 SKILL.md 的哪一行、怎样改，不给原始报错", () => {
+    expect(skillFileProblemText({ kind: SkillFileProblemKind.SkillFileUnquotedColon, line: 3 })).toBe(
+      'SKILL.md 第 3 行：值里带「: 」，整个值要加上引号（如 description: "Use when: …"）',
+    );
+    expect(skillFileProblemText({ kind: SkillFileProblemKind.SkillFileNoDescription })).toBe("SKILL.md 的 frontmatter 里没有 description，或 description 不是文本");
+    expect(skillFileProblemText({ kind: "later" as SkillFileProblemKind })).toBe("SKILL.md 写得不对");
+  });
+
+  it("SKILL.md 写错了的不能入库：整批入库的入口不算它", () => {
+    expect(fetchable(unmanaged("ok", "claude-code"))).toBe(true);
+    expect(fetchable({ ...unmanaged("broken", "claude-code"), invalid: { kind: SkillFileProblemKind.SkillFileInvalidYAML } })).toBe(false);
+  });
+});
+
+describe("identicalState", () => {
+  it("和库里一样、不是 app 装的那一份写明它已经在库里", () => {
+    const u = { ...unmanaged("screenshot", "claude-code", 1), skill_id: 9, version_id: 3 };
+    const state = identicalState({ id: 9, name: "screenshot", version_id: 3 } as Skill, u);
+    expect(state.text).toBe("已在库里 · 这一份不是 app 装的");
+    expect(state.stale).toBe(false);
+  });
+});
+

@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CancellablePromise } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
-import { PlannedChange, type Collection, type CollectionID, type Skill, type UpdateRisk } from "@bindings/internal/library";
+import type { Collection, CollectionID, Skill } from "@bindings/internal/library";
 import { messages, useT } from "@/lib/i18n";
 import { useSnapshot, type Snapshot } from "@/lib/library";
 import {
@@ -17,6 +17,7 @@ import {
   updatableCollections,
   updateAvailable,
 } from "@/lib/model";
+import { knownRisks, ReadRetries, rememberPlanRisks, snapshotRiskKey } from "@/lib/plan-risks";
 import { useBusy, useUI } from "@/lib/ui";
 import { riskSummary } from "@/features/update/risks";
 import { openUpdate, updateWithDefaults } from "@/features/update/update";
@@ -121,62 +122,74 @@ function revisionMove(skills: Skill[], to: string | undefined): string {
   return from.kind === "same" ? t.revisionMove(from.revision, shortRevision(to)) : t.revisionLatest(revisionText(from), shortRevision(to));
 }
 
-// 更新列表上的风险提示要读一次更新计划(要连来源);按"集合 + 来源最新版本 + 库里各技能的当前版本"记下来，
-// 同一份差异只读一次。读失败的不记，下次再读;离开更新列表时取消还在读的。
-// 生成更新计划会写下这次读到的检查结论：来源在检查更新之后又变了时，计划和快照对不上，重读快照让更新列表、计数跟上，
-// 风险只按计划实际读到的来源版本记。重读后快照仍停在旧的键上时不再反复读来源，快照换了键才重新算。
+// 更新列表上的风险提示要读一次更新计划(要连来源),同一份差异只读一次(见 lib/plan-risks;打开过的更新计划读到的也算)。
+// 读失败的(包括调用被取消、拿到空的计划)隔一会儿再读，最多再读两次;离开更新列表时取消还在读的。
+// 生成更新计划会写下这次读到的检查结论：来源在检查更新之后又变了时，计划和快照对不上，重读快照让更新列表、计数跟上;
+// 重读后快照仍停在旧的键上时不再反复读来源，快照换了键才重新算。
 // 记的是风险本身，文案在渲染时按当前语言生成，切换语言后跟着变。
-const riskCache = new Map<string, UpdateRisk[]>();
-
-const riskKey = (id: CollectionID, revision: string | undefined, versions: number[]) =>
-  `${id}:${revision ?? ""}:${[...versions].sort((a, b) => a - b).join(",")}`;
+const retryDelay = 2000;
+const maxTries = 3;
 
 function usePlanRisks(s: Snapshot, collections: Collection[]): Map<CollectionID, string> {
   const ui = useUI();
   const keys = collections.map((c) => {
     const skills = collectionSkills(s, c);
-    const to = skills.map((x) => x.last_update_check?.revision).find(Boolean);
-    return [c.id, riskKey(c.id, to, skills.map((x) => x.version_id))] as const;
+    return [c.id, snapshotRiskKey(c.id, skills), skills] as const;
   });
-  const [, setVersion] = useState(0);
+  const [version, setVersion] = useState(0);
   const calls = useRef(new Map<string, CancellablePromise<unknown>>());
   const settled = useRef(new Set<string>());
+  const retries = useRef(new ReadRetries(retryDelay, maxTries));
+  const timers = useRef(new Set<number>());
   const wanted = keys.map(([, key]) => key).join("|");
 
   useEffect(() => {
     const running = calls.current;
+    const waiting = timers.current;
     return () => {
       for (const call of running.values()) void call.cancel();
       running.clear();
+      waiting.forEach((t) => window.clearTimeout(t));
+      waiting.clear();
     };
   }, []);
 
   useEffect(() => {
     const current = new Set(keys.map(([, key]) => key));
     for (const key of settled.current) if (!current.has(key)) settled.current.delete(key);
-    for (const [id, key] of keys) {
-      if (riskCache.has(key) || calls.current.has(key) || settled.current.has(key)) continue;
+    for (const [id, key, skills] of keys) {
+      if (knownRisks(key, skills) || calls.current.has(key) || settled.current.has(key) || !retries.current.canRead(key, Date.now())) continue;
+      retries.current.started(key);
       const call = LibraryService.PlanUpdate(id);
       calls.current.set(key, call);
+      let failed = false;
       call
         .then(
           (plan) => {
-            const skills = plan.skills ?? [];
-            const movable = skills.filter((p) => p.change === PlannedChange.PlannedChanged || p.renamed_to);
-            const actual = riskKey(id, plan.revision, skills.map((p) => p.skill.version_id));
-            riskCache.set(actual, movable.flatMap((p) => p.risks ?? []));
+            const actual = rememberPlanRisks(plan);
+            if (!actual) {
+              failed = true;
+              return;
+            }
             if (actual === key) return;
             settled.current.add(key);
             ui.reload();
           },
-          () => {},
+          () => (failed = true),
         )
         .finally(() => {
-          if (calls.current.get(key) === call) calls.current.delete(key);
-          setVersion((n) => n + 1);
+          if (calls.current.get(key) !== call) return;
+          calls.current.delete(key);
+          if (!failed) return setVersion((n) => n + 1);
+          retries.current.failed(key, Date.now());
+          const timer = window.setTimeout(() => {
+            timers.current.delete(timer);
+            setVersion((n) => n + 1);
+          }, retryDelay);
+          timers.current.add(timer);
         });
     }
-  }, [wanted]);
+  }, [wanted, version]);
 
-  return new Map(keys.map(([id, key]) => [id, riskSummary(riskCache.get(key) ?? [])]));
+  return new Map(keys.map(([id, key, skills]) => [id, riskSummary(knownRisks(key, skills) ?? [])]));
 }

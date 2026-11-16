@@ -13,6 +13,8 @@ import {
   type GroupID,
   type PlannedUnmanagedSkill,
   type ProjectID,
+  SkillFileProblemKind,
+  type SkillFileProblem,
   type RegisteredProject,
   type Scope,
   type Skill,
@@ -247,6 +249,26 @@ export function identicalState(skill: Skill, u: UnmanagedSkill, home?: string): 
   return { text: notes.map((x) => x.text).join(" · "), title: titles.join("\n"), stale: u.version_id !== skill.version_id };
 }
 
+// skillFileProblemText 说明 SKILL.md 哪里写错了(见 UnmanagedSkill.invalid):哪个文件、第几行、怎样改。
+export function skillFileProblemText(p: SkillFileProblem): string {
+  const t = messages().list;
+  switch (p.kind) {
+    case SkillFileProblemKind.SkillFileNoFrontmatter:
+      return t.skillFileNoFrontmatter;
+    case SkillFileProblemKind.SkillFileUnclosedFrontmatter:
+      return t.skillFileUnclosed;
+    case SkillFileProblemKind.SkillFileInvalidYAML:
+      return t.skillFileYAML(p.line ?? 0);
+    case SkillFileProblemKind.SkillFileUnquotedColon:
+      return t.skillFileColon(p.line ?? 0);
+    case SkillFileProblemKind.SkillFileInvalidName:
+      return t.skillFileName;
+    case SkillFileProblemKind.SkillFileNoDescription:
+      return t.skillFileDescription;
+  }
+  return t.skillFileOther;
+}
+
 // splitIdentical 把作用域里的未纳管文件夹分开：identical 是和库里某个技能一样的(就是那个技能),unmanaged 是其余的。
 export function splitIdentical(list: UnmanagedSkill[]): { identical: UnmanagedSkill[]; unmanaged: UnmanagedSkill[] } {
   return { identical: list.filter((u) => !!u.skill_id), unmanaged: list.filter((u) => !u.skill_id) };
@@ -289,6 +311,12 @@ export function folderNotes(u: Ownership & Pick<UnmanagedSkill, "link_target">, 
 // copy 是和库里某个技能一样、但不是库装的那一份(见 identicalIn):它就是库里的技能，不说"不在技能库里"。
 export type SameNameKind = "managed" | "identical" | "unmanaged";
 
+// sameNameKind 是同名的一对里一边那份是什么：库装的、和库里一样但不是库装的，还是不在技能库里的。
+function sameNameKind(s: Snapshot, side: { skill_id?: SkillID; folder: string }): SameNameKind {
+  if (side.skill_id) return "managed";
+  return s.unmanaged.some((u) => u.folder === side.folder && !!u.skill_id) ? "identical" : "unmanaged";
+}
+
 export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text: string; title: string } | undefined {
   const m = messages().model;
   const scope = parseScope(key);
@@ -298,10 +326,7 @@ export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text
   if (scope.project_id) {
     const pairs = s.sameName.filter((p) => p.agent === scope.agent && p.project_id === scope.project_id && p.project.folder === folder);
     if (pairs.length === 0) return undefined;
-    const copied = (folder: string) => s.unmanaged.some((u) => u.folder === folder && !!u.skill_id);
-    const kinds = [
-      ...new Set(pairs.map((p): SameNameKind => (p.global.skill_id ? "managed" : copied(p.global.folder) ? "identical" : "unmanaged"))),
-    ];
+    const kinds = [...new Set(pairs.map((p) => sameNameKind(s, p.global)))];
     const name = pairs[0].name;
     const text = {
       [SameNameRule.SameNameGlobalWins]: m.sameNameGlobalWins(name, kinds, who),
@@ -322,15 +347,24 @@ export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text
   return { text, title: pairs.map((p) => m.sameNameProjectFolder(projectName(s, p.project_id), shortPath(s, p.project.folder))).join("\n") };
 }
 
-// skillSameNameNote 是库里一个技能在各处的同名说明(技能库页、更新页的一行用):它装出去的文件夹和同一个 Agent
-// 另一层级的同名文件夹各说一句后果;text 是第一句，title 逐句列出。没有同名时返回 undefined。
+// skillSameNameNote 是库里一个技能在各处的同名说明(技能库页、更新页的一行用):同一个 Agent 的全局和某个项目里同名的一对只说一次,
+// 写出是哪两处(各是库装的、和库里一样的还是不在技能库里的)和后果;text 与 title 相同，逐对一行。没有同名时返回 undefined。
 export function skillSameNameNote(s: Snapshot, skillID: SkillID): { text: string; title: string } | undefined {
-  const notes = s.sameName.flatMap((p) => [
-    ...(p.global.skill_id === skillID ? [sameNameNote(s, scopeKey(scopeOf(p.agent, 0)), p.global.folder)] : []),
-    ...(p.project.skill_id === skillID ? [sameNameNote(s, scopeKey(scopeOf(p.agent, p.project_id)), p.project.folder)] : []),
-  ]);
-  const texts = [...new Set(notes.flatMap((n) => (n ? [n.text] : [])))];
-  return texts.length ? { text: texts[0], title: texts.join("\n") } : undefined;
+  const m = messages().model;
+  const lines = s.sameName
+    .filter((p) => p.global.skill_id === skillID || p.project.skill_id === skillID)
+    .map((p) => {
+      const agent = s.agents.find((a) => a.code === p.agent);
+      const who = agent?.name ?? p.agent;
+      const say = {
+        [SameNameRule.SameNameGlobalWins]: m.sameNamePairWins,
+        [SameNameRule.SameNameBothShown]: m.sameNamePairBoth,
+        [SameNameRule.SameNameUnknown]: m.sameNamePairUnknown,
+      }[agent?.same_name ?? SameNameRule.SameNameUnknown];
+      return say(who, projectName(s, p.project_id), p.name, sameNameKind(s, p.global), sameNameKind(s, p.project));
+    });
+  const text = [...new Set(lines)].join("\n");
+  return text ? { text, title: text } : undefined;
 }
 
 // ---------- 同名不同内容的几份 ----------
@@ -371,6 +405,12 @@ export function sameNameCopies(plan: PlannedUnmanagedSkill[], key: ScopeKey): Ma
 // sameNameInLibrary 是库里和它同名的其他技能(同名但内容不同的不合并，见入库)。
 export function sameNameInLibrary(s: Snapshot, skill: Pick<Skill, "id" | "name">): Skill[] {
   return s.skills.filter((x) => x.name === skill.name && x.id !== skill.id);
+}
+
+// twinNote 是库里一个同名技能哪来的、装在哪，供各处的同名提示分辨是哪一个。
+export function twinNote(s: Snapshot, skill: Skill): string {
+  const m = messages();
+  return m.actions.twin(noSource(skill.source) ? m.model.noSource : sourceLabel(s, skill.source), installedWhere(s, skill.id));
 }
 
 // sameNameFetchNote 说明入库一个和库里技能同名的技能会怎样：不带来源时和库里所有技能比，带来源时只和这个来源里同名的比。
@@ -666,6 +706,17 @@ export function deletedInSource(skill: Skill): boolean {
 // hasUpdate 是能从这个技能打开更新计划：有新版本或推测出改名，跳过了的也算。
 export function hasUpdate(skill: Skill): boolean {
   return updateAvailable(skill) || !!renamedTo(skill);
+}
+
+// changePending 是要处理的变化：来源里有新版本或推测出了改名，并且没有跳过(回滚掉的改动也算跳过)。
+// 集合标题与技能详情里的「N 个有变化」、集合标题上的「更新」都按它，和更新页、计数、技能行上的标记说的是同一回事。
+export function changePending(skill: Skill): boolean {
+  return pending(skill) && hasUpdate(skill);
+}
+
+// deletionPending 是来源里已删除、用户也没选继续保留:集合标题上的「N 个来源里已删除」和技能行上的提示都按它。
+export function deletionPending(skill: Skill): boolean {
+  return pending(skill) && deletedInSource(skill);
 }
 
 export const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
@@ -1103,6 +1154,19 @@ export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, searc
   };
 }
 
+// fetchable 是能入库的未纳管技能:SKILL.md 写错了的(invalid)不算。整批入库的入口只在有能入库的时候出现。
+export function fetchable(u: UnmanagedSkill): boolean {
+  return !u.invalid;
+}
+
+// scopeHereCount 是作用域目录里有几个技能：库装的、和库里一样但不是 app 装的、不在技能库里的都算(Agent 在这里都用得上),
+// 来自全局的不算。右栏这个作用域的数字和作用域页标题里的数字都是它。
+export function scopeHereCount(s: Snapshot, key: ScopeKey): number {
+  return hereIn(scopeListing(s, key, "collection", ""));
+}
+
+const hereIn = (l: ScopeListing) => l.hereCount + l.hereUnmanaged.length;
+
 // ---------- 项目页 ----------
 
 // ProjectAgent 是项目页的一节：项目里一个 Agent(共用一个目录的几个合成一处，scope 是代表的作用域)装在这里的
@@ -1137,7 +1201,8 @@ export function projectAgents(s: Snapshot, project: ProjectID, search: string): 
 // ---------- 每一页列什么、数到几 ----------
 
 // PageListing 是当前页要列的东西与个数，列表、顶栏和搜索行都读这一份。total 是顶栏标题旁的个数，不随搜索变:
-// 技能库页是库里的技能数，更新页是要处理的技能数，作用域页是 Agent 在这里看得到几个(和摘要一致;global 是其中来自全局的),
+// 技能库页是库里的技能数，更新页是要处理的技能数，作用域页是目录里有几个技能(scopeHereCount,和摘要标题、右栏一致;
+// global 是另外列出的来自全局的个数，不算在 total 里),
 // 项目页是项目里装了几个技能(几个 Agent 都装了的只算一个;unmanaged 是其中不在技能库里的，同样不随搜索变);
 // results 是搜索结果数：当前页里名字或描述匹配的行，一个技能在几个组里只算一次。
 // 关系图页的 total 是集合或组里的技能数;它的搜索结果数要算上图里虚线圆的技能，由关系图自己算(lib/graph 的 searchHits),这里的 results 不用。
@@ -1148,6 +1213,15 @@ export type PageListing = { total: number; results: number } & (
   | { kind: "project"; project: ProjectID; agents: ProjectAgent[]; unmanaged: number }
   | { kind: "graph"; set: GraphSet; members: SkillID[] }
 );
+
+// 项目里有几个技能：几个 Agent 都装了的技能只算一个;不是 app 装的各是各的文件夹。
+const projectFolders = (list: ProjectAgent[]) => new Set(list.flatMap((a) => a.unmanaged.map((u) => u.folder))).size;
+const projectCount = (list: ProjectAgent[]) => new Set(list.flatMap((a) => a.skills.map((x) => x.id))).size + projectFolders(list);
+
+// projectSkillCount 是项目里有几个技能(不论是不是 app 装的),右栏这个项目的数字和项目页标题里的数字都是它。
+export function projectSkillCount(s: Snapshot, project: ProjectID): number {
+  return projectCount(projectAgents(s, project, ""));
+}
 
 export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: string): PageListing {
   if (page.kind === "graph") {
@@ -1163,23 +1237,19 @@ export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: s
     const all = scopeListing(s, page.scope, arrange, "");
     const listing = search.trim() ? scopeListing(s, page.scope, arrange, search) : all;
     const global = (l: ScopeListing) => l.global.length + l.globalUnmanaged.length;
-    const seen = (l: ScopeListing) => l.hereCount + l.hereUnmanaged.length + global(l);
     return {
       kind: "scope",
       scope: page.scope,
       listing,
       global: global(all),
-      total: seen(all),
-      results: seen(listing) + listing.notHereSkills.length,
+      total: hereIn(all),
+      results: hereIn(listing) + global(listing) + listing.notHereSkills.length,
     };
   }
   if (page.kind === "project") {
     const agents = projectAgents(s, page.project, search);
-    // 几个 Agent 都装了的技能只算一个;未纳管技能各是各的文件夹。
-    const folders = (list: ProjectAgent[]) => new Set(list.flatMap((a) => a.unmanaged.map((u) => u.folder))).size;
-    const count = (list: ProjectAgent[]) => new Set(list.flatMap((a) => a.skills.map((x) => x.id))).size + folders(list);
     const all = projectAgents(s, page.project, "");
-    return { kind: "project", project: page.project, agents, unmanaged: folders(all), total: count(all), results: count(agents) };
+    return { kind: "project", project: page.project, agents, unmanaged: projectFolders(all), total: projectCount(all), results: projectCount(agents) };
   }
   return {
     kind: "all",

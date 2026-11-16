@@ -1264,7 +1264,7 @@ await step("安装到项目作用域(右栏项目展开 → 检测到的 Agent �
   assert((await page.locator(".a-right .nav-item.more").count()) === 0, "检测到的 Agent 应直接列出，不折进其他");
   await page.locator(".a-right .nav-item.sub", { hasText: "Claude Code" }).nth(1).click();
   await settle();
-  assert((await page.locator(".scope-sees", { hasText: "在 proj-a 里能用" }).count()) === 1, "摘要标题应写 proj-a");
+  assert((await page.locator(".scope-sees", { hasText: "在 proj-a 的目录里有" }).count()) === 1, "摘要标题应写 proj-a");
   assert((await page.locator(".a-list .skill-row", { has: page.locator('[role="switch"][aria-checked="true"]') }).count()) === 0, "该作用域还没有安装，开关都应关着");
   await showNotHere();
   await card("gamma").locator('[role="switch"]').click();
@@ -1300,7 +1300,7 @@ await step("作用域页上面那块的节只有装在这里的;点项目打开�
   const proj = page.locator(".a-right .nav-item.proj", { hasText: "proj-a" });
   await proj.click();
   await page.locator('.a-list[data-page="project"]').waitFor();
-  assert((await page.locator(".project-sum", { hasText: "proj-a 里装了" }).count()) === 1, "摘要标题应写 proj-a");
+  assert((await page.locator(".project-sum", { hasText: "proj-a 里有" }).count()) === 1, "摘要标题应写 proj-a");
   assert((await proj.getAttribute("aria-expanded")) === "true", "打开项目页时右栏展开这个项目");
   const claude = page.locator('.a-list[data-page="project"] .list-section', { has: page.locator(".section-name", { hasText: /^Claude Code$/ }) });
   for (const name of ["beta", "gamma"]) {
@@ -1311,7 +1311,7 @@ await step("作用域页上面那块的节只有装在这里的;点项目打开�
 
   await btn(claude, "打开作用域").click();
   await page.locator('.a-list[data-page="scope"]').waitFor();
-  assert((await page.locator(".scope-sees", { hasText: "Claude Code 在 proj-a 里能用" }).count()) === 1, "打开作用域应到 Claude Code · proj-a");
+  assert((await page.locator(".scope-sees", { hasText: "Claude Code 在 proj-a 的目录里有" }).count()) === 1, "打开作用域应到 Claude Code · proj-a");
 
   await proj.click();
   await page.locator('.a-list[data-page="project"]').waitFor();
@@ -1403,6 +1403,7 @@ await step("未纳管技能入库：磁盘不动，成为没有来源的技能;�
     const text = await modal().textContent();
     assert(text.includes("入库就是把它交给 app 管") && text.includes("更新到作者的新版时，app 会认出来") && text.includes("app 会把它报为被手动改过"), `确认时应写清由谁管:${text}`);
     assert(!text.includes("项目仓库"), "不在项目仓库里的不提仓库");
+    assert(text.includes("Codex · 全局 里是同一个文件夹"), `链接指向的另一处一起记下，确认时说出来:${text}`);
     await btn(modal(), "入库").click();
     await toast("已入库「npx-tool」，文件夹原样没动");
     assert.equal(await page.locator('[data-slot="toast"][data-state="open"] button', { hasText: "装到别处…" }).count(), 1, "提示里给装到别处…");
@@ -1421,20 +1422,30 @@ await step("未纳管技能入库：磁盘不动，成为没有来源的技能;�
     assert((await row.locator('[data-slot="badge"]', { hasText: "最新" }).count()) === 1, "入库的这一处巡检为最新");
     await closeDrawer();
 
-    // Codex 全局里是链接指向的真实文件夹，内容一样：它就是库里的 npx-tool,显示成那个技能的一行、不在"不在技能库里";
-    // 入库不问来源，只补记安装，不新建技能。
+    // Codex 全局里是链接指向的真实文件夹，是同一个文件夹：入库时一起记为装在 Codex 那里，不用在 Codex 再入库一次。
     await selectScope("Codex");
-    assert((await unmanaged("npx-tool").count()) === 0, "和库里一样的不列在不在技能库里");
+    assert((await unmanaged("npx-tool").count()) === 0, "同一个文件夹不再列在不在技能库里");
     const copy = page.locator('.in-use .skill-row[data-name="npx-tool"]');
-    assert((await copy.locator(".identical-state").textContent()).includes("不是 app 装的"), "写明不是 app 装的");
-    await btn(copy, "入库").click();
-    const same = await modal().textContent();
-    assert(same.includes("一模一样") && same.includes("不会多出一个技能"), `确认里说清只补记安装:${same}`);
-    assert((await modal().locator(".unmanaged-source").count()) === 0, "和库里一样的不问来源");
-    await btn(modal(), "入库").click();
-    await toast("「npx-tool」和库里的一样，已记为装在这里");
-    await settle();
-    assert((await card("npx-tool").count()) === 1 && (await copy.locator(".take-over").count()) === 0, "Codex 里应是同一个技能");
+    assert.equal(await copy.locator('[role="switch"][aria-checked="true"]').count(), 1, "Codex 里已经是装着的库里的技能");
+    assert.equal(await copy.locator(".take-over").count(), 0, "不用再入库");
+    // 另一个文件夹、内容一样的副本不自动记下：显示成库里那个技能的一行，写明已在库里，行首是「入库」。
+    const separate = path.join(HOME, "code", "proj-b", ".agents", "skills", "npx-tool");
+    fs.cpSync(real, separate, { recursive: true });
+    try {
+      await refocus();
+      await settle();
+      await selectScope("Codex", "proj-b");
+      const twin = page.locator('.in-use .skill-row[data-name="npx-tool"]');
+      assert((await twin.locator(".identical-state").textContent()).includes("已在库里"), "写明它已经在库里");
+      await btn(twin, "入库").click();
+      await modal().locator('[data-slot="dialog-title"]', { hasText: "入库「npx-tool」" }).waitFor();
+      assert((await modal().textContent()).includes("不会多出一个技能"), "确认里说清只补记安装");
+      await btn(modal(), "取消").click();
+    } finally {
+      fs.rmSync(separate, { recursive: true, force: true });
+      await refocus();
+      await settle();
+    }
 
     await selectScope("Claude Code", "proj-b");
     await btn(unmanaged("team-skill"), "入库").click();
@@ -1470,8 +1481,8 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
     fs.mkdirSync(path.join(kit, name), { recursive: true });
     fs.writeFileSync(path.join(kit, name, "SKILL.md"), doc(name, "v1"));
   }
-  // kit-d 的 SKILL.md 没有描述，来源记录里有来源。
-  const folders = { "kit-a": doc("kit-a", "v1"), "kit-b": doc("kit-b", "edited"), "kit-c": doc("kit-c", "mine"), "kit-d": "---\nname: kit-d\n---\nno description\n" };
+  // kit-d 的 SKILL.md 描述是空的，来源记录里有来源。(没有 description 的 SKILL.md 不能入库，见下面 SKILL.md 写错了的那一步。)
+  const folders = { "kit-a": doc("kit-a", "v1"), "kit-b": doc("kit-b", "edited"), "kit-c": doc("kit-c", "mine"), "kit-d": '---\nname: kit-d\ndescription: ""\n---\nno description\n' };
   for (const [name, content] of Object.entries(folders)) {
     fs.mkdirSync(path.join(claudeGlobal, name), { recursive: true });
     fs.writeFileSync(path.join(claudeGlobal, name, "SKILL.md"), content);
@@ -1544,6 +1555,41 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
     await refocus();
     await settle();
     await selectScope("Claude Code", "proj-a");
+  }
+});
+
+await step("SKILL.md 写错了的未纳管技能：作用域里就说明不能入库、哪一行写错了，全部入库里原因写全", async () => {
+  const folder = path.join(claudeGlobal, "broken-yaml");
+  const fine = path.join(claudeGlobal, "fine-skill");
+  fs.mkdirSync(folder, { recursive: true });
+  fs.writeFileSync(path.join(folder, "SKILL.md"), "---\nname: broken-yaml\ndescription: Use when: something breaks\n---\n# broken\n");
+  const row = page.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: /^broken-yaml$/ }) });
+  try {
+    await refocus();
+    await settle();
+    await selectScope("Claude Code");
+    await row.waitFor();
+    assert.equal(await row.locator(".fetch-unmanaged").count(), 0, "不能入库的不给「入库」");
+    assert.equal(await row.locator(".cannot-fetch").count(), 1, "行首标出不能入库");
+    const reason = await row.locator(".unmanaged-invalid").textContent();
+    assert(reason.includes("SKILL.md 第 3 行") && reason.includes("加上引号"), `写出哪一行写错了、怎样改:${reason}`);
+    // 只剩写错了的时候不给「全部入库…」:点开也是 0 个能入库。
+    assert.equal(await page.locator(".fetch-all-unmanaged").count(), 0, "没有能入库的就没有全部入库");
+    fs.mkdirSync(fine, { recursive: true });
+    fs.writeFileSync(path.join(fine, "SKILL.md"), "---\nname: fine-skill\ndescription: a skill that can be fetched\n---\n# fine\n");
+    await refocus();
+    await settle();
+    await page.locator(".fetch-all-unmanaged").first().click();
+    const unusable = modal().locator(".fetch-unmanaged-unusable");
+    await unusable.locator("summary").click();
+    const text = await unusable.locator(".unusable-reason").textContent();
+    assert(text.includes("SKILL.md 第 3 行") && !text.includes("mapping values") && !text.includes(folder), `全部入库里原因是看得懂的说明、不带路径:${text}`);
+    await page.keyboard.press("Escape");
+  } finally {
+    fs.rmSync(folder, { recursive: true, force: true });
+    fs.rmSync(fine, { recursive: true, force: true });
+    await refocus();
+    await settle();
   }
 });
 
@@ -1660,9 +1706,10 @@ await step("同名技能：全局和项目里同名的两处都标出来，并�
     await selectScope("Codex");
     assert.equal(await note(card("npx-tool")), "项目「proj-a」里也有 npx-tool，Codex 在那里两份都会出现");
 
-    // 技能库页的一行也标同名，说的是它装出去的那一处。
+    // 技能库页的一行也标同名：同一个 Agent 里的同一对只说一次，写出是哪两处、后果是什么。
     await clearScope();
-    assert.equal(await note(card("alpha")), "项目「proj-a」里也有 alpha，Claude Code 在那里用全局的这个");
+    assert.equal(await note(card("alpha")), "Claude Code 的全局（库装的）和项目「proj-a」（不在技能库里）里都有 alpha：Claude Code 在「proj-a」里用全局的那个，项目里的不会生效");
+    assert.equal((await card("alpha").locator(sameNameTip).textContent()).split("\n").length, 1, "同一对只说一次");
     assert((await card("beta").locator(".same-name-badge").count()) === 0, "只在一处的不标");
   } finally {
     for (const [folder] of made) fs.rmSync(folder, { recursive: true, force: true });
@@ -2072,12 +2119,9 @@ await step("符号链接：用这里的修改更新、回滚、重新安装前�
     await btn(modal(), "入库").click();
     await toast("已入库「link-tdd」");
     await settle();
-    // Codex 全局里是链接指向的真实文件夹，就是库里的 link-tdd:显示成它的一行，入库只补记安装。
+    // Codex 全局里是链接指向的真实文件夹，是同一个文件夹：入库时已一起记为装在那里，不用再入库。
     await selectScope("Codex");
-    await btn(page.locator('.in-use .skill-row[data-name="link-tdd"]'), "入库").click();
-    await btn(modal(), "入库").click();
-    await toast("已记为装在这里");
-    await settle();
+    assert.equal(await page.locator('.in-use .skill-row[data-name="link-tdd"] [role="switch"][aria-checked="true"]').count(), 1, "Codex 里已经装着");
     await clearScope();
     await openDrawer("link-tdd");
     await drawer().locator(".install-to select").nth(0).selectOption({ label: "proj-a" });
@@ -2388,8 +2432,10 @@ await step("更新计划：风险与差异、确认改名、继续保留已删�
   await page.locator(".a-left .nav-item", { hasText: "trio.zip" }).click();
   const trioHead = page.locator('.list-section[data-section^="collection-"]', { has: page.locator(".section-name", { hasText: "trio.zip" }) });
   assert((await trioHead.locator(".collection-new").count()) === 0, "不感兴趣的新技能不再在集合上提");
-  // 有变化只算来源里有新内容的(跳过了的 kappa 也算),来源里已删除的 mu 不算。
-  await trioHead.locator(".section-head").getByText("· 1 个有变化", { exact: false }).waitFor();
+  // 标题和角标说的是同一回事：跳过了的 kappa、继续保留的 mu 都不算，标题上既没有「有变化」也没有「更新」。
+  await trioHead.locator(".section-head").getByText("trio.zip").waitFor();
+  assert.equal(await trioHead.locator(".section-head").getByText("有变化", { exact: false }).count(), 0, "跳过的改动不算有变化");
+  assert.equal(await trioHead.locator(".section-head").getByRole("button", { name: "更新", exact: true }).count(), 0, "没有要处理的变化时没有「更新」");
   await sectionMenu(trioHead.locator(".section-head"), "看来源里的其他技能");
   await modal().locator('[data-slot="list-row"]', { hasText: "nu" }).waitFor({ timeout: 20000 });
   await page.keyboard.press("Escape");
@@ -3491,7 +3537,7 @@ await step("项目里共用一个目录的 Agent 合成一处：右栏、弹层�
 
   // 打开这一处的作用域页，摘要标题叫那几个 Agent 的名字。
   await selectScope(merged, "proj-b");
-  assert((await page.locator(".scope-sees").textContent()).startsWith(`${merged} 在 proj-b 里能用`), `摘要标题应叫 ${merged} · proj-b`);
+  assert((await page.locator(".scope-sees").textContent()).startsWith(`${merged} 在 proj-b 的目录里有`), `摘要标题应叫 ${merged} · proj-b`);
   assert((await railRows(merged).getAttribute("data-active")) === "true", "右栏合成的一行应选中");
   await clearScope();
 
@@ -3530,7 +3576,13 @@ await step("占用冲突：同名技能已在该作用域，安装被拦下并�
   const dir = `${HOME}/code/other/gamma`;
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(`${dir}/SKILL.md`, '---\nname: gamma\ndescription: "another gamma"\n---\n');
-  await fetchLocal(`${HOME}/code/other`);
+  // 库里已有同名的 gamma:候选标出「库里已有同名」、默认不勾，确实要再勾上。
+  await previewLocal(`${HOME}/code/other`);
+  const candidate = modal().locator('[data-slot="list-row"]', { hasText: "gamma" });
+  assert.equal(await candidate.locator(".candidate-same-name").count(), 1, "标出库里已有同名");
+  assert(!(await candidate.locator("input[type=checkbox]").isChecked()), "库里已有同名的默认不勾");
+  await candidate.locator("input[type=checkbox]").check();
+  await btn(modal(), "入库所选").click();
   await toast("已入库 1 个技能");
   await settle();
   await selectScope("Claude Code");
@@ -3599,15 +3651,19 @@ await step("移除技能(同时删除已安装的文件夹)", async () => {
   assert(!fs.existsSync(path.join(claudeGlobal, "alpha")), "磁盘上的 alpha 应被删除");
 });
 
-await step("项目目录被移走 → 标记不在这台机器上 → 改项目位置", async () => {
+await step("项目目录被移走 → 标记不在这台机器上 → 在项目页改项目位置", async () => {
   fs.renameSync(`${HOME}/code/proj-b`, `${HOME}/code/proj-b-moved`);
   await refocus();
   await settle();
   const row = page.locator(".a-right .nav-item.proj", { hasText: "proj-b" });
   // 作用域栏很窄：只画「严重」一级的图标，「不在这台机器上」留在 DOM 里、写在悬停提示里。
   await row.locator('.proj-missing[data-tone="critical"]', { hasText: "不在这台机器上" }).waitFor();
-  await row.hover();
-  await row.locator(".row-actions button[title='改项目位置']").click();
+  // 进项目页就看得到项目不在这台机器上，从这里就能改项目位置。
+  await row.click();
+  const notice = page.locator(".project-missing");
+  await notice.waitFor();
+  assert((await notice.textContent()).includes("项目不在这台机器上"), "项目页说明项目不在这台机器上");
+  await notice.locator(".relocate-project").click();
   await modal().locator('[data-slot="input"]').fill(`${HOME}/code/proj-b-moved`);
   await btn(modal(), "改位置").click();
   await toast("已把项目「proj-b-moved」指到");
@@ -3615,6 +3671,7 @@ await step("项目目录被移走 → 标记不在这台机器上 → 改项目�
   const moved = page.locator(".a-right .nav-item.proj", { hasText: "proj-b-moved" });
   assert((await moved.count()) === 1, "项目名应随新位置变化");
   assert((await moved.locator(".proj-missing").count()) === 0, "改位置后不应再标不在这台机器上");
+  assert.equal(await page.locator(".project-missing").count(), 0, "改位置后项目页不再提醒");
 });
 
 await step("注销项目(删除项目里已安装的文件夹)", async () => {

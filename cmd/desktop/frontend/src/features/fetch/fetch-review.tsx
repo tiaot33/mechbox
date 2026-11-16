@@ -11,7 +11,8 @@ import {
   type SkillAudit,
 } from "@bindings/internal/library";
 import { configQuery, useLoadedSnapshot } from "@/lib/library";
-import { homePath } from "@/lib/model";
+import { homePath, sameNameInLibrary, twinNote } from "@/lib/model";
+import { defaultCandidates } from "@/lib/consent";
 import { isWSLPath } from "@/lib/paths";
 import { messages, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
@@ -62,13 +63,17 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
   const config = useQuery({ ...configQuery, enabled: github }).data;
   const tokenMissing = github && !!config && !config.github_token;
   // 发行版里的本地目录和入库后一样写成 Linux 路径、带发行版标记;其他来源照技能库给的名字。
-  const home = useLoadedSnapshot()?.info.home_dir;
+  const s = useLoadedSnapshot();
+  const home = s?.info.home_dir;
   const wslLocal = preview.source.type === SourceType.SourceLocal && isWSLPath(preview.source.label);
   const sourceName = wslLocal ? homePath(home, preview.source.label) : preview.source.label;
   const candidates = preview.candidates ?? [];
   const fresh = candidates.filter((c) => !c.fetched);
+  // 库里已有同名技能(别的来源或没有来源)的候选：标出来，写明库里那个是哪来的、装在哪，默认不勾(见 lib/consent 的 defaultCandidates)。
+  const library = s?.skills ?? [];
+  const twinsOf = (c: Candidate) => (c.fetched || !s ? [] : sameNameInLibrary(s, { id: 0, name: c.name }));
   // 默认勾选尚未入库的候选(从新技能提示进来时只勾新技能);已入库的不能再选(整批会因 AlreadyExists 失败)。
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(fresh.filter((c) => !onlyNew || c.new).map((c) => c.name)));
+  const [selected, setSelected] = useState<Set<string>>(() => defaultCandidates(candidates, new Set(library.map((x) => x.name)), onlyNew));
   // 入库所选：running 时按钮上转圈，入库成功后合成对勾，停一下再关掉弹窗。
   const [fetching, setFetching] = useState<"running" | "done" | null>(null);
 
@@ -136,6 +141,18 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
               {t.new}
             </Badge>
           ) : null}
+          {s && twinsOf(c).length > 0 && (
+            <Badge
+              tone="warn"
+              className="candidate-same-name shrink-0"
+              title={t.sameNameTitle(
+                c.name,
+                twinsOf(c).map((x) => twinNote(s, x)),
+              )}
+            >
+              {t.sameName}
+            </Badge>
+          )}
           <span className="candidate-desc min-w-0 grow truncate text-caption text-foreground-secondary">{c.description}</span>
           {rel !== c.name && <span className="max-w-[30%] min-w-0 shrink-[2] truncate font-mono text-caption text-muted-foreground">{rel}</span>}
           {c.plugin_name && <span className="shrink-0 text-caption text-muted-foreground">{c.plugin_name}</span>}

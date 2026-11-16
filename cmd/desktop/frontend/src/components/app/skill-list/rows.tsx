@@ -10,6 +10,7 @@ import { SkillScopeStatus, type Skill, type SkillID, type SkillScopeInspection, 
 import { useT, type Messages } from "@/lib/i18n";
 import { foundSource, useFoundSources, useSnapshot } from "@/lib/library";
 import {
+  skillFileProblemText,
   identicalIn,
   localChanged,
   notTakenOver,
@@ -18,7 +19,8 @@ import {
   identicalState,
   globalScopesSeenFrom,
   groupName,
-  hasUpdate,
+  changePending,
+  deletionPending,
   installedSummary,
   installedWhere,
   needsReinstall,
@@ -46,7 +48,7 @@ import { doneFlash, doneFresh, toggleDrawer, useView } from "@/lib/view";
 import { fetchUnmanaged } from "@/features/fetch/fetch-unmanaged";
 import { installSkill, uninstallSkill } from "@/features/install/install";
 import { openUpdate } from "@/features/update/update";
-import { AlertIcon, Badge, type Alert } from "@/components/ui/badge";
+import { AlertIcon, Badge, MarkIcon, type Alert } from "@/components/ui/badge";
 import type { Mark } from "@/lib/level";
 import { Button } from "@/components/ui/button";
 import { Switch, SwitchMark } from "@/components/ui/switch";
@@ -268,13 +270,12 @@ export function SkillRow(props: {
 function updateAlerts(t: Messages, skill: Skill, plan?: () => void): Alert[] {
   const to = renamedTo(skill);
   const items: (Alert | false)[] = [
-    pending(skill) &&
-      hasUpdate(skill) &&
+    changePending(skill) &&
       (to
         ? { tone: "rename" as const, label: t.drawer.maybeRenamedTo(to), tip: t.list.renamedTitle(to), onClick: plan }
         : { tone: "update" as const, label: t.list.newVersion, tip: t.list.availableTitle, onClick: plan }),
     pending(skill) && updateAvailable(skill) && !!skill.edited && { tone: "warn" as const, label: t.list.edited, tip: t.list.editedTitle, className: "update-edited-note" },
-    deletedInSource(skill) && !skill.kept_deleted && { tone: "info" as const, label: t.list.deleted, tip: t.list.deletedTitle },
+    deletionPending(skill) && { tone: "info" as const, label: t.list.deleted, tip: t.list.deletedTitle },
   ];
   return items.filter((x): x is Alert => !!x);
 }
@@ -475,8 +476,11 @@ export function UnmanagedRow({
   // 和库里某个技能一样的(就是那个技能)、库里某个技能的新版(在 app 外更新过)各有自己的说法和操作。
   const library = s.skills.find((x) => x.id === skill.skill_id);
   const newer = s.skills.find((x) => x.id === skill.source_latest_of);
+  // SKILL.md 写错了的不能入库：行首不给「入库」,最后一列写不能入库(悬停看原因)。
+  const invalid = skill.invalid ? skillFileProblemText(skill.invalid) : "";
   const state = [
     fromGlobal ? { text: t.fromGlobal, title: t.sectionGlobalTitle } : undefined,
+    invalid ? { text: t.cannotFetchShort, title: t.cannotFetchTitle(invalid) } : undefined,
     library
       ? { text: t.sameAsLibrary(library.name), title: t.identicalHereTitle(library.name) }
       : newer
@@ -489,6 +493,8 @@ export function UnmanagedRow({
   // 行高固定，来源和符号链接指向哪里不占一行：写在描述的悬停提示里，同一份留在 DOM 里给读屏(className 是测试钩子)。
   // 没有描述时描述那一格直接写来源和链接(来源是怎么认出来的那句 detail 只在提示里),不留一块悬停不到的空白。
   const notes = [
+    // SKILL.md 写错了的没有描述：描述那一格写哪里写错了(这一格最宽，原因写得下)。
+    invalid && { text: t.cannotFetch(invalid), className: "unmanaged-invalid" },
     source && { text: t.from(source), className: "unmanaged-source-label" },
     source && { text: found ? t.foundTitle(found) : t.recordedTitle(source), className: "unmanaged-source-how", detail: true },
     skill.link_target && { text: t.link(shortPath(s, skill.link_target)), className: "unmanaged-status" },
@@ -509,6 +515,11 @@ export function UnmanagedRow({
           >
             {t.update}
           </Button>
+        ) : invalid ? (
+          // 行首这一格窄：只画「注意」的图标;原因写在描述那一格，「不能入库」写在最后一列。
+          <span className="cannot-fetch flex w-full justify-center" title={t.cannotFetchTitle(invalid)}>
+            <MarkIcon tone="warn" />
+          </span>
         ) : (
           // 提交在项目仓库里、指向 Agent 目录以外的默认不入库(归团队管、作者留在自己目录里改):按钮是普通的灰底，不推用户去入库。
           <Button

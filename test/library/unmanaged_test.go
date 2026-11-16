@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/tiaot33/mechbox/internal/library"
@@ -77,13 +78,13 @@ func TestListUnmanagedSkillsListsFoldersTheLibraryDidNotInstall(t *testing.T) {
 	writeFile(t, filepath.Join(claudeDirectory, "README.md"), []byte("not a skill\n"), 0o644)
 	writeUnmanagedSkill(t, filepath.Join(codexDirectory, ".system"), "bundled", "system skill")
 	writeUnmanagedSkill(t, codexDirectory, ".hidden", "hidden")
-	// SKILL.md 读不出 frontmatter 的照样列出,只是没有描述。
+	// SKILL.md 读不出 frontmatter 的照样列出,没有描述,带出哪里写错了。
 	broken := filepath.Join(claudeDirectory, "broken")
 	writeFile(t, filepath.Join(broken, "SKILL.md"), []byte("no frontmatter\n"), 0o644)
 
 	before := snapshotTree(t, home)
 	requireUnmanagedSkills(t, lib, []library.UnmanagedSkill{
-		{Scope: claude, Name: "broken", Folder: broken},
+		{Scope: claude, Name: "broken", Folder: broken, Invalid: &library.SkillFileProblem{Kind: library.SkillFileNoFrontmatter}},
 		{Scope: claude, Name: "notes", Description: "my notes", Folder: notes},
 		{Scope: codex, Name: "cli-tool", Description: "from npx skills", Folder: cli},
 		{Scope: library.GlobalScope(custom.Code), Name: "cli-tool", Description: "from npx skills", Folder: cli},
@@ -124,9 +125,31 @@ func TestListUnmanagedSkillsListsSymlinkedFolders(t *testing.T) {
 	}
 
 	requireUnmanagedSkills(t, lib, []library.UnmanagedSkill{
-		{Scope: claude, Name: "pdf", Description: "read pdfs", Folder: link, LinkTarget: resolved},
-		{Scope: codex, Name: "pdf", Description: "read pdfs", Folder: real},
+		// 链接和它指向的真实文件夹是同一个文件夹:各自写出另一处,入库一处时一并记下。
+		{Scope: claude, Name: "pdf", Description: "read pdfs", Folder: link, LinkTarget: resolved, SameFolder: []library.Scope{codex}},
+		{Scope: codex, Name: "pdf", Description: "read pdfs", Folder: real, SameFolder: []library.Scope{claude}},
 	})
+}
+
+// SKILL.md 写错了的文件夹照样列出(Agent 目录里确实有它),带出哪里写错了:界面在作用域里就说明它不能入库,
+// 整批入库的计划里那一处也带着同样的说明。
+func TestListUnmanagedSkillsSaysWhySkillMDIsInvalid(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	claude := library.GlobalScope(library.AgentClaudeCode)
+	folder := filepath.Join(scopeDirectory(t, lib, claude), "broken")
+	writeFile(t, filepath.Join(folder, "SKILL.md"), []byte("---\nname: broken\ndescription: Use when: something breaks\n---\n# broken\n"), 0o644)
+
+	want := &library.SkillFileProblem{Kind: library.SkillFileUnquotedColon, Line: 3}
+	requireUnmanagedSkills(t, lib, []library.UnmanagedSkill{{Scope: claude, Name: "broken", Folder: folder, Invalid: want}})
+	plan, err := lib.PlanFetchUnmanaged(t.Context(), library.PlanFetchUnmanagedRequest{Scopes: []library.Scope{claude}})
+	if err != nil || len(plan) != 1 || !library.IsCode(plan[0].Error, library.SourceInvalid) || plan[0].Selected ||
+		len(plan[0].Folders) != 1 || !reflect.DeepEqual(plan[0].Folders[0].Invalid, want) {
+		t.Fatalf("PlanFetchUnmanaged() = %#v, %v; want the folder unusable with the same problem", plan, err)
+	}
+	if _, err := lib.FetchUnmanaged(t.Context(), library.FetchUnmanagedRequest{Scope: claude, Name: "broken"}); !library.IsCode(err, library.SourceInvalid) {
+		t.Fatalf("FetchUnmanaged() = %v; want SourceInvalid", err)
+	}
 }
 
 func TestListUnmanagedSkillsMarksFoldersCommittedInTheProjectRepository(t *testing.T) {
@@ -322,5 +345,21 @@ func TestListUnmanagedSkillsReadsSourceRecordsOfNpxSkills(t *testing.T) {
 		if skill.Name == "pdf" && skill.SourceInput != "" {
 			t.Fatalf("pdf = %#v, want no source from version 2 records", skill)
 		}
+	}
+}
+
+// SKILL.md 超出列出时的读取上限：列出时没读它，不判为写错了;入库照常读。
+func TestListUnmanagedSkillsDoesNotJudgeALargeSkillMD(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	claude := library.GlobalScope(library.AgentClaudeCode)
+	writeFile(t, filepath.Join(scopeDirectory(t, lib, claude), "big", "SKILL.md"), []byte("---\nname: big\ndescription: large body\n---\n"+strings.Repeat("x", 2<<20)), 0o644)
+	got := listUnmanagedSkills(t, lib)
+	if len(got) != 1 || got[0].Invalid != nil {
+		t.Fatalf("ListUnmanagedSkills() = %#v, want the large SKILL.md not judged invalid", got)
+	}
+	fetched := fetchUnmanaged(t, lib, claude, "big")
+	if fetched.Skill.Name != "big" {
+		t.Fatalf("FetchUnmanaged() = %#v", fetched)
 	}
 }

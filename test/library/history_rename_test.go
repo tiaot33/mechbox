@@ -49,6 +49,30 @@ func TestRollbackOfARenameRestoresNameAndFolders(t *testing.T) {
 	}
 }
 
+// 确认改名之后来源里新名字的那份又变了,检查更新已经报着;回滚改名时把来源里现在的那份记为跳过,再检查更新也不计入角标。
+func TestRollingBackARenameSkipsTheNewerContentAlreadySeen(t *testing.T) {
+	fx := newRenameFixture(t)
+	ctx := t.Context()
+	result, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx.server.serve(zipArchive(t, map[string]string{
+		"pdf-kit/SKILL.md":       skillDocument("pdf-kit", renamedBody+"Newer.\n"),
+		"pdf-kit/scripts/run.sh": "#!/bin/sh\necho render\n",
+		"notes/SKILL.md":         skillDocument("notes", "v1"),
+	}), "")
+	if check := checkedSkill(t, fx.lib, fx.skill.ID); check.Status != library.UpdateAvailable || !check.Pending {
+		t.Fatalf("check before rollback = %#v; want the newer pdf-kit pending", check)
+	}
+	if _, err := fx.lib.Rollback(ctx, result.Record); err != nil {
+		t.Fatal(err)
+	}
+	if check := checkedSkill(t, fx.lib, fx.skill.ID); check.RenamedTo != "pdf-kit" || check.Pending || !check.Skipped {
+		t.Fatalf("rechecked after rolling back the rename = %#v; want the rename skipped", check)
+	}
+}
+
 func TestRollingBackAnEarlierUpdateRestoresTheNameItHad(t *testing.T) {
 	fx := newRenameFixture(t)
 	ctx := t.Context()

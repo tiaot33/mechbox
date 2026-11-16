@@ -40,6 +40,11 @@ type FetchUnmanagedResult struct {
 // FetchUnmanaged 把作用域里一个不是库装的技能入库,交给库管:磁盘上什么都不改(文件夹是符号链接时照样是符号链接),
 // 读出文件夹的内容(文件夹是符号链接时读它指向的内容,受入库的读取上限约束)成为库里的版本,并记为直接安装在这个作用域;
 // 入库后巡检这一处与库里的版本一致。
+// 别的作用域里不是库装的文件夹和这一处解析符号链接后是同一个文件夹时(如 npx skills 的布局:真实文件夹在 Codex 的目录里,
+// Claude Code 的目录里是指过去的链接),一并记为直接安装在那里,同一个文件夹不用在每个 Agent 的作用域里各入库一次;
+// 只是内容一样、却是另一个文件夹的不算,它可能是用户故意留的一份;提交在项目仓库里、记在项目的 skills-lock.json 里的那一处
+// 也不算,它归项目仓库管。
+// 共用目录的 Agent 本来就算已装,不另记。会一并记下的地方见 UnmanagedSkill.SameFolder;读不出来的作用域跳过,不影响这次入库。
 // 文件夹名和技能名不同时,这一处按原来的文件夹名记录(SkillScope.Folder),之后重新安装才换成技能名。
 // 入库之后,用户在库外(如命令行工具)再改这个文件夹,巡检报为 modified;提交在项目仓库里的文件夹也能入库,
 // 之后在 app 里更新、重新安装它会改动仓库里的文件。确认框据此提醒。
@@ -199,7 +204,35 @@ func (l *Library) unmanagedFolder(ctx context.Context, operation string, req Fet
 	return unmanagedFolder{target: target, name: req.Name, path: path, disk: disk, parsed: parsed}, nil
 }
 
+func (l *Library) withSameFolders(ctx context.Context, operation string, folders []unmanagedFolder) ([]unmanagedFolder, error) {
+	found, err := l.readableScopeFolders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	same := indexSameFolders(found, committedFolders{}, l.sourceRecords())
+	result := slices.Clone(folders)
+	for _, folder := range folders {
+		for _, other := range same.of(ctx, folder.target, folder.path) {
+			if slices.ContainsFunc(result, func(listed unmanagedFolder) bool {
+				return listed.target.scope() == other.target.scope() || listed.target.sharesFolderWith(other.target)
+			}) {
+				continue
+			}
+			companion, err := l.unmanagedFolder(ctx, operation, FetchUnmanagedRequest{Scope: other.target.scope(), Name: other.Name})
+			if err != nil || companion.parsed.Name != folders[0].parsed.Name {
+				continue
+			}
+			result = append(result, companion)
+		}
+	}
+	return result, nil
+}
+
 func (l *Library) fetchWithoutSource(ctx context.Context, folders []unmanagedFolder) (FetchUnmanagedResult, error) {
+	folders, err := l.withSameFolders(ctx, "fetch unmanaged skill", folders)
+	if err != nil {
+		return FetchUnmanagedResult{}, err
+	}
 	folder, disk := folders[0], representative(folders)
 	matched, _, err := matchingSkill(ctx, l.store, disk, folderScopes(folders))
 	if err != nil {
@@ -289,6 +322,10 @@ func sourceField(err error) error {
 }
 
 func (l *Library) fetchWithSource(ctx context.Context, operation string, folders []unmanagedFolder, sourced sourcedSkill, input, ref string) (FetchUnmanagedResult, error) {
+	folders, err := l.withSameFolders(ctx, operation, folders)
+	if err != nil {
+		return FetchUnmanagedResult{}, err
+	}
 	folder, disk := folders[0], representative(folders)
 	reference := skillfile.Digests(sourced.skill.Files)
 	files := disk.as(reference)
@@ -312,7 +349,7 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folders
 	}
 	name := sourced.skill.Name
 	var row store.Skill
-	err := l.store.InTx(ctx, func(tx *store.Tx) error {
+	err = l.store.InTx(ctx, func(tx *store.Tx) error {
 		now := clockNow()
 		sourceID, err := tx.UpsertSource(ctx, sourced.record)
 		if err != nil {
@@ -573,8 +610,8 @@ type FetchedUnmanagedSkill struct {
 }
 
 // FetchUnmanagedSkills 一次确认把几个不是库装的技能入库,每个技能的规则和 FetchUnmanaged 相同:磁盘上什么都不改,
-// 读出的内容成为库里的版本,记为装在各处;和库里某个版本完全一致的,不论带不带来源都只补记安装,也不读它带的来源;
-// 其余带来源的进这个来源的集合。
+// 读出的内容成为库里的版本,记为装在各处(和 FetchUnmanaged 一样,别处同一个文件夹也一并记下);和库里某个版本完全一致的,
+// 不论带不带来源都只补记安装,也不读它带的来源;其余带来源的进这个来源的集合。
 // 同一个来源(SourceInput 与 SourceRef 都相同)只识别、读取一次,读来源期间不持库锁。一个技能失败不影响其余的:
 // 每个技能各自成功或失败,结果按请求顺序逐条返回,失败的写在 FetchedUnmanagedSkill.Error 里,用户可以改来源或清空后单独重试。
 // 同名不同内容的几份都勾上时照样逐个入库,规则同 FetchUnmanaged(带同一来源的后一份返回 AlreadyExists),只勾一份由调用方决定。

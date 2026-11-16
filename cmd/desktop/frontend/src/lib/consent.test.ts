@@ -6,6 +6,7 @@ import {
   PlannedChange,
   ScopeKind,
   SkillScopeStatus,
+  type Candidate,
   type PlannedSkill,
   type PlannedUnmanagedSkill,
   type Scope,
@@ -22,8 +23,10 @@ import {
   copyOverwrites,
   copyPlaceByDefault,
   type CopyPlanned,
+  defaultCandidates,
   defaultInstallOn,
   fetchPlan,
+  sameFolderElsewhere,
   defaultSkills,
   detachedBy,
   linkWrites,
@@ -291,6 +294,13 @@ describe("整批入库的默认勾选", () => {
     ...extra,
   });
 
+  it("入库时一并记下的别处：同一个文件夹在这一条以外的作用域，在这一条里的不再写", () => {
+    const link = folder(global(claude), { same_folder: [global(codex), project(codex, 7)] });
+    const real = folder(project(codex, 7), { same_folder: [global(claude)] });
+    expect(sameFolderElsewhere(planned([link, real]))).toEqual([global(codex)]);
+    expect(sameFolderElsewhere(planned([folder(global(claude))]))).toEqual([]);
+  });
+
   it("全局里自己的和项目里团队的内容一样时拆成两条：自己的默认勾上，团队的不勾", () => {
     const mine = folder(global(claude));
     const team = folder(project(claude, 7), { in_project_lock: true });
@@ -382,5 +392,19 @@ describe("照着另一个 Agent 装", () => {
       expect(copyable(status)).toBe(false);
       expect(copyByDefault(status)).toBe(false);
     }
+  });
+});
+
+describe("defaultCandidates", () => {
+  const c = (name: string, extra: Partial<Candidate> = {}) => ({ name, description: "", path: name, ...extra }) as Candidate;
+
+  it("库里已有同名技能的候选不默认勾，用户看到提醒自己勾上", () => {
+    const picked = defaultCandidates([c("internal-comms"), c("pdf"), c("docx", { fetched: 3 })], new Set(["internal-comms", "docx"]), false);
+    expect([...picked]).toEqual(["pdf"]);
+  });
+
+  it("从新技能提示进来时只勾新技能，库里同名的照样不勾", () => {
+    const picked = defaultCandidates([c("a", { new: true }), c("b"), c("x", { new: true })], new Set(["x"]), true);
+    expect([...picked]).toEqual(["a"]);
   });
 });

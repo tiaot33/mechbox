@@ -162,6 +162,67 @@ func TestRollbackRestoresLibraryAndCheckedPlacesAndSkipsTheChange(t *testing.T) 
 	}
 }
 
+// 来源在那次更新之后又往前走了(更新页上已经报着新版本),回滚之后来源没再变:来源里现在的那份也带着回滚掉的改动,
+// 回滚完成时和之后检查更新、更新计划都一致地不计入角标;来源再变了才重新计入。
+func TestRollbackAlsoSkipsTheNewerRevisionAlreadySeen(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	server := newArchiveServer(t, zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v1")}), "")
+	pdf := fetchArchive(t, lib, server.request())[0]
+	server.serve(zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v2")}), "")
+	updated, err := lib.Update(ctx, mustPlanUpdate(t, lib, pdf.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.serve(zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v3")}), "")
+	if check := checkedSkill(t, lib, pdf.ID); check.Status != library.UpdateAvailable || !check.Pending {
+		t.Fatalf("check before rollback = %#v; want v3 pending", check)
+	}
+	if _, err := lib.Rollback(ctx, updated.Record); err != nil {
+		t.Fatal(err)
+	}
+	got, err := lib.GetSkill(ctx, pdf.ID)
+	if err != nil || got.VersionID != pdf.VersionID || got.LastUpdateCheck.Pending || !got.LastUpdateCheck.Skipped {
+		t.Fatalf("after rollback = %#v, %v; want v1 with the change skipped", got.LastUpdateCheck, err)
+	}
+	if check := checkedSkill(t, lib, pdf.ID); check.Status != library.UpdateAvailable || check.Pending || !check.Skipped {
+		t.Fatalf("rechecked after rollback = %#v; want v3 still skipped", check)
+	}
+	if plan, err := lib.PlanUpdate(ctx, pdf.CollectionID); err != nil || plan.Skills[0].Change != library.PlannedChanged || !plan.Skills[0].Skipped {
+		t.Fatalf("plan after rollback = %#v, %v; want v3 offered as skipped", plan.Skills, err)
+	}
+	server.serve(zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v4")}), "")
+	if check := checkedSkill(t, lib, pdf.ID); !check.Pending || check.Skipped {
+		t.Fatalf("checked after the source moved again = %#v; want pending", check)
+	}
+}
+
+// 回滚较早的一次更新:之后那次更新已经跟上了来源,来源里现在的那份同样带着回滚掉的改动,一并跳过。
+func TestRollingBackAnEarlierUpdateSkipsWhatTheSourceHasNow(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	server := newArchiveServer(t, zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v1")}), "")
+	pdf := fetchArchive(t, lib, server.request())[0]
+	server.serve(zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v2")}), "")
+	first, err := lib.Update(ctx, mustPlanUpdate(t, lib, pdf.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.serve(zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v3")}), "")
+	if _, err := lib.Update(ctx, mustPlanUpdate(t, lib, pdf.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.Rollback(ctx, first.Record); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := lib.GetSkill(ctx, pdf.ID); err != nil || got.VersionID != pdf.VersionID || got.LastUpdateCheck.Pending || !got.LastUpdateCheck.Skipped {
+		t.Fatalf("after rollback = %#v, %v; want v1 with the change skipped", got.LastUpdateCheck, err)
+	}
+	if check := checkedSkill(t, lib, pdf.ID); check.Status != library.UpdateAvailable || check.Pending || !check.Skipped {
+		t.Fatalf("rechecked after rollback = %#v; want v3 skipped", check)
+	}
+}
+
 func TestRollbackOfAnEarlierUpdateAndOfARemovedSkill(t *testing.T) {
 	ctx := t.Context()
 	lib := openTestLibrary(t)

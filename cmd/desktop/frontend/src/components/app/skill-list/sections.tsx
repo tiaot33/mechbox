@@ -10,8 +10,9 @@ import { useEffect } from "react";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import {
+  changePending,
   collectionSkills,
-  hasUpdate,
+  deletionPending,
   localChanged,
   isLocal,
   placeOf,
@@ -21,7 +22,6 @@ import {
   scopeKey,
   skillScopesOf,
   sourceLabel,
-  updateAvailable,
   wslTitle,
 } from "@/lib/model";
 import { cn } from "@/lib/utils";
@@ -175,13 +175,20 @@ export function CollectionSection({
   const drop = useCollectionDrop(collection.id);
   const t = useT();
   const skills = collectionSkills(s, collection);
-  // "有变化"只算来源里有新内容的技能(跳过了的也算);来源里已删除、推测出改名的不算。
-  const changed = skills.filter(updateAvailable).length;
+  // 标题上的数字和行上的标记、更新页、计数是同一回事：「有变化」是有新版本或推测出改名、没跳过的(回滚掉的也算跳过);
+  // 来源里已删除、用户没选继续保留的另写一项。都没有时不写，也没有「更新」。
+  const changed = skills.filter(changePending).length;
+  const deleted = skills.filter(deletionPending).length;
   const local = isLocal(collection.source);
   // 本地目录来源：目录里改过的技能(读目录时比出来的),右边是「重新读取」,一次读进整个目录的修改。
   const edited = skills.filter(localChanged).length;
   const label = sourceLabel(s, collection.source);
-  const facts = [revisionText(revisionSummary(skills)), changed ? t.drawer.changedCount(changed) : "", edited ? t.list.localChangedCount(edited) : ""].filter(Boolean);
+  const facts = [
+    revisionText(revisionSummary(skills)),
+    changed ? t.drawer.changedCount(changed) : "",
+    deleted ? t.drawer.deletedCount(deleted) : "",
+    edited ? t.list.localChangedCount(edited) : "",
+  ].filter(Boolean);
   const menu = useCollectionMenu(collection, { graph: showGraph });
   const head = (
     <>
@@ -209,7 +216,7 @@ export function CollectionSection({
           {t.list.reread}
         </Button>
       )
-    : skills.some(hasUpdate) && (
+    : changed > 0 && (
         <Button variant="pill" onClick={() => openUpdate(collection.id)}>
           {t.list.update}
         </Button>

@@ -1692,6 +1692,58 @@ export interface SkillAudit {
 }
 
 /**
+ * SkillFileProblem 说明技能文件夹里的 SKILL.md 为什么不是有效的技能描述,界面据此写出哪个文件、哪里写错了。
+ */
+export interface SkillFileProblem {
+    "kind": SkillFileProblemKind;
+
+    /**
+     * 写错的那一行在 SKILL.md 里的行号,从 1 起;说不出时为 0
+     */
+    "line"?: number;
+}
+
+/**
+ * SkillFileProblemKind 是 SKILL.md 不是有效技能描述的原因。值以后可能增加,调用方遇到不认识的值按「SKILL.md 写得不对」处理。
+ */
+export enum SkillFileProblemKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * 开头没有 frontmatter:第一行不是 ---
+     */
+    SkillFileNoFrontmatter = "no_frontmatter",
+
+    /**
+     * frontmatter 没有用 --- 结束
+     */
+    SkillFileUnclosedFrontmatter = "unclosed_frontmatter",
+
+    /**
+     * frontmatter 不是有效的 YAML
+     */
+    SkillFileInvalidYAML = "invalid_yaml",
+
+    /**
+     * SkillFileUnquotedColon 是 frontmatter 里一个值中间带「: 」又没加引号(如 description: Use when: ...),YAML 把它读成了又一层键值。
+     */
+    SkillFileUnquotedColon = "unquoted_colon",
+
+    /**
+     * 没有 name,或 name 不能用作文件夹名(空、带斜杠或换行)
+     */
+    SkillFileInvalidName = "invalid_name",
+
+    /**
+     * 没有 description,或它不是一段文字
+     */
+    SkillFileNoDescription = "no_description",
+};
+
+/**
  * SkillID 是库里技能的数据库主键。各实体的 ID 定义为不同类型,以免互相传错。
  */
 export type SkillID = number;
@@ -2271,6 +2323,20 @@ export interface UnmanagedSkill {
      * Windows 本机的目录里,来源的新版加了可执行文件或改了可执行位时认不出(见包说明「实现」一节)。
      */
     "source_latest_of"?: SkillID;
+
+    /**
+     * SameFolder 是别的作用域里和这一处解析符号链接后是同一个文件夹的未纳管技能(如 npx skills 的布局:Claude Code 的目录里是链接,
+     * 真实文件夹在 Codex 的目录里),按 Agent、作用域排序;入库这一处时(FetchUnmanaged、FetchUnmanagedSkills)一并记为装在那里,
+     * 确认前界面据此说明。不限于这次列出的作用域,读不出来的作用域不算;共用目录的 Agent、归项目仓库管的那一处(InRepository、
+     * InProjectLock)不在这里,入库时也不一并记下。没有时为空。
+     */
+    "same_folder"?: Scope[] | null;
+
+    /**
+     * Invalid 不为 nil 时,文件夹根上的 SKILL.md 不是有效的技能描述,给出哪里写错了(SKILL.md 超出列出时的读取上限时不判断):这个文件夹不能入库
+     * (FetchUnmanaged 返回 SourceInvalid,整批入库的计划里这一条带 Error),界面在作用域里就据此说明,不给入库的按钮。
+     */
+    "invalid"?: SkillFileProblem | null;
 }
 
 /**
