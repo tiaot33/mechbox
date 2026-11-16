@@ -7,7 +7,7 @@ import { FetchReview } from "./fetch-review";
 
 // previewCollection 对库里已有的集合再做一次入库预览，看作者又发布了哪些技能;已入库的候选标出来、不能再选。
 export async function previewCollection(collectionID: CollectionID) {
-  const preview = await ui.run(() => LibraryService.PreviewFetch({ collection: collectionID }), { reload: false });
+  const preview = await ui.read(() => LibraryService.PreviewFetch({ collection: collectionID }));
   if (!preview) return;
   await ui.open((close) => <FetchReview preview={preview} onClose={() => close()} onBack={() => close()} />);
 }
@@ -15,7 +15,7 @@ export async function previewCollection(collectionID: CollectionID) {
 
 // previewNewSkills 打开这个集合来源的入库预览，新出现的技能默认勾上。
 export async function previewNewSkills(collectionID: CollectionID) {
-  const preview = await ui.run(() => LibraryService.PreviewFetch({ collection: collectionID }), { reload: false });
+  const preview = await ui.read(() => LibraryService.PreviewFetch({ collection: collectionID }));
   if (!preview) return;
   await ui.open((close) => <FetchReview preview={preview} onlyNew onClose={() => close()} onBack={() => close()} />);
 }

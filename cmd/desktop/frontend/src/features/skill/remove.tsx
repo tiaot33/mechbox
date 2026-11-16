@@ -25,6 +25,7 @@ export async function removeSkill(id: SkillID) {
   const policy = choice === FolderPolicy.Keep ? FolderPolicy.Keep : FolderPolicy.Remove;
   const done = await ui.run(() => LibraryService.RemoveSkill(id, { folders: policy }).then(() => true), {
     success: t.removed,
+    label: t.removeLabel(skillName(s, id)),
   });
   return !!done;
 }
@@ -65,5 +66,8 @@ function folderChoices(removeDesc: string) {
 // keepDeleted 是对来源里已删除的技能选"继续保留":不再提醒，只在技能上留一个淡色标记。
 export function keepDeleted(id: SkillID) {
   const s = currentSnapshot();
-  return ui.run(() => LibraryService.KeepDeletedSkill(id), { success: messages().update.keptDeleted(skillName(s, id)) });
+  return ui.run(() => LibraryService.KeepDeletedSkill(id), {
+    success: messages().update.keptDeleted(skillName(s, id)),
+    label: messages().update.keepLabel(skillName(s, id)),
+  });
 }

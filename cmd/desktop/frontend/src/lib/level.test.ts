@@ -23,6 +23,8 @@ describe("byLevel", () => {
   it("更新排在三级提醒后面，不盖住提醒", () => {
     const list: Mark[] = ["update", "info", "critical"];
     expect(list.sort(byLevel)).toEqual(["critical", "info", "update"]);
+    // 可能改名和有新版本一样不是提醒，排在三级提醒后面。
+    expect((["rename", "warn", "update"] as Mark[]).sort(byLevel)).toEqual(["warn", "update", "rename"]);
   });
 
   it("更新不算提醒的级别", () => {

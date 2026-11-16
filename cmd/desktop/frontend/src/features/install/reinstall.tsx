@@ -41,7 +41,7 @@ import { confirmLinkWrites } from "@/components/app/link-notes";
 export async function reinstall(filter: SkillScopeFilter, what: string) {
   const s = currentSnapshot();
   const t = messages().actions;
-  const inspected = await ui.run(() => LibraryService.InspectSkillScopes(filter), { reload: false });
+  const inspected = await ui.read(() => LibraryService.InspectSkillScopes(filter));
   if (inspected === undefined) return;
   const single = !!filter.skill_id && !!filter.scope;
   const { targets, modified, missing } = reinstallTargets(inspected ?? [], single);

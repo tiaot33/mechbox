@@ -34,7 +34,7 @@ export function UninstallDialog({ onClose }: { onClose: () => void }) {
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
 
   // 打开时现查磁盘：快照里的状态可能落后，用户刚改过的文件夹要算进被改过的几处。
-  const inspect = () => ui.run(() => LibraryService.InspectSkillScopes({}), { reload: false }).then((p) => p && setPlaces(p));
+  const inspect = () => ui.read(() => LibraryService.InspectSkillScopes({})).then((p) => p && setPlaces(p));
   useEffect(() => void inspect(), []);
 
   const byFolder = new Map<string, SkillScopeInspection>();

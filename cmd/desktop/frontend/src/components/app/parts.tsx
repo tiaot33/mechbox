@@ -14,7 +14,7 @@ import { useHasWSL, useSnapshot } from "@/lib/library";
 import { agentName, projectFolderNote, projectNamed, type Place } from "@/lib/model";
 import { pathParts, wslLocation } from "@/lib/paths";
 import { platform } from "@/lib/platform";
-import { useBusyMarkRunning, useSettled } from "@/lib/ui";
+import { useBusyMarkRunning, useRunningLabel, useSettled } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { agentBrand } from "./agent-icons";
 import { Icon } from "@/components/ui/icon";
@@ -256,23 +256,33 @@ export function Chip({
 
 // BusyMark 是顶栏标题旁的状态圈(主界面与设置页):有写操作进行中时转圈(ui.run 传了 busyMark: false 的除外)，
 // 全部结束后转动的弧合成整圈，合拢后画出对勾(有失败的画叉),停一下再淡出;只有被取消的写操作时直接消失。
+// 旁边用小字写出在做什么(ui.run 的 label,如「正在更新 matt/skills…」),结束后写这一轮做的事完成了没有，和圈一起淡出;
+// 没给 label 的只画圈，悬停说「正在处理」「已完成」。
 // checks 是还要画哪些检查更新的进度(检查本来画在发起处):true 是全部(设置页，看不到顶栏的检查按钮),
 // "collections" 是从左栏集合右键发起的(主界面左栏不显示时)。
 export function BusyMark({ checks = false }: { checks?: boolean | "collections" }) {
-  const writes = useMarkStatus(useBusyMarkRunning(), useSettled());
+  const settled = useSettled();
+  const writes = useMarkStatus(useBusyMarkRunning(), settled);
+  const runningLabel = useRunningLabel();
   const check = useCheckMark(checks === "collections" ? "collections" : undefined);
   const t = useT();
   const shown = checks ? check : null;
   const status = writes === "running" || shown === "running" ? "running" : (writes ?? shown);
   if (!status) return null;
   const busy = status === "running";
+  // 写操作和检查同时在走时先说写操作;只有检查时说检查更新。
+  const fromWrites = writes !== null;
+  const labels = !fromWrites ? [t.toolbar.check] : busy ? (runningLabel ? [runningLabel] : []) : (settled?.labels ?? []);
+  const text = !labels.length ? "" : busy ? t.common.doing(labels) : status === "failed" ? t.common.failedSome(labels) : t.common.finished(labels);
+  const tip = text || (busy ? t.common.working : status === "failed" ? t.common.failedAny : t.common.finishedAny);
   return (
-    <Spinner
-      status={status}
-      size={14}
-      title={busy ? t.common.working : undefined}
-      className={cn("text-muted-foreground", !busy && "animate-[fade-in_0.2s_ease-out_reverse_both]")}
+    <span
+      className={cn("busy-mark inline-flex min-w-0 items-center gap-1.5 text-caption font-normal text-muted-foreground", !busy && "animate-[fade-in_0.2s_ease-out_reverse_both]")}
       style={busy ? undefined : { animationDelay: `${SETTLED_HOLD - 200}ms` }}
-    />
+      title={tip}
+    >
+      <Spinner status={status} size={14} />
+      {text && <span className="busy-label max-w-60 truncate">{text}</span>}
+    </span>
   );
 }

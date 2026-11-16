@@ -49,7 +49,7 @@ import { memberRows, showResults, summarizeMembers, type ResultRow } from "@/com
 export async function installSkill(id: SkillID, scope: Scope) {
   const s = currentSnapshot();
   const t = messages().actions;
-  const plan = await ui.run(() => LibraryService.PlanInstall(id, scope), { reload: false });
+  const plan = await ui.read(() => LibraryService.PlanInstall(id, scope));
   if (!plan) return;
   const where = scopeLabel(s, scope);
   let overwrite = false;
@@ -228,7 +228,7 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
 // (切回前台的巡检还没跑完，或 Agent 在后台改了文件)。只换掉 filter 范围内的安装状态;读取失败时为 undefined,run 已提示原因。
 export async function inspectedSnapshot(filter: SkillScopeFilter): Promise<Snapshot | undefined> {
   const s = currentSnapshot();
-  const inspected = await ui.run(() => LibraryService.InspectSkillScopes(filter), { reload: false });
+  const inspected = await ui.read(() => LibraryService.InspectSkillScopes(filter));
   return inspected === undefined ? undefined : { ...s, skillScopes: inspected ?? [] };
 }
 
@@ -345,7 +345,7 @@ export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: st
 export async function installGroup(groupID: GroupID, scope: Scope) {
   const s = currentSnapshot();
   const t = messages().actions;
-  const plan = await ui.run(() => LibraryService.PlanGroupInstall(groupID, scope), { reload: false });
+  const plan = await ui.read(() => LibraryService.PlanGroupInstall(groupID, scope));
   if (!plan) return;
   const members = plan.members ?? [];
   const untracked = members.filter((m) => m.status === InstallPlanStatus.InstallUntracked);

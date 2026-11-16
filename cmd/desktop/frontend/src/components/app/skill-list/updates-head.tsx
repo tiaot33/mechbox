@@ -28,10 +28,10 @@ import { barClass, barRowClass } from "./heads";
 
 // UpdatesHead 是筛选"更新"时的更新列表：每个有要处理的更新的集合一行——来源版本从哪到哪、哪些技能有变化、风险提示。
 // 信得过的直接"更新"(按默认勾选),不放心的"查看"打开更新计划。集合里只有一个技能时直接显示技能名。
-// 风险(改动了脚本等)是用户审阅时最先要看的：用「注意」一级的标签紧跟在名字后面;读出风险的那一行，「更新」是普通的灰按钮，
-// 不比风险标签抢眼;没读出风险的才是绿胶囊。「全部更新」同理：要更新的来源里有一个读出了风险，它就是普通按钮。
-// 来源版本和哪些技能有变化写在第二行。
-// 更新会换哪些地方的说明在第一行按钮前的提示里;最后一行只在有两个以上能直接更新的集合时出现，放「全部更新」。
+// 按钮的主次固定，不随集合个数、风险读没读完而变：每一行的「更新」都是绿胶囊(列表里反复出现的主操作),「查看」是普通按钮;
+// 风险(改动了脚本等)用「注意」一级的标签紧跟在名字后面，读回来之前之后按钮都不变。
+// 最上面一行是整页的：几个来源有更新、对整页都成立的说明(悬停看)和「全部更新」(强调按钮，和下面各行的「更新」分开);
+// 没有能直接更新的集合时「全部更新」照样在、不能点，悬停说明为什么。来源版本和哪些技能有变化写在每个集合的第二行。
 // 更新会换掉用户修改的技能(Skill.edited)在更新计划里默认不勾：这一行写明;都是这种时没有能直接更新的，"更新…"只打开更新计划。
 export function UpdatesHead() {
   const s = useSnapshot();
@@ -42,7 +42,23 @@ export function UpdatesHead() {
   const direct = collections.filter((c) => collectionSkills(s, c).some((x) => pending(x) && updateAvailable(x) && !x.edited));
   return (
     <div className={cn(barClass, "px-3")}>
-      {collections.map((c, i) => {
+      <div className={cn(barRowClass, "updates-top")}>
+        <span className="flex min-w-0 items-center gap-1.5 text-body text-foreground-secondary">
+          <span className="truncate">{t.updatesFrom(collections.length)}</span>
+          <InfoTip tip={t.updatesFooter} />
+        </span>
+        <span className="grow" />
+        <Button
+          variant="accent"
+          className="update-all"
+          disabled={busy || !direct.length}
+          title={direct.length ? undefined : t.updateAllNone}
+          onClick={() => updateWithDefaults(direct.map((c) => c.id))}
+        >
+          {t.updateAll}
+        </Button>
+      </div>
+      {collections.map((c) => {
         const skills = collectionSkills(s, c);
         const single = skills.length === 1;
         const todo = skills.filter(pending);
@@ -61,7 +77,7 @@ export function UpdatesHead() {
           todo.some(deletedInSource) ? t.deletedSkills(names(todo.filter(deletedInSource))) : "",
         ].filter(Boolean);
         return (
-          <div key={c.id} className="update-row flex min-w-0 flex-col gap-0.5 border-b border-row-line pb-2">
+          <div key={c.id} className="update-row flex min-w-0 flex-col gap-0.5 border-t border-row-line pt-2">
             <div className={barRowClass}>
               {/* 名字不跟风险标签抢位置：它的宽度只看自己(最多占一半),风险读回来前后不变。 */}
               <b className="max-w-1/2 min-w-0 shrink-0 truncate font-semibold">{single ? skills[0].name : sourceLabel(s, c.source)}</b>
@@ -72,7 +88,6 @@ export function UpdatesHead() {
                 </Badge>
               )}
               <span className="grow" />
-              {i === 0 && <InfoTip tip={t.updatesFooter} />}
               {plain.length === 0 && edited.length > 0 ? (
                 <Button onClick={() => openUpdate(c.id)} title={t.updateEditedTitle}>
                   {t.updateEdited}
@@ -83,7 +98,7 @@ export function UpdatesHead() {
                 </Button>
               )}
               {plain.length > 0 && (
-                <Button variant={risk ? "default" : "pill"} className="update-direct" disabled={busy} onClick={() => updateWithDefaults([c.id])}>
+                <Button variant="pill" className="update-direct" disabled={busy} onClick={() => updateWithDefaults([c.id])}>
                   {t.update}
                 </Button>
               )}
@@ -94,14 +109,6 @@ export function UpdatesHead() {
           </div>
         );
       })}
-      {direct.length > 1 && (
-        <div className={barRowClass}>
-          <span className="grow" />
-          <Button variant={direct.some((c) => risks.get(c.id)) ? "default" : "pill"} disabled={busy} onClick={() => updateWithDefaults(direct.map((c) => c.id))}>
-            {t.updateAll}
-          </Button>
-        </div>
-      )}
     </div>
   );
 }

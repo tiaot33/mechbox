@@ -1,8 +1,9 @@
 // 更新计划：对一个集合发起，先看清改了什么，再一次确认同时完成更新和重新安装(issue #131,流程见 update.tsx)。
-// 从上到下：来源版本从哪到哪、风险(新增或改动的脚本、新增的可执行文件)、GitHub 的提交说明、技能(有变化 / 改名 / 删除 / 没变化)
-// 与文件差异、来源里的新技能、装出去的地方。可以跳过单个技能的这次改动，也可以跳过整个来源版本。
-// 从技能发起时只勾这一个，其余有变化的折叠;改名和删除照样显示，新技能不提。
-import { useEffect, useState } from "react";
+// 顶上写来源版本从哪到哪;下面左右两栏，各自滚动：左边是技能(有变化 / 改名 / 删除 / 没变化)、来源里的新技能和装出去的地方，
+// 右边先是风险(新增或改动的脚本、新增的可执行文件)、GitHub 的提交说明，点了「看差异」的技能的文件差异接在后面。
+// 看差异时左边的技能和要换的地方不动，不用来回滚动。弹窗大小固定，读取中和读完一样大。
+// 可以跳过单个技能的这次改动，也可以跳过整个来源版本。从技能发起时只勾这一个，其余有变化的折叠;改名和删除照样显示，新技能不提。
+import { useEffect, useRef, useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
   PlannedChange,
@@ -19,6 +20,7 @@ import { useT } from "@/lib/i18n";
 import { useSnapshot, type LibraryError } from "@/lib/library";
 import { collectionName, folderKey, revisionSummary, revisionText, shortRevision, sourceLabel } from "@/lib/model";
 import { Modal, useBusy, useUI } from "@/lib/ui";
+import { MarkIcon } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
@@ -43,7 +45,9 @@ function usePlan(collectionID: CollectionID, onLoaded: (plan: UpdatePlan) => voi
     setPlan(null);
     setFailed(null);
     const call = LibraryService.PlanUpdate(collectionID);
+    // 读取的进度画在弹窗里，顶栏的状态圈不跟着转。
     void ui.run(() => call, {
+      busyMark: false,
       onError: (err) => {
         if (!cancelled) setFailed(err);
         return true;
@@ -89,6 +93,17 @@ export function UpdateDialog({
   const [removed, setRemoved] = useState<Set<SkillID>>(new Set());
   const [conflict, setConflict] = useState(false);
   const [working, setWorking] = useState(false);
+  // 换了要看差异的技能时，差异的开头落在右栏看不见的地方(提交说明很长)才把右栏滚过去;看得见时不动，风险和提交说明留在上面。
+  // 只滚右栏自己(不用 scrollIntoView:它会连带滚动外面不该动的几层)。
+  const right = useRef<HTMLDivElement>(null);
+  const diffAt = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const pane = right.current;
+    const at = diffAt.current;
+    if (!viewing || !pane || !at) return;
+    const offset = at.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+    if (offset < 0 || offset > pane.clientHeight - 160) pane.scrollTo({ top: pane.scrollTop + offset - 4, behavior: "smooth" });
+  }, [viewing?.id]);
 
   const { plan, failed, replan, patch } = usePlan(collectionID, (p) => {
     setChecked(defaultSkills(p, focus ? [focus] : select));
@@ -98,7 +113,7 @@ export function UpdateDialog({
 
   if (!plan) {
     return (
-      <Modal title={t.title(label)} wide onClose={onClose}>
+      <Modal title={t.title(label)} large onClose={onClose}>
         {failed ? (
           <>
             <Notice alert className="whitespace-pre-line">
@@ -111,7 +126,7 @@ export function UpdateDialog({
             </div>
           </>
         ) : (
-          <Hint className="flex items-center gap-1.5">
+          <Hint className="flex grow basis-0 items-center justify-center gap-1.5">
             <Spinner /> {t.reading}
           </Hint>
         )}
@@ -163,6 +178,7 @@ export function UpdateDialog({
     const req = ids ? { plan: plan.id, skills: ids } : { plan: plan.id, whole_revision: true };
     const done = await ui.run(() => LibraryService.SkipUpdate(req).then(() => true), {
       success: ids ? t.skippedSkills(ids.map(name)) : t.skippedRevision(label),
+      label: ids ? t.skipLabel(ids.map(name)) : t.skipRevisionLabel(label),
       onError: onStale,
     });
     if (!done) return;
@@ -174,6 +190,7 @@ export function UpdateDialog({
   const reject = async (p: PlannedSkill) => {
     const done = await ui.run(() => LibraryService.RejectRename(plan.id, p.skill.id).then(() => true), {
       success: t.rejected(p.skill.name, p.renamed_to),
+      label: t.rejectLabel(p.skill.name),
       onError: onStale,
     });
     if (!done) return;
@@ -197,7 +214,7 @@ export function UpdateDialog({
   return (
     <Modal
       title={t.title(label)}
-      wide
+      large
       onClose={onClose}
       footer={
         <>
@@ -225,82 +242,92 @@ export function UpdateDialog({
         {to && t.latest(to)}
       </Hint>
 
-      {movable.length > 0 && <Risks risks={risks} onView={view} />}
+      <div className="update-panes flex min-h-0 grow basis-0 gap-4">
+        {/* 左栏：要勾的技能和要换的地方。 */}
+        <div className="update-left -mx-1 flex w-[400px] shrink-0 flex-col gap-2.5 overflow-y-auto px-1 pb-1 *:shrink-0">
+          <div className={sectionClass}>{t.skills}</div>
+          <ListBox>
+            {shown.map((p) => (
+              <ChangedRow
+                key={p.skill.id}
+                p={p}
+                checked={checked.has(p.skill.id)}
+                viewed={viewing?.id === p.skill.id}
+                locked={locked}
+                onCheck={(on) => check(p.skill.id, on)}
+                onView={() => view(p)}
+                onSkip={() => skip([p.skill.id])}
+              />
+            ))}
+            {folded.length > 0 && (
+              <ListRow compact>
+                <span className="grow text-muted-foreground">{t.folded(folded.map((p) => p.skill.name))}</span>
+                <Button variant="ghost" size="inline" onClick={() => setExpanded(true)}>
+                  {t.expand}
+                </Button>
+              </ListRow>
+            )}
+            {renamed.map((p) => (
+              <RenameRow
+                key={p.skill.id}
+                p={p}
+                yes={checked.has(p.skill.id)}
+                viewed={viewing?.id === p.skill.id}
+                locked={locked}
+                onCheck={(on) => check(p.skill.id, on)}
+                onReject={() => reject(p)}
+                onView={() => view(p)}
+                onSkip={() => skip([p.skill.id])}
+              />
+            ))}
+            {deleted.map((p) => (
+              <DeletedRow
+                key={p.skill.id}
+                p={p}
+                source={sourceLabel(s, plan.source)}
+                locked={locked}
+                onRemoved={() => setRemoved((set) => new Set(set).add(p.skill.id))}
+              />
+            ))}
+            {unchanged.length > 0 && (
+              <ListRow compact className="text-muted-foreground">
+                {t.unchanged(unchanged.map((p) => p.skill.name))}
+              </ListRow>
+            )}
+            {skills.length === 0 && <ListRow className="text-muted-foreground">{t.empty}</ListRow>}
+          </ListBox>
+          {/* 不在同一个来源版本上只是一个后果，不是风险：用提示一级的小字，不和脚本风险同级。 */}
+          {splitting && (
+            <Hint className="update-splitting flex items-start gap-1.5">
+              <MarkIcon tone="info" className="mt-[3px]" />
+              <span>{t.splitting(checked.size <= 3 ? [...checked].map(name) : checked.size, label)}</span>
+            </Hint>
+          )}
 
-      {(plan.commits?.length ?? 0) > 0 && <Commits plan={plan} />}
+          {!focus && <NewSkills collectionID={collectionID} source={sourceLabel(s, plan.source)} locked={locked} />}
 
-      <div className={sectionClass}>{t.skills}</div>
-      <ListBox>
-        {shown.map((p) => (
-          <ChangedRow
-            key={p.skill.id}
-            p={p}
-            checked={checked.has(p.skill.id)}
-            viewed={viewing?.id === p.skill.id}
-            locked={locked}
-            onCheck={(on) => check(p.skill.id, on)}
-            onView={() => view(p)}
-            onSkip={() => skip([p.skill.id])}
-          />
-        ))}
-        {folded.length > 0 && (
-          <ListRow compact>
-            <span className="grow text-muted-foreground">
-              {t.folded(folded.map((p) => p.skill.name))}
-            </span>
-            <Button variant="ghost" size="inline" onClick={() => setExpanded(true)}>
-              {t.expand}
-            </Button>
-          </ListRow>
-        )}
-        {renamed.map((p) => (
-          <RenameRow
-            key={p.skill.id}
-            p={p}
-            yes={checked.has(p.skill.id)}
-            viewed={viewing?.id === p.skill.id}
-            locked={locked}
-            onCheck={(on) => check(p.skill.id, on)}
-            onReject={() => reject(p)}
-            onView={() => view(p)}
-            onSkip={() => skip([p.skill.id])}
-          />
-        ))}
-        {deleted.map((p) => (
-          <DeletedRow
-            key={p.skill.id}
-            p={p}
-            source={sourceLabel(s, plan.source)}
-            locked={locked}
-            onRemoved={() => setRemoved((set) => new Set(set).add(p.skill.id))}
-          />
-        ))}
-        {unchanged.length > 0 && (
-          <ListRow compact className="text-muted-foreground">
-            {t.unchanged(unchanged.map((p) => p.skill.name))}
-          </ListRow>
-        )}
-        {skills.length === 0 && <ListRow className="text-muted-foreground">{t.empty}</ListRow>}
-      </ListBox>
-      {splitting && (
-        <Notice alert>
-          {t.splitting(checked.size <= 3 ? [...checked].map(name) : checked.size, label)}
-        </Notice>
-      )}
+          {checked.size > 0 && (
+            <>
+              <div className={sectionClass}>{t.places}</div>
+              <Places places={places} name={name} on={installOn} onToggle={(p) => setInstallChoice((m) => new Map(m).set(folderKey(p), !installOn(p)))} />
+              <Hint>{t.uncheckedNote}</Hint>
+            </>
+          )}
+        </div>
 
-      {viewItem && viewing && (
-        <SkillDiff plan={plan} item={viewItem} path={viewing.path} onPath={(path) => setViewing({ id: viewing.id, path })} onError={onStale} />
-      )}
-
-      {!focus && <NewSkills collectionID={collectionID} source={sourceLabel(s, plan.source)} locked={locked} />}
-
-      {checked.size > 0 && (
-        <>
-          <div className={sectionClass}>{t.places}</div>
-          <Places places={places} name={name} on={installOn} onToggle={(p) => setInstallChoice((m) => new Map(m).set(folderKey(p), !installOn(p)))} />
-          <Hint>{t.uncheckedNote}</Hint>
-        </>
-      )}
+        {/* 右栏：先看风险和作者的意图，再看文件差异。 */}
+        <div ref={right} className="update-right -mx-1 flex min-w-0 grow flex-col gap-2.5 overflow-y-auto px-1 pb-1 *:shrink-0">
+          {movable.length > 0 && <Risks risks={risks} onView={view} />}
+          {(plan.commits?.length ?? 0) > 0 && <Commits plan={plan} />}
+          <div ref={diffAt}>
+            {viewItem && viewing ? (
+              <SkillDiff plan={plan} item={viewItem} path={viewing.path} onPath={(path) => setViewing({ id: viewing.id, path })} onError={onStale} />
+            ) : (
+              movable.length > 0 && <Hint className="update-diff-empty">{t.diffHere}</Hint>
+            )}
+          </div>
+        </div>
+      </div>
     </Modal>
   );
 }

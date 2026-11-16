@@ -36,7 +36,7 @@ import { centerClass } from "@/components/app/layout";
 import { PlaceAgentMark } from "@/components/app/parts";
 import { ProjectSummary, ScopeSummary } from "./heads";
 import { PickBar } from "./pick-bar";
-import { nameIndent, nameIndentVars, pickColumn, SkillRow, UnmanagedRow } from "./rows";
+import { nameIndent, nameIndentVars, pickColumn, SkillRow, UnmanagedRow, UpdateSkillRow } from "./rows";
 import { CollectionSection, GroupSection, PlainHead, Section, SkillRows } from "./sections";
 import { UpdatesHead } from "./updates-head";
 import { flash } from "./flash";
@@ -188,7 +188,6 @@ function SkillSectionView({ section, scope, notHere = false }: { section: SkillS
       key={skill.id}
       skill={skill}
       scope={scope}
-      pickable
       showSource={section.kind !== "collection"}
       hideGroup={section.kind === "group" ? section.id : undefined}
     />
@@ -252,7 +251,7 @@ function Updates({ skills }: { skills: Extract<PageListing, { kind: "updates" }>
       {updatableCollections(s).length > 0 && <UpdatesHead />}
       <Section id="updates" className="mt-4" gutter={false} head={<PlainHead name={t.updatesSkills} count={skills.length} />}>
         {skills.map((skill) => (
-          <SkillRow key={skill.id} skill={skill} showSource />
+          <UpdateSkillRow key={skill.id} skill={skill} />
         ))}
         {skills.length === 0 && <EmptyRows aligned={false}>{t.noMatch}</EmptyRows>}
       </Section>
@@ -324,7 +323,7 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
               head={<PlainHead name={t.sectionGlobal} count={global} title={t.sectionGlobalTitle} />}
             >
               {l.global.map((skill) => (
-                <SkillRow key={skill.id} skill={skill} scope={scope} fromGlobal pickable showSource />
+                <SkillRow key={skill.id} skill={skill} scope={scope} fromGlobal showSource />
               ))}
               {l.globalUnmanaged.map((u) => (
                 <UnmanagedRow key={u.folder} skill={u} fromGlobal />
@@ -401,7 +400,7 @@ function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: 
           }
         >
           {a.skills.map((skill) => (
-            <SkillRow key={skill.id} skill={skill} scope={a.scope} pickable showSource />
+            <SkillRow key={skill.id} skill={skill} scope={a.scope} showSource />
           ))}
           {a.unmanaged.map((u) => (
             <UnmanagedRow key={u.folder} skill={u} />

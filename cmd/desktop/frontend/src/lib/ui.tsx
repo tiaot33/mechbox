@@ -54,9 +54,17 @@ export interface RunOptions<T> {
   onError?: (err: LibraryError) => boolean;
   // failed 返回 true 表示调用成功了但有逐项失败(结果里列出没完成的),顶栏的状态圈画叉而不是对勾。
   failed?: (value: T) => boolean;
+  // canceled 返回 true 表示这件事没做成、也不算失败(用户在中途的确认里点了取消、没有可做的、转去更新计划由用户拿主意):
+  // 和被取消的调用一样，顶栏不画对勾，也不写它完成了。
+  canceled?: (value: T) => boolean;
   // busyMark 为 false 时顶栏的状态圈(BusyMark)不跟着转，也不画对勾或叉;仍算忙碌。默认 true。
-  // 只给自己在发起处画进度的流程用(如检查更新画在顶栏按钮或左栏集合行上),发起处可能看不见时由那个流程自己补上顶栏的进度。
+  // 给自己在发起处画进度的流程用(如检查更新画在顶栏按钮或左栏集合行上),发起处可能看不见时由那个流程自己补上顶栏的进度。
+  // 只读的调用用 ui.read,不在这里写。
   busyMark?: boolean;
+  // label 是这次在做什么(如「更新 matt/skills」「回滚 pdf 的更新」),顶栏的状态圈旁边写出来，结束后写它完成了没有;
+  // 不给时状态圈旁边不写字，只在悬停时说「正在处理」。
+  // 套在一件给了 label 的事里面的步骤(如更新流程里的 PlanUpdate、Update)不另写，做完了算不算完成由外面那件事定，失败照样算失败。
+  label?: string;
 }
 
 // ToastAction 是 toast 上的一个按钮(如更新完成后的"回滚");带按钮的 toast 停留得久一些。
@@ -77,6 +85,9 @@ interface UIService {
   confirm: (opts: ConfirmOptions) => Promise<string | undefined>;
   prompt: (opts: PromptOptions) => Promise<string | undefined>;
   run: <T>(task: () => Promise<T>, opts?: RunOptions<T>) => Promise<T | undefined>;
+  // read 是只读的调用(生成计划、巡检、读历史、预览、搜索、在文件管理器中显示):和 run 一样提示错误、算忙碌，
+  // 但不重读界面、顶栏的状态圈不转，也不画对勾。
+  read: <T>(task: () => Promise<T>, opts?: Pick<RunOptions<T>, "onError">) => Promise<T | undefined>;
   // reload 重读界面上的数据：不经 run 的只读调用也会写库(如生成更新计划时写下的检查结论),之后由调用方让界面跟上。
   reload: () => void;
 }
@@ -94,22 +105,32 @@ interface DialogEntry {
   motion: DialogMotion;
 }
 
+// LabeledSettled 是写操作这一轮全部结束时的结果,labels 是这一轮做了的几件事(给了 label 的),顶栏状态圈旁边写出来。
+export interface LabeledSettled extends Settled {
+  labels: string[];
+}
+
 // 弹窗栈、toast 与进行中的写操作数放在 store 里，组件外的写操作流程也能打开弹窗、弹 toast;UIHost 把它们画出来。
-// marked 是其中顶栏状态圈要跟着转的写操作数(不含 busyMark 为 false 的)。settled 是这些写操作全部结束时的结果(有失败的就是 failed),
-// 顶栏的状态圈据此画对勾或叉;这一轮只有被取消的写操作时不更新。finished、failed 记着这一轮里有没有没被取消的、有没有失败的。
+// marked 是其中顶栏状态圈要跟着转的写操作数(不含 busyMark 为 false 的),running 是它们里给了 label 的那一件(做着一件时开始的不算)。
+// settled 是这些写操作全部结束时的结果(有失败的就是 failed),顶栏的状态圈据此画对勾或叉、写出这一轮做了什么;
+// 这一轮只有被取消的写操作时不更新。finished、failed、round 记着这一轮里有没有做成或失败的、有没有失败的、做成了哪几件事。
 const useUIStore = create<{
   dialogs: DialogEntry[];
   toast: ToastState | null;
   pending: number;
   marked: number;
+  running: { id: number; label: string }[];
+  round: string[];
   finished: boolean;
   failed: boolean;
-  settled: Settled | null;
+  settled: LabeledSettled | null;
 }>()(() => ({
   dialogs: [],
   toast: null,
   pending: 0,
   marked: 0,
+  running: [],
+  round: [],
   finished: false,
   failed: false,
   settled: null,
@@ -119,6 +140,7 @@ const set = useUIStore.setState;
 let nextToastID = 1;
 let nextDialogID = 1;
 let nextSettledID = 1;
+let nextRunID = 1;
 
 function toast(message: string, tone: "ok" | "error" = "ok", action?: ToastAction) {
   set({ toast: { id: nextToastID++, message, tone, action } });
@@ -150,11 +172,20 @@ function open<T>(render: (close: (value?: T) => void) => ReactNode, opts: OpenOp
 
 async function run<T>(task: () => Promise<T>, opts: RunOptions<T> = {}): Promise<T | undefined> {
   const mark = opts.busyMark !== false;
-  set((s) => ({ pending: s.pending + 1, marked: s.marked + (mark ? 1 : 0) }));
+  const id = nextRunID++;
+  const label = mark ? opts.label : undefined;
+  set((s) => ({
+    pending: s.pending + 1,
+    marked: s.marked + (mark ? 1 : 0),
+    // 已经有在做的事时，里面的步骤(如更新流程里的那次 Update)不另写：状态圈旁边只说外面那件事。
+    ...(label && !s.running.length && { running: [{ id, label }] }),
+  }));
+  const inner = mark && useUIStore.getState().running.some((r) => r.id !== id);
   let outcome: "done" | "failed" | "canceled" = "done";
   try {
     const value = await task();
     if (opts.failed?.(value)) outcome = "failed";
+    else if (opts.canceled?.(value)) outcome = "canceled";
     const message = typeof opts.success === "function" ? opts.success(value) : opts.success;
     if (message) toast(message);
     return value;
@@ -172,10 +203,21 @@ async function run<T>(task: () => Promise<T>, opts: RunOptions<T> = {}): Promise
       const pending = s.pending - 1;
       if (!mark) return { pending };
       const marked = s.marked - 1;
-      const finished = s.finished || outcome !== "canceled";
+      const own = s.running.some((r) => r.id === id);
+      const running = s.running.filter((r) => r.id !== id);
+      const finished = s.finished || outcome === "failed" || (outcome === "done" && !inner);
       const failed = s.failed || outcome === "failed";
-      if (marked > 0) return { pending, marked, finished, failed };
-      return { pending, marked, finished: false, failed: false, ...(finished && { settled: { id: nextSettledID++, failed, at: Date.now() } }) };
+      const round = own && outcome !== "canceled" && label && !s.round.includes(label) ? [...s.round, label] : s.round;
+      if (marked > 0) return { pending, marked, running, round, finished, failed };
+      return {
+        pending,
+        marked,
+        running,
+        round: [],
+        finished: false,
+        failed: false,
+        ...(finished && { settled: { id: nextSettledID++, failed, at: Date.now(), labels: round } }),
+      };
     });
     // 失败也重读：部分成功(如组安装里跳过的成员)或状态已被别处改变时，界面要跟上。
     if (opts.reload !== false) void reloadLibrary();
@@ -189,6 +231,7 @@ export const ui: UIService = {
   confirm: (opts) => open<string>((close) => <ConfirmDialog opts={opts} close={close} />),
   prompt: (opts) => open<string>((close) => <PromptDialog opts={opts} close={close} />),
   run,
+  read: (task, opts) => run(task, { ...opts, reload: false, busyMark: false }),
   reload: () => void reloadLibrary(),
 };
 
@@ -206,9 +249,14 @@ export function useBusyMarkRunning(): boolean {
   return useUIStore((s) => s.marked > 0);
 }
 
-// useSettled 是顶栏状态圈跟着转的写操作(busyMark 不为 false 的)最近一次全部结束时的结果。
-export function useSettled(): Settled | null {
+// useSettled 是顶栏状态圈跟着转的写操作(busyMark 不为 false 的)最近一次全部结束时的结果，带这一轮做了哪几件事。
+export function useSettled(): LabeledSettled | null {
   return useUIStore((s) => s.settled);
+}
+
+// useRunningLabel 是顶栏状态圈旁边写的、正在做的事;没给 label 时为空。
+export function useRunningLabel(): string {
+  return useUIStore((s) => s.running[0]?.label ?? "");
 }
 
 // UIHost 画出打开着的弹窗与 toast,放在主界面最外层。
@@ -240,11 +288,13 @@ export function UIHost() {
 
 // Modal 是弹窗外壳：标题、关闭按钮、可滚动的主体与底部按钮行;点遮罩或按 Esc 关闭，叠了几层时只关最上面一层。
 // full 的弹窗铺满窗口，主体不滚动，由里面的内容自己分配高度、各自滚动;四周和里面几块之间只留很窄的边;leading 放在标题前面(如比较弹窗收起文件列表的按钮)。
+// large 的弹窗大小固定(宽 1040px、高度用满),主体同样不滚动，给左右分栏、各栏自己滚动的内容用(更新计划):读取中和读完一样大，不跳。
 export function Modal({
   title,
   leading,
   onClose,
   wide,
+  large,
   full,
   footer,
   children,
@@ -253,6 +303,7 @@ export function Modal({
   leading?: ReactNode;
   onClose: () => void;
   wide?: boolean;
+  large?: boolean;
   full?: boolean;
   footer?: ReactNode;
   children: ReactNode;
@@ -260,7 +311,7 @@ export function Modal({
   const t = useT();
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent wide={wide} full={full}>
+      <DialogContent wide={wide} large={large} full={full}>
         <DialogHeader className={cn(full && "px-3 pt-2 pb-1.5")}>
           {leading}
           <DialogTitle>{title}</DialogTitle>
@@ -270,7 +321,7 @@ export function Modal({
             </Button>
           </DialogClose>
         </DialogHeader>
-        <DialogBody className={cn(full && "grow gap-1.5 overflow-hidden px-1.5 pt-0 pb-1.5")}>{children}</DialogBody>
+        <DialogBody className={cn(full && "grow gap-1.5 overflow-hidden px-1.5 pt-0 pb-1.5", large && "grow overflow-hidden")}>{children}</DialogBody>
         {footer && <DialogFooter>{footer}</DialogFooter>}
       </DialogContent>
     </Dialog>
