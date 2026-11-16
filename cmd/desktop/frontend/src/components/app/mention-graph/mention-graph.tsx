@@ -21,13 +21,13 @@ import { labelled, layoutKey, mentionGraph, mentionSnippet, neighbours, searchHi
 import { focusLayout, forceLayout, radius, type Positions, type XY } from "@/lib/graph-layout";
 import { matches, type GraphSet } from "@/lib/model";
 import { cn } from "@/lib/utils";
-import { toggleDrawer, closeDrawer, openSettings, useView } from "@/lib/view";
+import { toggleDrawer, closeDrawer, useView } from "@/lib/view";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import { Icon } from "@/components/ui/icon";
 import { SearchLine } from "@/components/app/skill-list/search-line";
 import { Tipped } from "@/components/app/parts";
-import { useJudgeMentions, type Judging } from "@/features/graph/judge";
+import { useJudgeMentions } from "@/features/graph/judge";
+import { JudgeLine } from "@/features/graph/judge-line";
 
 // MentionGraphPage 是关系图页的内容：members 是这个集合或组里的技能。
 export function MentionGraphPage({ set, members }: { set: GraphSet; members: SkillID[] }) {
@@ -67,7 +67,7 @@ function Loaded({ members, mentions, unjudged, filter, group }: { members: Skill
         <Tipped tip={t.hint} className="shrink-0 text-foreground-secondary">
           {t.summary(members.length, graph.edges.length, outside, group)}
         </Tipped>
-        <JudgeLine judging={judging} unjudged={unjudged} retry={retry} />
+        <JudgeLine judging={judging} unjudged={unjudged} retry={retry} t={t} />
       </div>
       {graph.nodes.length ? (
         <Canvas graph={graph} />
@@ -84,54 +84,6 @@ function Loaded({ members, mentions, unjudged, filter, group }: { members: Skill
         </div>
       )}
       {graph.loose.length > 0 && <Loose skills={graph.loose} />}
-    </div>
-  );
-}
-
-// JudgeLine 是单个词的技能名交给 AI 判断的状态：判断中写出还有几处;没配 AI 时提示去设置;
-// 只因自己没判断成的技能写出原因;整体失败时写出原因，要改 AI 设置的给「去设置」，过一会儿可能就好的给「重试」。都没有时不占位置。
-function JudgeLine({ judging, unjudged, retry }: { judging: Judging; unjudged: number; retry: () => void }) {
-  const s = useSnapshot();
-  const t = useT().graph;
-  let text: string;
-  let reason: string | undefined;
-  let action: { label: string; run: () => void; away?: boolean } | undefined;
-  switch (judging.state) {
-    case "judging":
-      [text, reason] = [t.judgingShort(judging.count), t.judging(judging.count)];
-      break;
-    case "unconfigured":
-      [text, reason, action] = [t.unjudgedShort(judging.count), t.unjudged(judging.count), { label: t.setUpAI, run: () => openSettings("ai"), away: true }];
-      break;
-    case "stopped":
-      [text, reason] = [t.judgeStoppedShort(unjudged), [judging.fix === "settings" ? t.judgeNeedsSettings(unjudged) : t.judgeStopped(unjudged), judging.reason].filter(Boolean).join("\n")];
-      action = judging.fix === "settings" ? { label: t.setUpAI, run: () => openSettings("ai"), away: true } : { label: t.retry, run: retry };
-      break;
-    case "done": {
-      if (!judging.failed?.length) return null;
-      const names = judging.failed.map((f) => s.skills.find((x) => x.id === f.skill_id)?.name ?? `#${f.skill_id}`);
-      [text, reason] = [t.judgeSkippedShort(names.length), [t.judgeSkipped(names), judging.reason].filter(Boolean).join("\n")];
-      break;
-    }
-    default:
-      return null;
-  }
-  const warn = judging.state === "stopped" || judging.state === "done";
-  // 一行写完：短句在前，原因和细节在悬停提示里。
-  return (
-    <div
-      className={cn("graph-judge flex min-w-0 items-center gap-2 text-caption", warn ? "text-foreground" : "text-muted-foreground")}
-      data-state={judging.state}
-    >
-      {judging.state === "judging" && <Spinner />}
-      <Tipped tip={reason && <span className="whitespace-pre-line select-text">{reason}</span>} className="min-w-0">
-        <span className="min-w-0 truncate">{text}</span>
-      </Tipped>
-      {action && (
-        <Button variant={action.away ? "link" : "ghost"} size="inline" className="graph-judge-action shrink-0 text-caption" onClick={action.run}>
-          {action.label}
-        </Button>
-      )}
     </div>
   );
 }

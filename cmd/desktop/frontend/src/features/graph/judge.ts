@@ -1,11 +1,11 @@
-// 判断关系图里单个词的技能名：打开某个集合或组的关系图时，把还没判断的几处交给技能库用 AI 判断(不在后台判断全库)。
-// 结论由技能库按技能版本存进数据库，判断完重读关系图，补上判断为提到的线、重新排一次。
+// 判断单个词的技能名：打开某个集合或组的关系图、打开技能详情时，把还没判断的几处交给技能库用 AI 判断(不在后台判断全库)。
+// 结论由技能库按技能版本存进数据库，判断完重读：关系图补上判断为提到的线、重新排一次，技能详情补上提到关系，作用域页的提醒也跟着变。
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LibraryService } from "@bindings/cmd/desktop";
-import { ErrorCode, type JudgeMentionsResult, type MentionsFilter } from "@bindings/internal/library";
+import { ErrorCode, type JudgeMentionsResult, type MentionsFilter, type SkillID } from "@bindings/internal/library";
 import { aiError, describeError } from "@/lib/errors";
-import { aiSettingsQuery, queryClient, toLibraryError } from "@/lib/library";
+import { aiSettingsQuery, reloadLibrary, toLibraryError } from "@/lib/library";
 
 // Outcome 是一次判断的结果：done 判断完了，failed 是只因自己没判断成、跳过的技能;
 // stopped 是整体失败停下了，fix 说怎样再判断：settings 要先改 AI 设置(Key 被拒、找不到模型等),retry 过一会儿重试就可能好(连不上、超时、限流等)。
@@ -19,27 +19,32 @@ export type Judging = { state: "none" } | { state: "unconfigured"; count: number
 // 要改 AI 设置才会好的错误;其余(连不上、超时、限流、数据库被拉回换掉等)过一会儿重试。
 const needsSettings = new Set<string>([ErrorCode.Permission, ErrorCode.NotFound, ErrorCode.NotConfigured, ErrorCode.InvalidArgument]);
 
-// running 记下正在判断的集合或组：关系图关上又打开时接着等同一次判断，不重复发请求。
+// running 记下正在判断的集合、组或技能：关系图、技能详情关上又打开时接着等同一次判断，不重复发请求。
 const running = new Map<string, Promise<Outcome>>();
 
-async function judge(filter: MentionsFilter): Promise<Outcome> {
+async function judge(call: () => Promise<JudgeMentionsResult>): Promise<Outcome> {
   try {
-    const result = await LibraryService.JudgeMentions(filter);
+    const result = await call();
     const first = result.failed?.[0]?.error;
     return { state: "done", failed: result.failed, reason: first && (aiError(first) ?? describeError(first)) };
   } catch (e) {
     const err = toLibraryError(e);
     return { state: "stopped", reason: aiError(err) ?? describeError(err), fix: needsSettings.has(err.code) ? "settings" : "retry" };
   } finally {
-    // 判断过的已存下(整体失败时也保留已判断的),所有关系图都重读一次。
-    await queryClient.invalidateQueries({ queryKey: ["mentions"] });
+    // 判断过的已存下(整体失败时也保留已判断的),关系图、技能详情与快照里找不到的被提到技能都重读一次。
+    await reloadLibrary();
   }
 }
 
-// useJudgeMentions 挂在关系图页上：填了 AI 模型、还有没判断的几处时判断一次;这次打开里不自动再试，
-// 只因自己没判断成的技能留到下次打开关系图，整体失败时按 fix 去设置或调 retry 重试。没填模型时不判断，返回 unconfigured。
-export function useJudgeMentions(filter: MentionsFilter, unjudged: number): { judging: Judging; retry: () => void } {
-  const key = JSON.stringify(filter);
+// useJudgeMentions 挂在关系图页上，判断这个集合或组里的;useJudgeSkillMentions 挂在技能详情上，判断和这个技能有关的。
+export const useJudgeMentions = (filter: MentionsFilter, unjudged: number) =>
+  useJudge(JSON.stringify(filter), () => LibraryService.JudgeMentions(filter), unjudged);
+
+export const useJudgeSkillMentions = (id: SkillID, unjudged: number) => useJudge(`skill:${id}`, () => LibraryService.JudgeSkillMentions(id), unjudged);
+
+// useJudge:填了 AI 模型、还有没判断的几处时判断一次;这次打开里不自动再试，
+// 只因自己没判断成的技能留到下次打开，整体失败时按 fix 去设置或调 retry 重试。没填模型时不判断，返回 unconfigured。
+function useJudge(key: string, call: () => Promise<JudgeMentionsResult>, unjudged: number): { judging: Judging; retry: () => void } {
   const ai = useQuery(aiSettingsQuery);
   const model = !!ai.data?.model;
   // outcome 是这一轮判断的结果，开始一轮时清掉;attempt 每重试一次加 1。
@@ -51,7 +56,7 @@ export function useJudgeMentions(filter: MentionsFilter, unjudged: number): { ju
     setOutcome(null);
     let run = running.get(key);
     if (!run) {
-      run = judge(filter).finally(() => running.delete(key));
+      run = judge(call).finally(() => running.delete(key));
       running.set(key, run);
     }
     void run.then((result) => live && setOutcome(result));

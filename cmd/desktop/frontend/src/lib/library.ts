@@ -20,6 +20,7 @@ import {
   type SkillID,
   type UnmanagedSkill,
   type MentionsFilter,
+  type MissingMention,
   type UpdateHistoryFilter,
   type VersionID,
 } from "@bindings/internal/library";
@@ -56,6 +57,8 @@ export interface Snapshot {
   skillScopes: SkillScopeInspection[];
   unmanaged: UnmanagedSkill[];
   sameName: SameNameSkill[];
+  // missingMentions 是装在各作用域的技能提到了、Agent 在那里却找不到的技能(作用域页的提醒、技能详情的「提到了」用它)。
+  missingMentions: MissingMention[];
 }
 
 // ---------- 查询缓存 ----------
@@ -111,7 +114,7 @@ function list<T>(call: Promise<T[] | null>): Promise<T[]> {
 // ---------- 快照 ----------
 
 async function readSnapshot(signal: AbortSignal): Promise<Snapshot> {
-  const [info, agents, projects, skills, collections, groups, groupInstalls, skillScopes, unmanaged, sameName, settings] = await Promise.all([
+  const [info, agents, projects, skills, collections, groups, groupInstalls, skillScopes, unmanaged, sameName, missingMentions, settings] = await Promise.all([
     wails(signal, LibraryService.Info()),
     list(wails(signal, LibraryService.ListAgents())),
     list(wails(signal, LibraryService.ListRegisteredProjects())),
@@ -122,6 +125,7 @@ async function readSnapshot(signal: AbortSignal): Promise<Snapshot> {
     list(wails(signal, LibraryService.InspectSkillScopes({}))),
     list(wails(signal, LibraryService.ListUnmanagedSkills())),
     list(wails(signal, LibraryService.ListSameNameSkills())),
+    list(wails(signal, LibraryService.ListMissingMentions({}))),
     wails(signal, AppService.Settings()),
   ]);
   findSources(unmanaged);
@@ -141,6 +145,7 @@ async function readSnapshot(signal: AbortSignal): Promise<Snapshot> {
     skillScopes,
     unmanaged,
     sameName,
+    missingMentions,
   };
 }
 
@@ -297,6 +302,20 @@ export const mentionsQuery = (filter: MentionsFilter) =>
     queryKey: ["mentions", filter],
     queryFn: ({ signal }) =>
       wails(signal, LibraryService.ListMentions(filter)).then((result) => ({ mentions: result.mentions ?? [], unjudged: result.unjudged })),
+    meta: ids,
+  });
+
+// skillMentionsQuery 是技能详情里这个技能提到了谁、被谁提到，以及还有几处单个词的技能名没交给 AI 判断;
+// 随写操作重读，AI 判断完也重读。
+export const skillMentionsQuery = (id: SkillID) =>
+  queryOptions({
+    queryKey: ["skill-mentions", id],
+    queryFn: ({ signal }) =>
+      wails(signal, LibraryService.GetSkillMentions(id)).then((result) => ({
+        mentions: result.mentions ?? [],
+        mentionedBy: result.mentioned_by ?? [],
+        unjudged: result.unjudged,
+      })),
     meta: ids,
   });
 

@@ -112,7 +112,12 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
   for (const c of candidates) groups.set(parentDir(c.path), [...(groups.get(parentDir(c.path)) ?? []), c]);
   const grouped = groups.size > 1;
 
+  // 勾上的候选提到了同一份预览里没勾、也还没入库的候选：行里给一个按钮把它们一起勾上(技能库只按 SKILL.md、按规则认出)。
+  const unpickedMentions = (c: Candidate) =>
+    selected.has(c.name) ? (c.mentions ?? []).filter((name) => !selected.has(name) && fresh.some((x) => x.name === name)) : [];
+
   const row = (c: Candidate, dir: string) => {
+    const unpicked = unpickedMentions(c);
     // 分组时路径只写组目录以下的部分，和技能名一样就不重复写;来源根目录(单个 SKILL.md 是 ".")写作 "/"。
     const rel = grouped && dir ? c.path.slice(dir.length + 1) : c.path && c.path !== "." ? c.path : "/";
     return (
@@ -152,6 +157,20 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
             >
               {t.sameName}
             </Badge>
+          )}
+          {unpicked.length > 0 && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="candidate-mentions shrink-0"
+              title={t.mentionsUnpickedTitle(unpicked)}
+              onClick={(e) => {
+                e.preventDefault();
+                setSelected((set) => new Set([...set, ...unpicked]));
+              }}
+            >
+              {t.mentionsUnpicked(unpicked.length)}
+            </Button>
           )}
           <span className="candidate-desc min-w-0 grow truncate text-caption text-foreground-secondary">{c.description}</span>
           {rel !== c.name && <span className="max-w-[30%] min-w-0 shrink-[2] truncate font-mono text-caption text-muted-foreground">{rel}</span>}

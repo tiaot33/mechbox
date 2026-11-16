@@ -370,7 +370,7 @@ Git 不保存的部分由 `run.sh` 现场补上：空目录、zip 文件、Git �
 | 没有来源的技能 | internal-comms，从 Claude Code 全局的未纳管技能入库，之后在 Claude Code 全局里又改过 |
 | 备注 | frontend-design 有一条备注 |
 | 自定义 Agent | Cursor：全局目录 `~/.cursor/skills`，项目里 `.cursor/skills` |
-| 组 | 「前端」组安装到 Codex 全局；「文档」没有组安装；「写计划」是 superpowers 的 brainstorming、writing-plans、executing-plans，关系图里提到的组外技能画成空心虚线圆，组安装到 Cursor 全局和 web-app 的 Codex |
+| 组 | 「前端」组安装到 Codex 全局；「文档」没有组安装；「写计划」是 superpowers 的 brainstorming、writing-plans、executing-plans，关系图里提到的组外技能画成空心虚线圆，组安装到 Cursor 全局和 web-app 的 Codex；这两处的 executing-plans、writing-plans 提到的技能在那里找不到，作用域页这两行有提示级的「提到的 N 个找不到」，详情里的「提到关系」写出在哪找不到 |
 | 项目 | web-app 是 Git 仓库，里面提交了 `.claude/skills/playwright`，和 Claude Code 全局的 playwright 同名；`.claude/skills/screenshot` 没提交，内容和库里的 screenshot 一样但不是 app 装的；old-project 不在这台机器上 |
 | 安装状态 | 当前版本；被手动改过（Claude Code 全局的 playwright、internal-comms）；文件夹不在了（Claude Code 全局的 sora）；项目不在这台机器上 |
 | 未纳管技能 | webapp-testing 是 npx skills 的布局：真实文件夹在 Codex 全局，Claude Code 全局里是符号链接；来源记录认出来源 `git.dev.test/anthropics/skills`；Claude Code 全局的 pr-summary 是指向 `~/code/skill-drafts` 的符号链接（指向 Agent 目录以外）；release-notes 在 Claude Code 全局和 Codex 全局各有一份，同名但内容不同 |

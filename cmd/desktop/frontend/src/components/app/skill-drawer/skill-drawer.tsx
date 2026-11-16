@@ -1,4 +1,4 @@
-// 技能详情抽屉(原型变体 A 的右侧抽屉):描述(译文)、备注、元数据与组成员、各作用域的安装、文件、版本历史，以及更新 / 重新安装 / 移除。
+// 技能详情抽屉(原型变体 A 的右侧抽屉):描述(译文)、备注、元数据与组成员、各作用域的安装、和其他技能的提到关系、文件、版本历史，以及更新 / 重新安装 / 移除。
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { SourceType, type FileMetadata, type Skill, type SkillVersion } from "@bindings/internal/library";
@@ -22,6 +22,7 @@ import { Icon } from "@/components/ui/icon";
 import { ResizeHandle, useStoredWidth, useWidth } from "@/components/app/resizable";
 import { FilesCard } from "./files-card";
 import { InstallCard } from "./install-card";
+import { MentionsCard } from "./mentions-card";
 import { MetadataCard } from "./metadata-card";
 import { VersionsCard } from "./versions-card";
 
@@ -140,6 +141,7 @@ function DrawerSheet({
             {skill.source.type === SourceType.SourceGitHub && <AuditCard skillID={id} />}
 
             <InstallCard skill={skill} />
+            <MentionsCard skill={skill} />
 
             {/* 换技能或技能换了版本时重新挂载：选中的文件、显示原文还是译文都回到默认。 */}
             <FilesCard key={`files-${skill.version_id}`} versionID={skill.version_id} files={files} skillName={skill.name} />
