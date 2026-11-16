@@ -4,7 +4,6 @@
 // 底部的「关闭」是普通按钮，不比记录上的操作显眼。
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueries } from "@tanstack/react-query";
-import { LibraryService } from "@bindings/cmd/desktop";
 import {
   ReinstallOutcome,
   UpdateRecordKind,
@@ -22,7 +21,7 @@ import { messages, useT } from "@/lib/i18n";
 import { queryClient, toLibraryError, useSnapshot, updateHistoryQuery, versionQuery } from "@/lib/library";
 import { mergeProjectPlaces, scopeLabel, shortRevision } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
-import { openUpdate } from "./update";
+import { openUpdate, placeAgain } from "./update";
 import { putBack, RollbackDialog, rollbackOutcome } from "./rollback";
 import { compareVersions } from "./version-compare";
 import { cn } from "@/lib/utils";
@@ -53,7 +52,7 @@ export function UpdateHistory({ filter, title, onClose }: { filter: UpdateHistor
   const records = q.data ?? null;
   // 正在回滚的那次更新：弹窗换成回滚的确认页，取消或做完回到历史。
   const [rolling, setRolling] = useState<UpdateRecord | null>(null);
-  if (rolling) return <RollbackDialog record={rolling} onBack={() => setRolling(null)} onDone={() => setRolling(null)} />;
+  if (rolling) return <RollbackDialog record={rolling} onClose={() => setRolling(null)} />;
 
   return (
     <Modal title={title} wide onClose={onClose} footer={<Button onClick={onClose}>{t.close}</Button>}>
@@ -139,7 +138,7 @@ function Record({
   const retry = async () => {
     const requests = failed.map((i) => ({ skill_id: i.skill_id, scope: i.scope, overwrite: false }));
     if (!(await confirmLinkedRequests(requests, t.retryTitle, t.retry))) return;
-    const results = await ui.run(() => LibraryService.RetryUpdateInstalls(record.id, requests), { label: messages().update.retryLabel });
+    const results = await placeAgain(record.id, requests);
     if (!results) return;
     const left = results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed).length;
     ui.toast(left ? t.stillLeft(left) : t.allPlaced, left ? "error" : "ok");
@@ -183,8 +182,9 @@ function Record({
           </Button>
         )}
         {update && !rolledBack && <Button onClick={onRollback}>{t.rollback}</Button>}
-        {/* 跳过的改动、回滚掉的改动(算作跳过)都能找回来：打开更新计划，默认勾上那几个技能。 */}
-        {(record.kind === UpdateRecordKind.UpdateRecordSkip || rollback || (update && rolledBack)) &&
+        {/* 跳过的改动、回滚掉的改动(算作跳过)都能找回来：打开更新计划，默认勾上那几个技能。
+            用目录里的修改更新的那次回滚掉时不记跳过，那份修改不在更新计划里(还在取内容的那一处),不给这个入口。 */}
+        {(record.kind === UpdateRecordKind.UpdateRecordSkip || ((rollback || (update && rolledBack)) && !(rollback ? target : record)?.from_scope)) &&
           s.collections.some((c) => c.id === record.collection_id) && (
             <Button
               onClick={() => onReview(skills.map((x) => x.skill_id))}

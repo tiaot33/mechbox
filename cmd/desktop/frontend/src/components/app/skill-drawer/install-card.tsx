@@ -95,7 +95,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
                           className="reveal-folder shrink-0"
                           title={common.reveal()}
                           aria-label={common.reveal()}
-                          onClick={() => void ui.run(() => AppService.RevealInFileManager(p.folder), { reload: false })}
+                          onClick={() => void ui.read(() => AppService.RevealInFileManager(p.folder))}
                         >
                           <Icon name="folder" />
                         </Button>
@@ -153,7 +153,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
                       className="reveal-folder shrink-0"
                       title={common.reveal()}
                       aria-label={common.reveal()}
-                      onClick={() => void ui.run(() => AppService.RevealInFileManager(u.folder), { reload: false })}
+                      onClick={() => void ui.read(() => AppService.RevealInFileManager(u.folder))}
                     >
                       <Icon name="folder" />
                     </Button>

@@ -1868,7 +1868,18 @@ await step("历史与回滚：库和装过的地方回到旧版，回滚掉的�
   assert.equal(await page.locator('[data-slot="dialog-content"]').count(), 1, "回滚的确认不叠在历史上");
   await modal().locator(".rollback-skill", { hasText: "delta" }).waitFor();
   await modal().locator(".rollback-places", { hasText: "Claude Code · proj-a" }).waitFor();
-  await btn(modal(), "回滚").click();
+  // 回滚进行中不能退出确认页：没装回的地方要接着在这个弹窗里列出来。
+  const rolling = await holdCall(methodID("Rollback"));
+  try {
+    await btn(modal(), "回滚").click();
+    await rolling.requested();
+    assert(await btn(modal(), "取消").isDisabled(), "回滚进行中「取消」不能点");
+    await page.keyboard.press("Escape");
+    await modal().locator('[data-slot="dialog-title"]', { hasText: "回滚这次更新" }).waitFor({ timeout: 1000 });
+    await rolling.release();
+  } finally {
+    await rolling.close();
+  }
   await toast("已回滚：delta 换回了更新之前的版本 · 装回了 1 个地方");
   await settle();
   assert(projSkill("delta").includes("delta skill from a zip"), "项目里的 delta 应回到 v1");
@@ -1932,6 +1943,19 @@ await step("详情：本地目录来源重新读取，一个操作完成，改�
   await btn(modal(), "知道了").click();
   await settle();
   assert(fs.readFileSync(path.join(codexGlobal, "SKILL.md"), "utf8").includes("gamma v3"), "没换上的地方保持 v3");
+  // 在历史里重试，还是没换上：顶栏画叉、写没有全部完成，和从完成弹窗里重试一样。
+  fs.chmodSync(codexSkills, 0o555);
+  try {
+    await btn(drawer(), "更新历史").click();
+    await btn(modal().locator(".update-record").first(), "重试没换上的").click();
+    await toast("还有 1 个地方没换上");
+    await page.locator('.tb-crumb [data-slot="status-mark"][data-status="failed"]').waitFor({ timeout: 1000 });
+    await page.locator(".tb-crumb .busy-mark", { hasText: "重试没换上的地方：没有全部完成" }).waitFor({ timeout: 1000 });
+  } finally {
+    fs.chmodSync(codexSkills, 0o755);
+  }
+  await page.keyboard.press("Escape");
+  await settle();
   await btn(drawer(), "重新读取").click();
   await toast("已重新读取「gamma」 · 内容没有变化 · 换到了 1 个地方 · 1 个地方你改过，没动");
   await settle();
@@ -1978,9 +2002,16 @@ await step("详情：用这里的修改更新，连带换到其他地方，能�
   await record.waitFor();
   await btn(record, "回滚").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "回滚这次更新" }).waitFor();
+  // 用目录里的修改更新回滚掉不记跳过：确认页说修改还在取内容的那一处，历史里也不给「再看更新计划」。
+  await modal().getByText(/取内容的 Claude Code · proj-a 不动，那里还是你的修改/).waitFor();
   await btn(modal(), "回滚").click();
   await toast("装回了 1 个地方");
   await settle();
+  const rollbackRecord = modal().locator(".update-record", { has: page.locator('[data-slot="badge"]', { hasText: "回滚" }) }).first();
+  await rollbackRecord.waitFor();
+  for (const r of [rollbackRecord, record]) {
+    assert.equal(await r.getByRole("button", { name: "再看更新计划", exact: true }).count(), 0, "回滚用目录里的修改的更新后，这两条记录上不给找回的入口");
+  }
   await page.keyboard.press("Escape");
   assert(fs.readFileSync(path.join(codexGlobal, "SKILL.md"), "utf8").includes("gamma v3"), "回滚后 Codex 全局回到 v3");
   assert(projSkill("gamma").includes("edited by hand"), "回滚不动取内容的地方");
@@ -2313,7 +2344,7 @@ await step("更新计划：风险与差异、确认改名、继续保留已删�
   // 差异在右栏，左栏的技能和要换的地方不动;文件列表写明是改了的文件，每个文件标出新增、修改还是删除。
   assert.equal(await modal().locator(".update-right .update-diff").count(), 1, "差异在右栏");
   assert.equal(await modal().locator(".update-left .update-skill").count() > 0, true, "技能列表在左栏");
-  assert((await modal().locator(".update-diff .changed-count").textContent()).startsWith("这次改了"), "写明列的是改了的文件");
+  assert((await modal().locator(".update-diff .changed-count").textContent()).endsWith("个文件有改动"), "写明列的是改了的文件");
   assert.equal(await modal().locator('.update-diff [data-diff="added"][data-path="scripts/x.sh"] .change-mark').textContent(), "新增");
   assert.equal(await modal().locator('.update-diff [data-diff="changed"][data-path="SKILL.md"] .change-mark').textContent(), "修改");
   await btn(planRow("update-skill", "kappa"), "收起差异").click();

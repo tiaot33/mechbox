@@ -188,7 +188,6 @@ function SkillSectionView({ section, scope, notHere = false }: { section: SkillS
       key={skill.id}
       skill={skill}
       scope={scope}
-      pickable
       showSource={section.kind !== "collection"}
       hideGroup={section.kind === "group" ? section.id : undefined}
     />
@@ -324,7 +323,7 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
               head={<PlainHead name={t.sectionGlobal} count={global} title={t.sectionGlobalTitle} />}
             >
               {l.global.map((skill) => (
-                <SkillRow key={skill.id} skill={skill} scope={scope} fromGlobal pickable showSource />
+                <SkillRow key={skill.id} skill={skill} scope={scope} fromGlobal showSource />
               ))}
               {l.globalUnmanaged.map((u) => (
                 <UnmanagedRow key={u.folder} skill={u} fromGlobal />
@@ -401,7 +400,7 @@ function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: 
           }
         >
           {a.skills.map((skill) => (
-            <SkillRow key={skill.id} skill={skill} scope={a.scope} pickable showSource />
+            <SkillRow key={skill.id} skill={skill} scope={a.scope} showSource />
           ))}
           {a.unmanaged.map((u) => (
             <UnmanagedRow key={u.folder} skill={u} />

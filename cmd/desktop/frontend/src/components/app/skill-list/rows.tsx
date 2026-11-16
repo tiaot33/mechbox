@@ -57,31 +57,18 @@ import { PickBox } from "./pick";
 import { sameNameAlert, sameNameCopiesAlert, useSameNameCopies } from "./same-name";
 import { flash } from "./flash";
 
-// 列宽：技能库页是 名字 | 描述 | 装在哪 | 状态(要处理的事);作用域页是 开关 | 名字 | 描述 | 在这里的状态。
-// 能勾选的行(更新页以外)前面多一列勾选框。
+// 列宽：技能库页是 勾选框 | 名字 | 描述 | 装在哪 | 状态(要处理的事);作用域页是 勾选框 | 开关 | 名字 | 描述 | 在这里的状态。
 // 列表窄了(开着技能详情)时每行两层：描述挪到名字下面;技能库页的装在哪和状态上下叠在最后一列(where、status),
 // 作用域页的状态跨两层。名字、装在哪(在这里的状态)和状态仍然看得全;列表的宽度按 .a-list 这个容器算。
 // 各列宽下 desc、where、status 是窄的时候它们放的格子，勾选框和开关跨两层、上下居中(span)。
 const layouts = {
   library: {
-    cols: "grid-cols-[minmax(140px,220px)_minmax(0,1fr)_minmax(80px,180px)_minmax(96px,170px)] @max-[600px]/list:grid-cols-[minmax(0,1fr)_minmax(110px,170px)]",
-    desc: "@max-[600px]/list:col-start-1 @max-[600px]/list:row-start-2",
-    where: "@max-[600px]/list:col-start-2 @max-[600px]/list:row-start-1",
-    status: "@max-[600px]/list:col-start-2 @max-[600px]/list:row-start-2 @max-[600px]/list:justify-start",
-  },
-  pickLibrary: {
     cols: "grid-cols-[14px_minmax(140px,220px)_minmax(0,1fr)_minmax(80px,180px)_minmax(96px,170px)] @max-[600px]/list:grid-cols-[14px_minmax(0,1fr)_minmax(110px,170px)]",
     desc: "@max-[600px]/list:col-start-2 @max-[600px]/list:row-start-2",
     where: "@max-[600px]/list:col-start-3 @max-[600px]/list:row-start-1",
     status: "@max-[600px]/list:col-start-3 @max-[600px]/list:row-start-2 @max-[600px]/list:justify-start",
   },
   scope: {
-    cols: "grid-cols-[30px_minmax(140px,220px)_minmax(0,1fr)_minmax(90px,180px)] @max-[600px]/list:grid-cols-[30px_minmax(0,1fr)_minmax(80px,140px)]",
-    desc: "@max-[600px]/list:col-start-2 @max-[600px]/list:row-start-2",
-    where: "@max-[600px]/list:row-span-2",
-    status: "",
-  },
-  pickScope: {
     cols: "grid-cols-[14px_30px_minmax(140px,220px)_minmax(0,1fr)_minmax(90px,180px)] @max-[600px]/list:grid-cols-[14px_30px_minmax(0,1fr)_minmax(80px,140px)]",
     desc: "@max-[600px]/list:col-start-3 @max-[600px]/list:row-start-2",
     where: "@max-[600px]/list:row-span-2",
@@ -107,12 +94,11 @@ const rowClass =
 // SkillRow 是库里一个技能的一行。scope 为空时是技能库页的样子;有 scope 时是作用域页、项目页的样子:
 // 开头一格表示 Agent 在这里用不用(见下),最后一列写是谁装的;fromGlobal 表示它是同一个 Agent 全局装的(项目里也看得到),这里不能开关。
 // 这里有一份和它一模一样、不是库装的文件夹时(identicalIn),开头一格是"入库",最后一列写不是 app 装的。
-// pickable 的行最前面有勾选框(技能库页、作用域页与项目页)。
+// 行的最前面是勾选框。
 export function SkillRow(props: {
   skill: Skill;
   scope?: ScopeKey;
   fromGlobal?: boolean;
-  pickable?: boolean;
   showSource: boolean;
   hideGroup?: number; // 所在的组的节：每行都属于它，不再重复显示
 }) {
@@ -129,7 +115,7 @@ export function SkillRow(props: {
   const place =
     scope && props.fromGlobal ? globalScopesSeenFrom(s, scope).map((key) => skillScopeIn(s, skill.id, key)).find(Boolean) : here;
   const via = (place?.groups ?? []).map((id) => groupName(s, id));
-  // 作用域页说这一处的同名后果;技能库页、更新页说它装出去的各处。
+  // 作用域页说这一处的同名后果;技能库页说它装出去的各处。
   const folder = here?.folder ?? identical?.folder;
   const same = scope ? (folder ? sameNameNote(s, scope, folder) : undefined) : skillSameNameNote(s, skill.id);
   // 这里的那一份提交在项目仓库里或链到 Agent 目录以外：归团队、归作者自己管，只是内容和库里的一样。
@@ -151,20 +137,11 @@ export function SkillRow(props: {
     same && sameNameAlert(same, t.list.sameName),
     sameNameCopiesAlert(t.list, skill.name, elsewhere),
     ...placeAlerts.map((x) => ({ ...x, onClick: x.tone === "update" ? plan : undefined })),
-    // 作者从来源里删掉了它：不是新版本，是一条提示。
-    deletedInSource(skill) && !skill.kept_deleted && { tone: "info" as const, label: t.list.deleted, tip: t.list.deletedTitle },
+    ...updateAlerts(t, skill, plan),
     // 当前版本里有用户的修改(用目录里的修改更新过，或入库时说不清):不论有没有新版本都标出来。
     skill.edited && { tone: "info" as const, label: t.list.hasEdits, tip: t.list.hasEditsTitle, className: "has-edits" },
-    // 有新版本、但更新会换掉用户的修改：更新计划里它默认不勾。
-    pending(skill) && updateAvailable(skill) && skill.edited && { tone: "warn" as const, label: t.list.edited, tip: t.list.editedTitle, className: "update-edited-note" },
     // 库里同名的几个技能(内容不同，不合并):写出各装在哪里，免得只能靠描述分辨。
     twins.length > 0 && { tone: "info" as const, label: t.list.twinsShort, tip: t.list.twins(twins.length + 1, skill.name, installedWhere(s, skill.id)), className: "dup-name-note" },
-    // 有新版本、可能改名：点它打开所在集合的更新计划;只标计入角标的。两种图标不同。
-    pending(skill) &&
-      hasUpdate(skill) &&
-      (renamedTo(skill)
-        ? { tone: "rename" as const, label: t.drawer.maybeRenamedTo(renamedTo(skill)), tip: t.list.renamedTitle(renamedTo(skill)), onClick: plan }
-        : { tone: "update" as const, label: t.list.newVersion, tip: t.list.availableTitle, onClick: plan }),
     // 本地目录来源：目录里的这个技能改过了(读目录时比出来的),在详情里或集合的「…」里重新读取。
     localChanged(skill) && { tone: "update" as const, label: t.list.localChanged, tip: t.list.localChangedTitle, className: "local-changed" },
   ]).filter((x): x is Alert => !!x);
@@ -178,7 +155,7 @@ export function SkillRow(props: {
     void (here ? uninstallSkill(skill.id, sc) : installSkill(skill.id, sc));
   };
 
-  const layout = layouts[scope ? (props.pickable ? "pickScope" : "scope") : props.pickable ? "pickLibrary" : "library"];
+  const layout = layouts[scope ? "scope" : "library"];
 
   return (
     <article
@@ -204,7 +181,7 @@ export function SkillRow(props: {
       }}
       onDragEnd={dnd.end}
     >
-      {props.pickable && <PickBox id={skill.id} className={span} />}
+      <PickBox id={skill.id} className={span} />
       {scope && (
         <span onClick={(e) => e.stopPropagation()} className={cn("flex", span)}>
           {/* 开 = Agent 在这里用着：直接安装是绿色，只随组安装和来自全局是灰色(来自全局的不能点);关 = 没装在这里。 */}
@@ -285,20 +262,36 @@ export function SkillRow(props: {
   );
 }
 
+// updateAlerts 是一个技能和更新有关的要处理的事，技能库页一行的状态和更新页「要处理的技能」共用一份:
+// 有新版本或可能改名(只标计入角标的;两种图标不同，plan 给了时点它打开所在集合的更新计划)、有新版本但更新会换掉用户的修改
+// (更新计划里它默认不勾)、作者从来源里删掉了它(不是新版本，是一条提示)。
+function updateAlerts(t: Messages, skill: Skill, plan?: () => void): Alert[] {
+  const to = renamedTo(skill);
+  const items: (Alert | false)[] = [
+    pending(skill) &&
+      hasUpdate(skill) &&
+      (to
+        ? { tone: "rename" as const, label: t.drawer.maybeRenamedTo(to), tip: t.list.renamedTitle(to), onClick: plan }
+        : { tone: "update" as const, label: t.list.newVersion, tip: t.list.availableTitle, onClick: plan }),
+    pending(skill) && updateAvailable(skill) && !!skill.edited && { tone: "warn" as const, label: t.list.edited, tip: t.list.editedTitle, className: "update-edited-note" },
+    deletedInSource(skill) && !skill.kept_deleted && { tone: "info" as const, label: t.list.deleted, tip: t.list.deletedTitle },
+  ];
+  return items.filter((x): x is Alert => !!x);
+}
+
 // 更新页「要处理的技能」的列：名字 | 要处理什么 | 来自哪个来源 | 装在哪(更新时一起换成新版的地方)。窄的时候要处理什么挪到名字下面，
 // 来源和装在哪上下叠在右边。
 const updateCols =
   "grid-cols-[minmax(120px,200px)_minmax(0,1fr)_minmax(80px,180px)_minmax(80px,160px)] @max-[600px]/list:grid-cols-[minmax(0,1fr)_minmax(110px,170px)]";
 
-// UpdateSkillRow 是更新页「要处理的技能」里的一行：一眼看出这个技能要处理的是什么事——有新版本(更新会换掉你的修改时另标一条)、
-// 可能改名为什么、来源里已删除，各用自己的图标和说法;点这一格打开所在集合的更新计划(只勾这一个)。
+// UpdateSkillRow 是更新页「要处理的技能」里的一行：一眼看出这个技能要处理的是什么事(updateAlerts 逐条写出，各用自己的图标和说法);
+// 点这一格打开所在集合的更新计划(只勾这一个)。
 // 描述、最近变化这些和要处理什么无关的不列。点行的其他地方照常打开技能详情。
 export function UpdateSkillRow({ skill }: { skill: Skill }) {
   const s = useSnapshot();
-  const t = useT().list;
+  const tt = useT();
+  const t = tt.list;
   const selected = useView((v) => v.drawer === skill.id);
-  const to = renamedTo(skill);
-  const fresh = updateAvailable(skill) && !to;
   return (
     <article
       className={cn(
@@ -325,22 +318,11 @@ export function UpdateSkillRow({ skill }: { skill: Skill }) {
             void openUpdate(skill.collection_id, { focus: skill.id });
           }}
         >
-          {fresh && <Badge tone="update">{t.newVersion}</Badge>}
-          {fresh && skill.edited && (
-            <Badge tone="warn" className="update-edited-note min-w-0 shrink" title={t.editedTitle}>
-              <span className="truncate">{t.edited}</span>
+          {updateAlerts(tt, skill).map((x) => (
+            <Badge key={x.label} tone={x.tone} className={cn("min-w-0 shrink", x.className)} title={x.tip}>
+              <span className="truncate">{x.label}</span>
             </Badge>
-          )}
-          {to && (
-            <Badge tone="rename" className="min-w-0 shrink" title={t.renamedTitle(to)}>
-              <span className="truncate">{t.renamedToShort(to)}</span>
-            </Badge>
-          )}
-          {deletedInSource(skill) && (
-            <Badge tone="info" title={t.deletedTitle}>
-              {t.deleted}
-            </Badge>
-          )}
+          ))}
         </button>
       </div>
       <span
@@ -449,7 +431,7 @@ function IdenticalState({ identical, skill, alerts, foreign }: { identical: Unma
         label={common.reveal()}
         onClick={(e) => {
           e.stopPropagation();
-          void ui.run(() => AppService.RevealInFileManager(identical.folder), { reload: false });
+          void ui.read(() => AppService.RevealInFileManager(identical.folder));
         }}
       />
     </div>
@@ -512,7 +494,7 @@ export function UnmanagedRow({
     skill.link_target && { text: t.link(shortPath(s, skill.link_target)), className: "unmanaged-status" },
   ].filter((x): x is { text: string; className: string; detail?: boolean } => !!x);
   return (
-    <article className={cn("unmanaged-row", rowClass, layouts.pickScope.cols)} data-name={skill.name}>
+    <article className={cn("unmanaged-row", rowClass, layouts.scope.cols)} data-name={skill.name}>
       <span className={span} />
       <span className={cn("flex", span)}>
         {library ? (
@@ -543,7 +525,7 @@ export function UnmanagedRow({
       <div className="flex min-w-0 items-center gap-1.5">
         <span className="unmanaged-name min-w-0 truncate text-body font-semibold">{skill.name}</span>
       </div>
-      <div className={cn("min-w-0", layouts.pickScope.desc)}>
+      <div className={cn("min-w-0", layouts.scope.desc)}>
         <Truncated always={notes.length > 0} tip={[skill.description, ...notes.map((x) => x.text)].filter(Boolean).join("\n")}>
           <p className="unmanaged-desc truncate text-small text-muted-foreground">
             {skill.description || notes.filter((x) => !x.detail).map((x) => x.text).join(" · ")}
@@ -576,7 +558,7 @@ export function UnmanagedRow({
             },
           ]}
         />
-        <RevealButton label={common.reveal()} onClick={() => void ui.run(() => AppService.RevealInFileManager(skill.folder), { reload: false })} />
+        <RevealButton label={common.reveal()} onClick={() => void ui.read(() => AppService.RevealInFileManager(skill.folder))} />
       </div>
     </article>
   );

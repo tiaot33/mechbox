@@ -27,14 +27,14 @@ export function MarketDialog({ onClose }: { onClose: () => void }) {
   const search = async () => {
     if (!query.trim() || searching) return;
     setSearching(true);
-    const r = await ui.run(() => LibraryService.SearchSkills(query.trim()), { reload: false });
+    const r = await ui.read(() => LibraryService.SearchSkills(query.trim()));
     setSearching(false);
     if (r !== undefined) setResult(r ?? []);
   };
 
   const pick = async (skill: SearchSkill) => {
     setFetching(skill.id);
-    const p = await ui.run(() => LibraryService.PreviewFetch(skill.preview), { reload: false });
+    const p = await ui.read(() => LibraryService.PreviewFetch(skill.preview));
     setFetching(null);
     if (p) setPreview(p);
   };

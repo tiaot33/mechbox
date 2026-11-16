@@ -67,7 +67,7 @@ export async function runUpdate(
   if (confirmLinks && !(await confirmLinkWrites(places, written, messages().update.confirmTitle(label), messages().update.update))) return undefined;
   let conflict = false;
   const result = await ui.run(() => LibraryService.Update({ plan: plan.id, skills: [...checked], installs: requests }), {
-    label: isLocal(plan.source) ? messages().update.rereadLabel(label) : messages().update.updateLabel(label),
+    label: from ? messages().update.fromScopeLabel(from, label) : isLocal(plan.source) ? messages().update.rereadLabel(label) : messages().update.updateLabel([label]),
     onError: (err) => (conflict = stalePlan(err)),
     failed: (r) => (r.installs ?? []).some((x) => x.outcome === ReinstallOutcome.ReinstallFailed),
   });
@@ -103,18 +103,23 @@ export function placeAgain(record: UpdateRecordID, requests: ReinstallRequest[],
 export const failedOnly = (results: ReinstallResult[] | null) => (results ?? []).filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed);
 
 // updateWithDefaults 不打开更新计划，按默认勾选更新这些集合，最后一起汇报。改名、删除和会换掉用户修改的更新要在更新计划里由用户回答，这里不动。
-// 读来源、更新、换装出去的地方算一件事：整个过程顶栏的状态圈一直转、写着在更新哪几个，中间不画对勾。
+// 读来源、更新、换装出去的地方算一件事：整个过程顶栏的状态圈一直转、写着在更新哪几个，中间不画对勾;
+// 一个都没更新(都没有能直接更新的，或在确认里取消了)时不画对勾，有的集合没更新成时写没有全部完成。
 export async function updateWithDefaults(collectionIDs: CollectionID[]) {
   const s = currentSnapshot();
-  const outcomes: UpdateOutcome[] = [];
   const t = messages().update;
   const names = collectionIDs.map((id) => collectionName(s, id));
-  await ui.run(
+  const r = await ui.run(
     async () => {
+      const outcomes: UpdateOutcome[] = [];
+      let missed = 0;
       for (const [i, id] of collectionIDs.entries()) {
         const name = names[i];
         const plan = await ui.run(() => LibraryService.PlanUpdate(id), { reload: false });
-        if (!plan) continue;
+        if (!plan) {
+          missed++;
+          continue;
+        }
         const checked = defaultSkills(plan);
         if (!checked.size) {
           ui.toast(t.nothingDirect(name));
@@ -122,18 +127,20 @@ export async function updateWithDefaults(collectionIDs: CollectionID[]) {
         }
         const o = await runUpdate(plan, name, checked, defaultInstallOn, undefined, true);
         if (o === "conflict") ui.toast(t.sourceMoved(name), "error");
-        else if (o) outcomes.push(o);
+        if (o && o !== "conflict") outcomes.push(o);
+        else missed++;
       }
+      return { outcomes, missed };
     },
-    { reload: false, label: t.updateLabel(names.join("、")) },
+    { reload: false, label: t.updateLabel(names), failed: (r) => r.outcomes.length > 0 && r.missed > 0, canceled: (r) => !r.outcomes.length },
   );
-  await reportUpdates(outcomes);
+  if (r) await reportUpdates(r.outcomes);
 }
 
 // rereadSkill 是本地目录来源的"重新读取":读出目录当前内容成为新版本，并换到装过它的地方(用户改过的、文件夹不在了的地方不动)。
-// 底层就是只勾这一个技能的更新，所以照样有版本历史和回滚。读目录到换完算一件事，顶栏的状态圈中间不画对勾。
+// 底层就是只勾这一个技能的更新，所以照样有版本历史和回滚。读目录到换完算一件事，顶栏的状态圈中间不画对勾;没读成时不画对勾。
 export async function rereadSkill(skill: Skill) {
-  const o = await ui.run(() => reread(skill), { reload: false, label: messages().update.rereadLabel(skill.name) });
+  const o = await ui.run(() => reread(skill), { reload: false, label: messages().update.rereadLabel(skill.name), canceled: (o) => !o });
   if (o) await reportUpdates([o]);
 }
 
@@ -154,10 +161,14 @@ async function reread(skill: Skill): Promise<UpdateOutcome | undefined> {
 // rereadDirectory 是本地目录来源整个目录的"重新读取":目录里改过的技能都读出当前内容成为新版本，并换到装过它们的地方
 // (用户改过的、文件夹不在了的地方不动);和逐个技能的重新读取一样是一次更新，有版本历史、可以回滚。
 // 默认读进来的照更新计划的默认勾选：回滚掉的(跳过)、库里有用户修改的不读。还有要用户拿主意的(目录里删掉或改了名、
-// 会换掉库里用户修改的)时打开更新计划，由用户在那里勾选、确认改名;目录和库里完全一样时只提示一句。读目录到换完算一件事，顶栏的状态圈中间不画对勾。
+// 会换掉库里用户修改的)时打开更新计划，由用户在那里勾选、确认改名;目录和库里完全一样时只提示一句。读目录到换完算一件事，顶栏的状态圈中间不画对勾;没读进来或转去更新计划时不画对勾。
 export async function rereadDirectory(collectionID: CollectionID) {
   const label = collectionName(currentSnapshot(), collectionID);
-  const o = await ui.run(() => readDirectory(collectionID, label), { reload: false, label: messages().update.rereadLabel(label) });
+  const o = await ui.run(() => readDirectory(collectionID, label), {
+    reload: false,
+    label: messages().update.rereadLabel(label),
+    canceled: (o) => !o || o === "decide",
+  });
   if (o === "decide") return openUpdate(collectionID);
   if (o) await reportUpdates([o]);
 }
@@ -184,7 +195,7 @@ async function readDirectory(collectionID: CollectionID, label: string): Promise
 // 带来当前版本的那次更新里列过的地方，补装算进那次更新，回滚它时一起装回去;其余的是普通的重新安装。
 async function refreshInstalls(skill: Skill): Promise<UpdateOutcome | undefined> {
   const s = currentSnapshot();
-  const inspected = await ui.run(() => LibraryService.InspectSkillScopes({ skill_id: skill.id }), { reload: false });
+  const inspected = await ui.read(() => LibraryService.InspectSkillScopes({ skill_id: skill.id }));
   if (inspected === undefined) return undefined;
   const { requests, keptEdited, keptMissing } = refreshRequests(inspected ?? []);
   if (!requests.length) {
@@ -193,7 +204,7 @@ async function refreshInstalls(skill: Skill): Promise<UpdateOutcome | undefined>
   }
   const wanted = new Set(requests.map(placeKey));
   if (!(await confirmLinkWrites(inspected ?? [], (p) => wanted.has(placeKey(p)), messages().update.rereadTitle(skill.name), messages().update.reinstall))) return undefined;
-  const history = await ui.run(() => LibraryService.ListUpdateHistory({ skill_id: skill.id }), { reload: false, busyMark: false });
+  const history = await ui.read(() => LibraryService.ListUpdateHistory({ skill_id: skill.id }));
   if (history === undefined) return undefined;
   const record = (history ?? []).find(
     (r) =>

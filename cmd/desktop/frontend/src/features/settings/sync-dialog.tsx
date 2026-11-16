@@ -57,7 +57,7 @@ export function SyncDialog({ onClose }: { onClose: () => void }) {
   const choose = async (backups: SyncBackup[], id: SyncBackupID) => {
     setPull({ backups, selected: id, plan: null });
     setWorking("plan");
-    const plan = await ui.run(() => LibraryService.PlanSyncPull(id), { reload: false, onError: onConflict });
+    const plan = await ui.read(() => LibraryService.PlanSyncPull(id), { onError: onConflict });
     setWorking(null);
     if (plan) setPull((p) => (p?.selected === id ? { ...p, plan } : p));
   };
@@ -65,7 +65,7 @@ export function SyncDialog({ onClose }: { onClose: () => void }) {
   const list = async () => {
     setWorking("list");
     setPulled(false);
-    const backups = await ui.run(() => LibraryService.ListSyncBackups().then((b) => b ?? []), { reload: false });
+    const backups = await ui.read(() => LibraryService.ListSyncBackups().then((b) => b ?? []));
     setWorking(null);
     if (!backups) return;
     if (backups.length === 0) {

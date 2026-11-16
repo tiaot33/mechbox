@@ -53,28 +53,36 @@ export const putBack = (r: { outcome: string }) => r.outcome === RollbackOutcome
 
 // rollbackUpdate 从更新完成的提示(或没换上的地方的弹窗)里回滚刚才那次更新：按 history 读出那条记录，单独开一个回滚弹窗。
 export async function rollbackUpdate(record: UpdateRecordID, history: UpdateHistoryFilter) {
-  const records = await ui.run(() => LibraryService.ListUpdateHistory(history), { reload: false, busyMark: false });
+  const records = await ui.read(() => LibraryService.ListUpdateHistory(history));
   if (!records) return;
   const found = records.find((r) => r.id === record);
   if (!found || found.rolled_back_by) {
     ui.toast(messages().update.alreadyRolledBack, "error");
     return;
   }
-  await ui.open((close) => <RollbackDialog record={found} onBack={() => close()} onDone={() => close()} />);
+  await ui.open((close) => <RollbackDialog record={found} onClose={() => close()} />);
 }
 
-// RollbackDialog 是回滚一次更新的弹窗：先是确认页，列出会换回的技能和装回旧版的地方;回滚完都装回了就提示一句并结束(onDone),
-// 有没装回的、或技能已从库里移除的换成结果页列出原因。onBack 是确认页上的「取消」(从历史里来的回到历史)。
-export function RollbackDialog({ record, onBack, onDone }: { record: UpdateRecord; onBack: () => void; onDone: () => void }) {
-  const [result, setResult] = useState<RollbackResult | null>(null);
-  if (result) return <RollbackLeft result={result} onDone={onDone} />;
+// RollbackDialog 是回滚一次更新的弹窗：先是确认页，列出会换回的技能和装回旧版的地方;回滚完都装回了就提示一句并关上，
+// 有没装回的、或技能已从库里移除的换成结果页列出原因。onClose 是确认页上的「取消」和看完结果(从历史里来的回到历史)。
+export function RollbackDialog({ record, onClose }: { record: UpdateRecord; onClose: () => void }) {
+  const s = useSnapshot();
+  const [left, setLeft] = useState<{ result: RollbackResult; head: string } | null>(null);
+  if (left) return <RollbackLeft {...left} onDone={onClose} />;
   return (
     <RollbackConfirm
       record={record}
-      onBack={onBack}
-      onRolledBack={(r, done) => {
-        if (done) onDone();
-        else setResult(r);
+      onBack={onClose}
+      onRolledBack={(result) => {
+        const installs = result.installs ?? [];
+        const head = messages().update.rolledBack(
+          (result.skills ?? []).map((x) => x.name),
+          mergeProjectPlaces(s, installs.filter(putBack)).length,
+        );
+        if (installs.every(putBack) && !(result.removed ?? []).length) {
+          ui.toast(head);
+          onClose();
+        } else setLeft({ result, head });
       }}
     />
   );
@@ -91,7 +99,7 @@ function RollbackConfirm({
 }: {
   record: UpdateRecord;
   onBack: () => void;
-  onRolledBack: (result: RollbackResult, done: boolean) => void;
+  onRolledBack: (result: RollbackResult) => void;
 }) {
   const s = useSnapshot();
   const busy = useBusy();
@@ -100,20 +108,28 @@ function RollbackConfirm({
   const [working, setWorking] = useState(false);
   const places = placedBy(record);
   const skills = (record.skills ?? []).filter((x) => x.from_version_id !== x.to_version_id);
-  // 那次装过的地方现在是符号链接的，装回时换成独立的一份：打开时现查一次，写在确认页上。
-  const [writes, setWrites] = useState<ReturnType<typeof linkWrites> | null>(null);
+  // 「现在」是技能库里这个技能当前的版本(之后又更新过的，回滚也一样换回那次之前);已从库里移除的写那次换上的版本。
+  const current = (x: RecordedSkill) => s.skills.find((k) => k.id === x.skill_id);
+  const versions = useQueries({
+    queries: skills.flatMap((x) => [versionQuery(current(x)?.version_id ?? x.to_version_id), versionQuery(x.from_version_id)]),
+  });
+  const versionsRead = versions.every((q) => !q.isPending);
+  // 那次装过的地方现在是符号链接的，装回时换成独立的一份：打开时现查一次，写在确认页上;查不成时不放行，给出重试。
+  const [writes, setWrites] = useState<ReturnType<typeof linkWrites> | "failed" | null>(null);
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     const wanted = new Set(places.map(placeKey));
     const call = LibraryService.InspectSkillScopes({});
     let alive = true;
-    void ui.run(() => call, { reload: false, busyMark: false }).then((inspected) => {
-      if (alive) setWrites(linkWrites(inspected ?? [], (p) => wanted.has(placeKey(p))));
+    setWrites(null);
+    void ui.read(() => call).then((inspected) => {
+      if (alive) setWrites(inspected === undefined ? "failed" : linkWrites(inspected ?? [], (p) => wanted.has(placeKey(p))));
     });
     return () => {
       alive = false;
       void call.cancel();
     };
-  }, [record.id]);
+  }, [record.id, attempt]);
 
   const run = async () => {
     setWorking(true);
@@ -127,22 +143,27 @@ function RollbackConfirm({
       failed: (r) => (r.installs ?? []).some((x) => x.outcome === RollbackOutcome.RollbackFailed),
     });
     setWorking(false);
-    if (!result) return;
-    const back = mergeProjectPlaces(s, (result.installs ?? []).filter(putBack)).length;
-    const done = (result.installs ?? []).every(putBack) && !(result.removed ?? []).length;
-    if (done) ui.toast(t.rolledBack((result.skills ?? []).map((x) => x.name), back));
-    onRolledBack(result, done);
+    if (result) onRolledBack(result);
   };
 
+  // 回滚进行中不能退出：结果(哪些地方没装回)要在这个弹窗里接着列出来。
+  const back = working ? () => {} : onBack;
   return (
     <Modal
       title={t.rollbackTitle}
       wide
-      onClose={onBack}
+      onClose={back}
       footer={
         <>
-          <Button onClick={onBack}>{tt.common.cancel}</Button>
-          <Button variant="primary" disabled={!writes || (busy && !working)} loading={working} onClick={run}>
+          <Button onClick={back} disabled={working}>
+            {tt.common.cancel}
+          </Button>
+          <Button
+            variant="primary"
+            disabled={!writes || writes === "failed" || !versionsRead || (busy && !working)}
+            loading={working}
+            onClick={run}
+          >
             {t.rollback}
           </Button>
         </>
@@ -151,8 +172,8 @@ function RollbackConfirm({
       <Hint>{t.rollbackLead(formatDate(record.created_at))}</Hint>
       <div className={sectionClass}>{t.rollbackSkills}</div>
       <ListBox className="rollback-skills">
-        {skills.map((x) => (
-          <SkillBack key={x.skill_id} skill={x} />
+        {skills.map((x, i) => (
+          <SkillBack key={x.skill_id} skill={x} name={current(x)?.name ?? x.name} now={versions[2 * i]?.data} back={versions[2 * i + 1]?.data} />
         ))}
         {skills.length === 0 && <ListRow className="text-muted-foreground">{t.rollbackNoSkills}</ListRow>}
       </ListBox>
@@ -169,8 +190,12 @@ function RollbackConfirm({
       ) : (
         <Hint>{t.rollbackNoPlaces}</Hint>
       )}
-      <Hint>{t.rollbackHint}</Hint>
-      {writes ? (
+      <Hint>{record.from_scope ? t.rollbackHintScope(scopeLabel(s, record.from_scope)) : t.rollbackHint}</Hint>
+      {writes === "failed" ? (
+        <Notice alert action={<Button onClick={() => setAttempt((n) => n + 1)}>{t.retry}</Button>}>
+          {t.rollbackCheckFailed}
+        </Notice>
+      ) : writes ? (
         <LinkWriteNotes {...writes} />
       ) : (
         <Hint className="flex items-center gap-1.5">
@@ -186,36 +211,34 @@ const nameOf = (record: UpdateRecord, id: SkillID) => {
   return x && (x.from_name || x.name);
 };
 
-// SkillBack 是确认页上的一个技能：现在是哪一版，回滚后换回哪一版(写来源版本，读不到时写日期);这次更新确认过改名的，名字也改回去。
-function SkillBack({ skill }: { skill: RecordedSkill }) {
+// SkillBack 是确认页上的一个技能：现在是哪一版，回滚后换回哪一版(写来源版本;两边来源版本相同(如用目录里的修改更新过)时补上日期，
+// 读不到来源版本时写日期);这次更新确认过改名的，名字也改回去。
+function SkillBack({ skill, name, now, back }: { skill: RecordedSkill; name: string; now?: SkillVersion; back?: SkillVersion }) {
   const t = useT().update;
-  const [now, back] = useQueries({ queries: [versionQuery(skill.to_version_id), versionQuery(skill.from_version_id)] });
-  const describe = (v: SkillVersion | undefined) => (v ? (v.revision ? shortRevision(v.revision) : v.created_at ? formatDate(v.created_at) : "") : "");
+  const same = !!now?.revision && now.revision === back?.revision;
+  const describe = (v: SkillVersion | undefined) => {
+    if (!v) return "";
+    const date = v.created_at ? formatDate(v.created_at) : "";
+    if (!v.revision) return date;
+    return same && date ? `${shortRevision(v.revision)} · ${date}` : shortRevision(v.revision);
+  };
   return (
     <ListRow compact className="rollback-skill">
-      <b className="min-w-0 truncate font-semibold">{skill.from_name ? t.renameBack(skill.name, skill.from_name) : skill.name}</b>
+      <b className="min-w-0 truncate font-semibold">{skill.from_name && skill.from_name !== name ? t.renameBack(name, skill.from_name) : name}</b>
       <span className="grow" />
-      <span className="shrink-0 font-mono text-caption text-muted-foreground">
-        {t.versionBack(describe(now.data), describe(back.data))}
-      </span>
+      <span className="shrink-0 font-mono text-caption text-muted-foreground">{t.versionBack(describe(now), describe(back))}</span>
     </ListRow>
   );
 }
 
 // RollbackLeft 是回滚之后的结果页：哪些地方没装回、哪些技能已从库里移除，各写原因。
-function RollbackLeft({ result, onDone }: { result: RollbackResult; onDone: () => void }) {
+function RollbackLeft({ result, head, onDone }: { result: RollbackResult; head: string; onDone: () => void }) {
   const s = useSnapshot();
   const t = useT().update;
   const names = new Map<SkillID, string>([...(result.removed ?? []), ...(result.skills ?? [])].map((x) => [x.skill_id, x.name]));
   const name = (id: SkillID) => names.get(id) ?? skillName(s, id);
-  const installs = result.installs ?? [];
-  const back = mergeProjectPlaces(s, installs.filter(putBack)).length;
-  const left = installs.filter((r) => !putBack(r));
+  const left = (result.installs ?? []).filter((r) => !putBack(r));
   const removed = result.removed ?? [];
-  const head = t.rolledBack(
-    (result.skills ?? []).map((x) => x.name),
-    back,
-  );
   return (
     <Modal
       title={t.rollbackDone}
