@@ -436,6 +436,9 @@ func (l *Library) PlanSyncPull(ctx context.Context, backup SyncBackupID) (plan S
 	}
 	image, err := store.OpenImage(ctx, data)
 	if err != nil {
+		if canceled := ctx.Err(); canceled != nil {
+			return SyncPullPlan{}, canceled
+		}
 		reason, ok := cannotPull(err)
 		if !ok {
 			return SyncPullPlan{}, err
@@ -499,6 +502,9 @@ func (l *Library) SyncPull(ctx context.Context, backup SyncBackupID) (err error)
 	}
 	image, err := store.OpenImage(ctx, data)
 	if err != nil {
+		if canceled := ctx.Err(); canceled != nil {
+			return canceled
+		}
 		if reason, ok := cannotPull(err); ok {
 			failure := preconditionError("sync pull", "backup cannot be pulled: "+string(reason), ErrorDetails{})
 			failure.Err = err
