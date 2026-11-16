@@ -466,3 +466,82 @@ func TestRollbackLeavesAProjectRegisteredAfterTheUpdate(t *testing.T) {
 	}
 	requireInstalledFolder(t, directory, "pdf", "v2")
 }
+
+// 更新之后用目录里的修改更新了库里的技能,作者又发布了和这份修改完全相同的内容(检查更新为已是最新);
+// 回滚那次更新,来源没再变时来源里现在的那份(就是这份修改)也带着回滚掉的改动,一并跳过;来源再变了才重新计入。
+func TestRollbackSkipsTheSourceThatCaughtUpWithTheEdits(t *testing.T) {
+	ctx := t.Context()
+	setTestHome(t, t.TempDir())
+	lib := openTestLibrary(t)
+	server := newArchiveServer(t, zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v1")}), "")
+	pdf := fetchArchive(t, lib, server.request())[0]
+	claude := library.GlobalScope(library.AgentClaudeCode)
+	if err := lib.Install(ctx, pdf.ID, claude, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	server.serve(zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v2")}), "")
+	updated, err := lib.Update(ctx, mustPlanUpdate(t, lib, pdf.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory, err := lib.ScopeDirectory(ctx, claude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(directory, "pdf", "SKILL.md"), []byte(skillDocument("pdf", "edited")), 0o644)
+	plan, err := lib.PlanUpdateFromScope(ctx, pdf.ID, claude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.Update(ctx, library.UpdateRequest{Plan: plan.ID, Skills: []library.SkillID{pdf.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	server.serve(zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "edited")}), "")
+	requireCheck(t, lib, pdf.ID, library.UpdateCurrent, false, false)
+	if _, err := lib.Rollback(ctx, updated.Record); err != nil {
+		t.Fatal(err)
+	}
+	got, err := lib.GetSkill(ctx, pdf.ID)
+	if err != nil || got.VersionID != pdf.VersionID || got.LastUpdateCheck.Pending || !got.LastUpdateCheck.Skipped {
+		t.Fatalf("after rollback = %#v, %v; want v1 with the change skipped", got.LastUpdateCheck, err)
+	}
+	requireCheck(t, lib, pdf.ID, library.UpdateAvailable, true, false)
+	server.serve(zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v3")}), "")
+	requireCheck(t, lib, pdf.ID, library.UpdateAvailable, false, true)
+}
+
+// 更新之后用目录里的修改更新了库里的技能,来源一直没变(检查更新为已是最新);回滚那次更新,
+// 跳过的是来源里的那份,不是这份修改,之后检查更新照样不计入。
+func TestRollbackSkipsTheSourceNotTheEditsWhileTheSourceStaysPut(t *testing.T) {
+	ctx := t.Context()
+	setTestHome(t, t.TempDir())
+	lib := openTestLibrary(t)
+	server := newArchiveServer(t, zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v1")}), "")
+	pdf := fetchArchive(t, lib, server.request())[0]
+	claude := library.GlobalScope(library.AgentClaudeCode)
+	if err := lib.Install(ctx, pdf.ID, claude, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	server.serve(zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v2")}), "")
+	updated, err := lib.Update(ctx, mustPlanUpdate(t, lib, pdf.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory, err := lib.ScopeDirectory(ctx, claude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(directory, "pdf", "SKILL.md"), []byte(skillDocument("pdf", "edited")), 0o644)
+	plan, err := lib.PlanUpdateFromScope(ctx, pdf.ID, claude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.Update(ctx, library.UpdateRequest{Plan: plan.ID, Skills: []library.SkillID{pdf.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	requireCheck(t, lib, pdf.ID, library.UpdateCurrent, false, false)
+	if _, err := lib.Rollback(ctx, updated.Record); err != nil {
+		t.Fatal(err)
+	}
+	requireCheck(t, lib, pdf.ID, library.UpdateAvailable, true, false)
+}
