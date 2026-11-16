@@ -163,6 +163,27 @@ export function closeGraph() {
 
 export const doneRestoreScroll = () => set({ restoreScroll: null });
 
+// forgetLibrary 在拉回整库之后作废按旧库的 ID 记下的界面状态：新库里同一个 ID 可能是另一个技能、集合、组或项目。
+// 技能详情关上(没保存的备注草稿随之丢掉，不会存到新库里同一个 ID 的技能上),勾选清空，回到技能库页;
+// 左栏要跳到的那一节、要闪的那一行、关系图页的返回，以及按 ID 记下的展开与收起都作废。
+export function forgetLibrary() {
+  pickRound++;
+  set({
+    page: { kind: "all" },
+    expanded: new Set(),
+    moreAgents: new Set(),
+    flipped: new Set(),
+    unfolded: new Set(),
+    picked: new Set(),
+    anchor: null,
+    jump: null,
+    flash: null,
+    drawer: null,
+    back: null,
+    restoreScroll: null,
+  });
+}
+
 // flashSkill 让刚入库的未纳管技能那一行(这时已是库里技能的一行)滚到看得见的地方闪一下;doneFlash 是闪过了，之后再渲染不再闪。
 export const flashSkill = (skill: SkillID, scope: ScopeKey) => set((v) => ({ flash: { skill, scope, n: (v.flash?.n ?? 0) + 1 } }));
 export const doneFlash = (n: number) => set((v) => (v.flash?.n === n ? { flash: null } : {}));

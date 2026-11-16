@@ -3,6 +3,7 @@
 // - 安装前先看安装计划：不是从库里装的同名文件夹可选覆盖;被另一个技能占用或作用域根目录不存在时只能说明原因。
 // - 组安装逐条返回结果，被跳过的成员列出原因。
 // - 卸载会删掉别处链接指着的文件夹时，库先给那几处换上独立的一份，确认前说出来。
+// - 卸载会删掉被手动改过的文件夹时，确认前列出是哪几处，修改会跟着丢掉。
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
   ErrorCode,
@@ -16,7 +17,7 @@ import {
   type SkillID,
   type SkillScopeInspection,
 } from "@bindings/internal/library";
-import { detachedBy } from "@/lib/consent";
+import { detachedBy, lostEdits } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
 import { currentSnapshot, toLibraryError, type Snapshot } from "@/lib/library";
@@ -40,8 +41,7 @@ import {
 import { ui } from "@/lib/ui";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
-import { lostEdits } from "@/features/skill/remove";
-import { DetachNotice, SharedFolders } from "@/components/app/link-notes";
+import { DetachNotice, LostEdits, SharedFolders } from "@/components/app/link-notes";
 import { memberRows, showResults, summarizeMembers, type ResultRow } from "@/components/app/results";
 
 export async function installSkill(id: SkillID, scope: Scope) {
@@ -153,7 +153,11 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
   const s = currentSnapshot();
   const t = messages().actions;
   if (!items.length) return false;
-  const settled = await ui.run(() => Promise.allSettled(items.map((x) => LibraryService.PlanInstall(x.skill.id, x.scope))), { reload: false });
+  // 看安装计划就出错的那几处算失败：顶栏画叉，和结果列表一致。
+  const settled = await ui.run(() => Promise.allSettled(items.map((x) => LibraryService.PlanInstall(x.skill.id, x.scope))), {
+    reload: false,
+    failed: (results) => results.some((r) => r.status === "rejected"),
+  });
   if (!settled) return false;
   const several = new Set(items.map((x) => scopeKey(x.scope))).size > 1;
   const label = (skill: Skill, scope: Scope) => (several ? `${skill.name} · ${scopeLabel(s, scope)}` : skill.name);
@@ -186,7 +190,7 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
     overwrite = choice === "overwrite";
   }
   let installed = 0;
-  let failed = false;
+  let failed = planned.length < items.length;
   await ui.run(async () => {
     for (const { skill, scope, plan } of planned) {
       const isUntracked = plan.status === InstallPlanStatus.InstallUntracked;
@@ -224,10 +228,13 @@ export async function uninstallSkill(id: SkillID, scope: Scope) {
   // 全局共用目录：从其中一个卸载会撤销共用的各个 Agent 的直接安装，文件夹随之删除，先说明还有哪些 Agent 在用。
   // 项目里共用目录的几个 Agent 在界面上本来就是一处、名字里写着它们，不再另说。
   // 别处的符号链接指着这个文件夹时，删之前库先给那几处换上独立的一份，也先说明。
+  // 文件夹被手动改过时，卸载会把修改一起删掉，先列出是哪几处。没有组安装留着时文件夹才删。
   const place = skillScopeIn(s, id, scopeKey(scope));
   const shared = place ? sharedWithNote(place) : [];
-  const detached = detachedBy(place?.direct && !place.groups?.length ? folderPlaces(s, [place]) : []);
-  if (place && (shared.length || detached.length)) {
+  const deleted = place?.direct && !place.groups?.length ? folderPlaces(s, [place]) : [];
+  const detached = detachedBy(deleted);
+  const lost = lostEdits(deleted);
+  if (place && (shared.length || detached.length || lost.length)) {
     const ok = await ui.confirm({
       title: t.uninstallTitle(skillName(s, id)),
       body: (
@@ -241,6 +248,7 @@ export async function uninstallSkill(id: SkillID, scope: Scope) {
               )}
             </Notice>
           )}
+          <LostEdits places={lost} />
           <DetachNotice items={detached} when="delete" />
         </>
       ),
@@ -261,7 +269,7 @@ export async function uninstallSkill(id: SkillID, scope: Scope) {
 
 
 // uninstallSkills 从 scopes 卸载勾选的技能(底部操作栏的"从这里卸载",项目页是项目里的各个 Agent):撤销它们的直接安装。
-// 一批卸载先确认一次：会删掉几个文件夹、其中几处被改过，全局共用的文件夹还有哪些 Agent 在用，别处链接指着的先换上独立的一份。
+// 一批卸载先确认一次：会删掉几个文件夹、其中被手动改过的是哪几处，全局共用的文件夹还有哪些 Agent 在用，别处链接指着的先换上独立的一份。
 // 只随组安装的跳过并说明;有跳过或失败的才列出结果。返回是否至少卸载了一处：没有可卸载的、取消了、都失败了时是 false。
 export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: string): Promise<boolean> {
   const s = currentSnapshot();
@@ -282,7 +290,8 @@ export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: st
     title,
     body: (
       <>
-        <Hint>{t.uninstallPickedHint(new Set(deleted.map(folderKey)).size, lostEdits(deleted), viaGroup.length)}</Hint>
+        <Hint>{t.uninstallPickedHint(new Set(deleted.map(folderKey)).size, viaGroup.length)}</Hint>
+        <LostEdits places={lostEdits(deleted)} />
         {shared.length > 0 && (
           <>
             <Notice alert>{t.uninstallPickedShared}</Notice>
@@ -385,7 +394,9 @@ export async function uninstallGroup(groupID: GroupID, scope: Scope) {
     });
   const removed = gone.filter((p) => sharedWithNote(p).length);
   const detached = detachedBy(folderPlaces(s, gone));
-  if (removed.length || detached.length) {
+  // 要删的文件夹被手动改过时，修改会一起删掉，先列出是哪几处。
+  const lost = lostEdits(folderPlaces(s, gone));
+  if (removed.length || detached.length || lost.length) {
     const ok = await ui.confirm({
       title: t.groupUninstallTitle(groupName(s, groupID), scopeLabel(s, scope)),
       body: (
@@ -396,6 +407,7 @@ export async function uninstallGroup(groupID: GroupID, scope: Scope) {
               <SharedFolders places={removed} />
             </>
           )}
+          <LostEdits places={lost} />
           <DetachNotice items={detached} when="delete" />
         </>
       ),

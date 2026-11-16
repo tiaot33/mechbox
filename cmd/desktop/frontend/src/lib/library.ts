@@ -70,16 +70,24 @@ export const queryClient = new QueryClient({
 });
 
 // stable 标记写操作后不用重读的查询：内容只由 key 决定(某个版本的文件列表),或者来自技能库以外(skills.sh 的审计)。
+// ids 标记 key 里带技能库 ID(技能、版本、集合、组、项目)的查询：拉回整库之后，新库里同一个 ID 可能是另一样东西。
 declare module "@tanstack/react-query" {
   interface Register {
-    queryMeta: { stable?: boolean };
+    queryMeta: { stable?: boolean; ids?: boolean };
   }
 }
-const stable = { stable: true };
+const ids = { ids: true };
+const stableIDs = { stable: true, ids: true };
 
 // reloadLibrary 让查询缓存失效，界面上正在用的查询立即重读，其余的下次用到时再读;重读期间保留旧数据，界面不闪"加载中"。
 export function reloadLibrary(): Promise<void> {
   return queryClient.invalidateQueries({ predicate: (q: Query) => !q.meta?.stable });
+}
+
+// forgetLibraryIDs 在拉回整库之后丢掉 key 里带技能库 ID 的查询缓存(包括写操作后不重读的版本、文件列表与审计):
+// 新库里同一个 ID 可能是另一个技能或版本，旧内容一刻也不再显示;正在用的随即重读，其余下次用到时再读。
+export function forgetLibraryIDs(): Promise<void> {
+  return queryClient.resetQueries({ predicate: (q: Query) => !!q.meta?.ids });
 }
 
 // wails 把绑定返回的可取消调用接到查询的 signal 上：查询被取消(组件卸载、重读)时取消 Go 端的调用。
@@ -220,21 +228,23 @@ export function scopeDirectoryQuery(scope: ScopeKey | null, home: string | undef
     queryKey: ["scope-directory", scope, home],
     queryFn: ({ signal }) => wails(signal, LibraryService.ScopeDirectory(parseScope(scope!))),
     enabled: !!scope,
+    meta: ids,
   });
 }
 
-// 版本按 ID 读，内容不会变：浏览途中技能被更新，读到的仍是同一版本。
+// 版本按 ID 读，在同一个库里内容不会变：浏览途中技能被更新，读到的仍是同一版本;拉回整库之后重读(forgetLibraryIDs)。
 export const versionQuery = (id: VersionID) =>
-  queryOptions({ queryKey: ["version", id], queryFn: ({ signal }) => wails(signal, LibraryService.GetVersion(id)), meta: stable });
+  queryOptions({ queryKey: ["version", id], queryFn: ({ signal }) => wails(signal, LibraryService.GetVersion(id)), meta: stableIDs });
 
 export const versionFilesQuery = (id: VersionID) =>
-  queryOptions({ queryKey: ["version-files", id], queryFn: ({ signal }) => list(wails(signal, LibraryService.ListVersionFiles(id))), meta: stable });
+  queryOptions({ queryKey: ["version-files", id], queryFn: ({ signal }) => list(wails(signal, LibraryService.ListVersionFiles(id))), meta: stableIDs });
 
 // versionFileQuery 读某个版本里的一个文件：内容不会变，但带着的译文会变(翻译、拉回),所以随写操作重读。
 export const versionFileQuery = (id: VersionID, path: string) =>
   queryOptions({
     queryKey: ["version-file", id, path],
     queryFn: ({ signal }) => wails(signal, LibraryService.GetVersionFile(id, path)),
+    meta: ids,
   });
 
 // versionsQuery 是一个技能的版本历史;更新、回滚、重新读取后有新版本，随写操作重读。
@@ -247,17 +257,19 @@ export const versionsQuery = (skillID: SkillID) =>
       if (!s.skills.some((x) => x.id === skillID)) return [];
       return list(wails(signal, LibraryService.ListVersions(skillID)));
     },
+    meta: ids,
   });
 
-// skillAuditQuery 是 skills.sh 上这个技能的审计，写操作后不重读，用户点重试时才重查。
+// skillAuditQuery 是 skills.sh 上这个技能的审计，写操作后不重读，用户点重试或拉回整库之后才重查。
 export const skillAuditQuery = (skillID: SkillID) =>
-  queryOptions({ queryKey: ["skill-audit", skillID], queryFn: ({ signal }) => wails(signal, LibraryService.GetSkillAudit(skillID)), meta: stable });
+  queryOptions({ queryKey: ["skill-audit", skillID], queryFn: ({ signal }) => wails(signal, LibraryService.GetSkillAudit(skillID)), meta: stableIDs });
 
 // updateHistoryQuery 是更新历史;回滚、重试之后随写操作重读。
 export const updateHistoryQuery = (filter: UpdateHistoryFilter) =>
   queryOptions({
     queryKey: ["update-history", filter],
     queryFn: ({ signal }) => list(wails(signal, LibraryService.ListUpdateHistory(filter))),
+    meta: ids,
   });
 
 // mentionsQuery 是关系图里集合或组的技能提到了哪些技能，以及还有几处单个词的技能名没交给 AI 判断;
@@ -267,6 +279,7 @@ export const mentionsQuery = (filter: MentionsFilter) =>
     queryKey: ["mentions", filter],
     queryFn: ({ signal }) =>
       wails(signal, LibraryService.ListMentions(filter)).then((result) => ({ mentions: result.mentions ?? [], unjudged: result.unjudged })),
+    meta: ids,
   });
 
 // 这台机器上装的 WSL 发行版，与设置里选的发行版启动时没能打开的原因。

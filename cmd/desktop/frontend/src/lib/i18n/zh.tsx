@@ -154,6 +154,7 @@ export const zh = {
       `${folder} 还被 ${agents.join("、")} 共用。` +
       (grouped ? "卸载会撤销这几个 Agent 的直接安装；还有组安装留着它，文件夹不删。" : "卸载会删除这个文件夹，这几个 Agent 都不再算已装。"),
     uninstall: "卸载",
+    losesEdits: (n: number) => `下面 ${n} 处被手动改过：卸载会删掉文件夹，这些修改会跟着丢掉、找不回来。`,
     uninstalled: (name: string, scope: string) => `已卸载「${name}」在 ${scope} 的直接安装`,
     onlyViaGroup: "这个技能只随组安装，没有直接安装可卸载；请在对应的组上卸载",
     groupInstallTitle: (group: string, scope: string) => `把「${group}」组安装到 ${scope}`,
@@ -271,9 +272,9 @@ export const zh = {
     pickedInstalled: (n: number, where: string) => `已把 ${n} 个技能装到 ${where}`,
     pickedNothingDirect: (where: string) => `勾选的技能在 ${where} 都没有直接安装，没有可卸载的`,
     uninstallPickedTitle: (n: number, where: string) => `从 ${where} 卸载 ${n} 个技能`,
-    uninstallPickedHint: (folders: number, edited: number, viaGroup: number) =>
+    uninstallPickedHint: (folders: number, viaGroup: number) =>
       [
-        folders ? `撤销它们的直接安装，删除 ${folders} 个技能文件夹${edited ? `；其中 ${edited} 处被改过，改动会丢掉` : ""}` : "撤销它们的直接安装；还有组安装留着它们，文件夹不删",
+        folders ? `撤销它们的直接安装，删除 ${folders} 个技能文件夹` : "撤销它们的直接安装；还有组安装留着它们，文件夹不删",
         viaGroup ? `${viaGroup} 处只随组安装，跳过，请在对应的组上卸载` : "",
       ]
         .filter(Boolean)

@@ -1,16 +1,13 @@
 // 移除技能，以及来源里已删除的技能选"继续保留"。
 import { LibraryService } from "@bindings/cmd/desktop";
-import { FolderPolicy, SkillScopeStatus, type SkillID, type SkillScopeInspection } from "@bindings/internal/library";
+import { FolderPolicy, type SkillID } from "@bindings/internal/library";
+import { lostEdits } from "@/lib/consent";
 import { messages } from "@/lib/i18n";
 import { currentSnapshot } from "@/lib/library";
 import { mergedScopeKey, mergeProjectPlaces, skillName, skillScopesOf } from "@/lib/model";
 import { ui } from "@/lib/ui";
 import { Hint } from "@/components/ui/field";
 import { runEach, showResults } from "@/components/app/results";
-
-// lostEdits 是删除这些文件夹时有几处的改动会丢掉(状态取自快照里的巡检;共用目录的几个 Agent 共用一个文件夹，只算一处)。
-export const lostEdits = (places: SkillScopeInspection[]) =>
-  new Set(places.filter((p) => p.status === SkillScopeStatus.SkillScopeModified).map((p) => p.folder)).size;
 
 export async function removeSkill(id: SkillID) {
   const s = currentSnapshot();
@@ -20,7 +17,7 @@ export async function removeSkill(id: SkillID) {
   const choice = await ui.confirm({
     title: t.removeSkillTitle(skillName(s, id)),
     body: <Hint>{t.removeSkillHint}</Hint>,
-    choices: installed ? folderChoices(t.removeFromScopes(installed, lostEdits(places))) : undefined,
+    choices: installed ? folderChoices(t.removeFromScopes(installed, lostEdits(places).length)) : undefined,
     confirm: t.remove,
     danger: true,
   });
@@ -44,7 +41,7 @@ export async function removeSkills(ids: SkillID[]): Promise<boolean> {
   const choice = await ui.confirm({
     title: t.removeSkillsTitle(ids.length),
     body: <Hint>{t.removeSkillsHint}</Hint>,
-    choices: scopes ? folderChoices(t.removeFromScopes(scopes, lostEdits(places))) : undefined,
+    choices: scopes ? folderChoices(t.removeFromScopes(scopes, lostEdits(places).length)) : undefined,
     confirm: t.remove,
     danger: true,
   });

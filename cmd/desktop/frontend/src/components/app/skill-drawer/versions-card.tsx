@@ -1,5 +1,5 @@
 // 技能详情里的版本历史：与当前版本比较(打开比较弹窗看逐行差异),查看旧版本的文件。
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
 import type { FileMetadata, SkillVersion, VersionID } from "@bindings/internal/library";
 import { compareVersions } from "@/features/update/version-compare";
@@ -28,12 +28,19 @@ export function VersionsCard({ name, versions, currentID }: { name: string; vers
 
   const compare = (v: SkillVersion, origin: Element) =>
     compareVersions({ title: t.compareTitle(name, number.get(v.id)), from: v.id, to: currentID, origin });
+  // 界面上只显示最后点的那一次「查看文件」:先点的读取晚返回、点了收起之后才返回的读取都不采用。
+  const latest = useRef(0);
   const view = async (v: SkillVersion) => {
+    const n = ++latest.current;
     const files = await ui.run(() => LibraryService.ListVersionFiles(v.id), { reload: false });
-    if (files !== undefined) {
+    if (files !== undefined && n === latest.current) {
       setViewing({ id: v.id, files: files ?? [] });
       setViewPath(files?.[0]?.path ?? "");
     }
+  };
+  const collapse = () => {
+    latest.current++;
+    setViewing(null);
   };
 
   const notes = (v: SkillVersion) => [v.based_on ? t.basedOn(number.get(v.based_on)) : "", v.maybe_edited ? t.maybeEdited : ""].filter(Boolean);
@@ -78,7 +85,7 @@ export function VersionsCard({ name, versions, currentID }: { name: string; vers
               ))}
             </NativeSelect>
             <span className="grow" />
-            <Button variant="ghost" size="inline" onClick={() => setViewing(null)}>
+            <Button variant="ghost" size="inline" onClick={collapse}>
               {t.collapse}
             </Button>
           </div>

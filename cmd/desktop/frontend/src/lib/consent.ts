@@ -3,6 +3,7 @@
 // - 用户改过的地方、文件夹不在了的地方默认不动，勾上(或选"装回去")才覆盖、才装回去。
 // - 用户改过的技能有变化时默认不勾，跳过的改动、来源里已删除的技能、推测出的改名都不默认勾。
 // - 库写到符号链接那一处、删掉被别处链接指着的文件夹之前，先说出来。
+// - 卸载、移除会删掉被手动改过的文件夹时，先说出是哪几处，用户确认后才删。
 // - 整批入库时，归项目仓库管的、指向 Agent 目录以外的、库里技能在来源里的新版默认不接，用户自己的照常默认勾上。
 // - 更新时，在 app 外已经更新到作者新版的那一处照常勾上、不算覆盖用户的修改。
 // - 照着另一个 Agent、另一个项目装时，有不是库装的同名文件夹的默认不覆盖，勾上才覆盖。
@@ -168,6 +169,19 @@ export function detachedBy(touched: SkillScopeInspection[]): Detached[] {
 export function linkWrites(places: SkillScopeInspection[], written: (p: SkillScopeInspection) => boolean) {
   const chosen = places.filter(written);
   return { links: chosen.filter((p) => p.link_target), kept: detachedBy(chosen) };
+}
+
+// ---------- 删除文件夹 ----------
+
+// lostEdits 是删掉 deleted 这几处的文件夹时，修改会跟着丢掉的地方：被手动改过的(在 app 外更新到作者新版的不算，
+// 那是作者的内容)。共用一个文件夹的几处只算一处。
+export function lostEdits(deleted: SkillScopeInspection[]): SkillScopeInspection[] {
+  const folders = new Set<string>();
+  return deleted.filter((p) => {
+    if (!edited(p) || folders.has(folderKey(p))) return false;
+    folders.add(folderKey(p));
+    return true;
+  });
 }
 
 // ---------- 整批入库 ----------

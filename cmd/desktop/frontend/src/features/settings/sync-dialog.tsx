@@ -2,16 +2,17 @@
 // 拉回先列出所有机器的备份，默认选别的机器里最新的一份(新机器开着自动推送时，本机刚推的那份几乎是空的),看它的同步计划，用户确认后用它替换本机的库;列出之后那份备份被删掉或改写返回 Conflict,重新列出。
 // 拉回不动 Agent 目录：之后把不在这台机器上的项目改到本机位置，再在各作用域重新安装。
 // 拉回的库带着推送那台机器的设置(界面语言等),拉回后界面语言随之切换;这台机器上拖出来的集合与组的先后清掉，旧库的 ID 对不上新库。
+// 按旧库的 ID 记下的界面状态与查询缓存都作废(技能详情关上、勾选清空，版本、文件列表与审计重新读取)。
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AppService, LibraryService } from "@bindings/cmd/desktop";
 import { CannotPullReason, ErrorCode, type SyncBackup, type SyncBackupID, type SyncPullPlan } from "@bindings/internal/library";
 import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
-import { invalidateSyncStatus, syncSettingsQuery, type LibraryError } from "@/lib/library";
+import { forgetLibraryIDs, invalidateSyncStatus, syncSettingsQuery, type LibraryError } from "@/lib/library";
 import { messages, toLanguage, useLanguage, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
-import { clearPicked } from "@/lib/view";
+import { forgetLibrary } from "@/lib/view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
@@ -91,8 +92,10 @@ export function SyncDialog({ onClose }: { onClose: () => void }) {
     });
     setWorking(null);
     if (done) {
-      // 拉回的是另一份库：旧库的 ID 会套到新库的别的技能上，勾选作废。
-      clearPicked();
+      // 拉回的是另一份库：旧库的 ID 会套到新库的别的技能上。按 ID 记下的界面状态(技能详情、备注草稿、勾选)作废，
+      // 按 ID 缓存的版本、文件列表与审计重新读取。
+      forgetLibrary();
+      void forgetLibraryIDs();
       setPull(null);
       setPulled(true);
       await AppService.Language().then((l) => setLanguage(toLanguage(l)), () => {});

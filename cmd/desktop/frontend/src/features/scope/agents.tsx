@@ -1,7 +1,7 @@
 // 自定义 Agent:添加、编辑(改目录时可选把装着的技能搬过去)、删除。
 import { LibraryService } from "@bindings/cmd/desktop";
 import { FolderPolicy, MigrationOutcome, type Agent, type CustomAgent, type Scope } from "@bindings/internal/library";
-import { detachedBy } from "@/lib/consent";
+import { detachedBy, lostEdits } from "@/lib/consent";
 import { messages } from "@/lib/i18n";
 import { currentSnapshot, type LibraryError } from "@/lib/library";
 import { folderPlaces, placeOf, projectName, shortPath, skillName } from "@/lib/model";
@@ -10,7 +10,6 @@ import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { DetachNotice, SharedFolders } from "@/components/app/link-notes";
 import { showResults } from "@/components/app/results";
-import { lostEdits } from "@/features/skill/remove";
 
 export async function addAgent(input: CustomAgent, onInvalid: (err: LibraryError) => boolean): Promise<boolean> {
   const added = await ui.run(() => LibraryService.AddAgent(input), {
@@ -110,7 +109,7 @@ export async function deleteAgent(agent: Agent) {
           {
             value: FolderPolicy.Remove,
             label: t.removeInstalled,
-            desc: t.removeFolders(own.length, lostEdits(own)),
+            desc: t.removeFolders(own.length, lostEdits(own).length),
           },
           { value: FolderPolicy.Keep, label: t.keepInstalled, desc: t.keepAgentFoldersDesc },
         ]
