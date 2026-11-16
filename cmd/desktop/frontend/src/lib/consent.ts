@@ -231,6 +231,15 @@ export function fetchPlan(plan: PlannedUnmanagedSkill[]): PlannedUnmanagedSkill[
   return split.map((p) => ({ ...p, selected: ownEntry(p) && (!p.conflict || newest.get(p.name) === p) }));
 }
 
+// sameFolderElsewhere 是一条计划入库时库会一并记下的别处：各处文件夹的 same_folder 里、不在这一条里的作用域
+// (经符号链接是同一个文件夹，见 UnmanagedSkill.same_folder)。确认前写出来，不让用户以为只动了勾上的那几处。
+export function sameFolderElsewhere(p: PlannedUnmanagedSkill): Scope[] {
+  const own = new Set((p.folders ?? []).map((f) => scopeKey(f.scope)));
+  const elsewhere = new Map<string, Scope>();
+  for (const f of p.folders ?? []) for (const sc of f.same_folder ?? []) if (!own.has(scopeKey(sc))) elsewhere.set(scopeKey(sc), sc);
+  return [...elsewhere.values()];
+}
+
 // toggleFetchGroup 是整批入库确认里一组(同一来源，或没有来源)标题上的勾选：组里有勾上的就整组取消;
 // 一个都没勾时整组勾上，默认不接的(在项目仓库里的、指向 Agent 目录以外的)也勾上：用户自己点的，提醒照常写出来。
 export function toggleFetchGroup(picked: ReadonlySet<number>, members: number[]): Set<number> {

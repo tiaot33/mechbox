@@ -2326,13 +2326,14 @@ export interface UnmanagedSkill {
 
     /**
      * SameFolder 是别的作用域里和这一处解析符号链接后是同一个文件夹的未纳管技能(如 npx skills 的布局:Claude Code 的目录里是链接,
-     * 真实文件夹在 Codex 的目录里),按 Agent、作用域排序;入库这一处时(FetchUnmanaged)一并记为装在那里,确认前界面据此说明。
-     * 共用目录的 Agent 不在这里。没有时为空。
+     * 真实文件夹在 Codex 的目录里),按 Agent、作用域排序;入库这一处时(FetchUnmanaged、FetchUnmanagedSkills)一并记为装在那里,
+     * 确认前界面据此说明。不限于这次列出的作用域,读不出来的作用域不算;共用目录的 Agent、归项目仓库管的那一处(InRepository、
+     * InProjectLock)不在这里,入库时也不一并记下。没有时为空。
      */
     "same_folder"?: Scope[] | null;
 
     /**
-     * Invalid 不为 nil 时,文件夹根上的 SKILL.md 不是有效的技能描述,给出哪里写错了:这个文件夹不能入库
+     * Invalid 不为 nil 时,文件夹根上的 SKILL.md 不是有效的技能描述,给出哪里写错了(SKILL.md 超出列出时的读取上限时不判断):这个文件夹不能入库
      * (FetchUnmanaged 返回 SourceInvalid,整批入库的计划里这一条带 Error),界面在作用域里就据此说明,不给入库的按钮。
      */
     "invalid"?: SkillFileProblem | null;

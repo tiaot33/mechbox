@@ -13,8 +13,8 @@ import {
 } from "@bindings/internal/library";
 import { describeError, unmanagedSourceError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
-import { toLibraryError, useFoundSources, withFoundSource } from "@/lib/library";
-import { fetchPlan, toggleFetchGroup } from "@/lib/consent";
+import { toLibraryError, useFoundSources, useLoadedSnapshot, withFoundSource } from "@/lib/library";
+import { fetchPlan, sameFolderElsewhere, toggleFetchGroup } from "@/lib/consent";
 import { agentNameIn, homePath, outsideLinkNote, placeOf, repoOwned, scopeLabel, scopeOf, skillFileProblemText } from "@/lib/model";
 import { Modal, ui, useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
@@ -154,6 +154,9 @@ function FetchUnmanagedDialog({
       : agentNameIn({ agents, agentsShown }, scope.agent, placeOf(scope));
   const agentNames = (planned: PlannedUnmanagedSkill) =>
     t.agents([...new Set(foldersOf(planned).map((f) => placeName(f.scope)))]);
+  // 一并记下的别处可能不在这次的范围里，写成完整的作用域。
+  const projects = useLoadedSnapshot()?.projects ?? (where.kind === "everywhere" ? where.projects : where.kind === "project" ? [where.project] : []);
+  const sameFolder = (planned: PlannedUnmanagedSkill) => sameFolderElsewhere(planned).map((sc) => scopeLabel({ agents, agentsShown, projects }, sc));
 
   const usable = plan.flatMap((p, i) => (p.error ? [] : [i]));
   const unusable = plan.filter((p) => p.error);
@@ -309,6 +312,7 @@ function FetchUnmanagedDialog({
                     sameNameInLibrary={library.has(plan[i].name)}
                     elsewhere={where.kind === "scope" ? elsewhereOf(where.elsewhere, plan[i]) : undefined}
                     agents={agentNames(plan[i])}
+                    sameFolder={sameFolder(plan[i])}
                     edit={edit(i)}
                   />
                 ))}
@@ -337,6 +341,7 @@ function FetchUnmanagedDialog({
                     onPick={() => choose(members, i)}
                     home={home}
                     agents={agentNames(plan[i])}
+                    sameFolder={sameFolder(plan[i])}
                     edit={edit(i)}
                   />
                 ))}

@@ -20,6 +20,7 @@ import {
   unmanagedIn,
   wslTitle,
   type ScopeKey,
+  fetchable,
 } from "@/lib/model";
 import type { Level } from "@/lib/level";
 import { cn } from "@/lib/utils";
@@ -146,8 +147,8 @@ export function ProjectSummary({ project, total, unmanaged }: { project: Registe
   const c = useT().copy;
   const others = s.skillScopes.some((p) => !!p.scope.project_id && p.scope.project_id !== project.id);
   const name = projectName(s, project.id);
-  // 不是库装的文件夹都算(和库里某个技能一样的也算：入库只记下装在这里):有就在顶部放一次入库的入口。
-  const notOurs = new Set(s.unmanaged.filter((u) => placeOf(u.scope) === project.id).map((u) => u.folder));
+  // 不是库装的文件夹都算(和库里某个技能一样的也算：入库只记下装在这里;SKILL.md 写错了的不算):有就在顶部放一次入库的入口。
+  const notOurs = new Set(s.unmanaged.filter((u) => placeOf(u.scope) === project.id && fetchable(u)).map((u) => u.folder));
   const identical = new Set(s.unmanaged.filter((u) => placeOf(u.scope) === project.id && !!u.skill_id).map((u) => u.folder)).size;
   return (
     <div className={cn(barClass, nameIndent, "pr-3")}>

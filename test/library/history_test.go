@@ -197,6 +197,32 @@ func TestRollbackAlsoSkipsTheNewerRevisionAlreadySeen(t *testing.T) {
 	}
 }
 
+// 回滚较早的一次更新:之后那次更新已经跟上了来源,来源里现在的那份同样带着回滚掉的改动,一并跳过。
+func TestRollingBackAnEarlierUpdateSkipsWhatTheSourceHasNow(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	server := newArchiveServer(t, zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v1")}), "")
+	pdf := fetchArchive(t, lib, server.request())[0]
+	server.serve(zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v2")}), "")
+	first, err := lib.Update(ctx, mustPlanUpdate(t, lib, pdf.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.serve(zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v3")}), "")
+	if _, err := lib.Update(ctx, mustPlanUpdate(t, lib, pdf.ID)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.Rollback(ctx, first.Record); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := lib.GetSkill(ctx, pdf.ID); err != nil || got.VersionID != pdf.VersionID || got.LastUpdateCheck.Pending || !got.LastUpdateCheck.Skipped {
+		t.Fatalf("after rollback = %#v, %v; want v1 with the change skipped", got.LastUpdateCheck, err)
+	}
+	if check := checkedSkill(t, lib, pdf.ID); check.Status != library.UpdateAvailable || check.Pending || !check.Skipped {
+		t.Fatalf("rechecked after rollback = %#v; want v3 skipped", check)
+	}
+}
+
 func TestRollbackOfAnEarlierUpdateAndOfARemovedSkill(t *testing.T) {
 	ctx := t.Context()
 	lib := openTestLibrary(t)

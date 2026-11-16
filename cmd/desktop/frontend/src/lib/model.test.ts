@@ -52,6 +52,9 @@ import {
   projectSkillCount,
   identicalState,
   sameNameNote,
+  pageListing,
+  deletionPending,
+  fetchable,
   scopeHereCount,
   skillFileProblemText,
   scopeListing,
@@ -301,6 +304,9 @@ describe("scopeListing", () => {
     const withFolders = { ...s, unmanaged: [copy, unmanaged("mine", "claude-code", 1), unmanaged("g", "claude-code")] };
     expect(scopeHereCount(withFolders, "claude-code@1")).toBe(4);
     expect(scopeHereCount(withFolders, "claude-code@0")).toBe(2);
+    // 右栏收起时顶栏读 pageListing 的 total:和右栏、摘要标题同一个数，来自全局的另算在 global 里。
+    const page = pageListing(withFolders, { kind: "scope", scope: "claude-code@1" }, "collection", "");
+    expect(page.kind === "scope" && [page.total, page.global]).toEqual([4, 2]);
   });
 
   it("搜索时两块都只留匹配的", () => {
@@ -862,6 +868,12 @@ describe("changePending", () => {
     expect(changePending(tracked({ status: UpdateCheckStatus.UpdateDeleted, renamed_to: "bar", skipped: true }))).toBe(false);
     expect(changePending(tracked({ status: UpdateCheckStatus.UpdateDeleted, pending: true }))).toBe(false);
   });
+
+  it("来源里已删除的另算：集合标题和技能行都按 deletionPending,选了继续保留的不算", () => {
+    expect(deletionPending(tracked({ status: UpdateCheckStatus.UpdateDeleted, pending: true }))).toBe(true);
+    expect(deletionPending(tracked({ status: UpdateCheckStatus.UpdateDeleted }))).toBe(false);
+    expect(deletionPending(tracked({ status: UpdateCheckStatus.UpdateDeleted, renamed_to: "bar", pending: true }))).toBe(false);
+  });
 });
 
 describe("skillFileProblemText", () => {
@@ -869,8 +881,13 @@ describe("skillFileProblemText", () => {
     expect(skillFileProblemText({ kind: SkillFileProblemKind.SkillFileUnquotedColon, line: 3 })).toBe(
       'SKILL.md 第 3 行：值里带「: 」，整个值要加上引号（如 description: "Use when: …"）',
     );
-    expect(skillFileProblemText({ kind: SkillFileProblemKind.SkillFileNoDescription })).toBe("SKILL.md 的 frontmatter 里没有 description");
+    expect(skillFileProblemText({ kind: SkillFileProblemKind.SkillFileNoDescription })).toBe("SKILL.md 的 frontmatter 里没有 description，或 description 不是文本");
     expect(skillFileProblemText({ kind: "later" as SkillFileProblemKind })).toBe("SKILL.md 写得不对");
+  });
+
+  it("SKILL.md 写错了的不能入库：整批入库的入口不算它", () => {
+    expect(fetchable(unmanaged("ok", "claude-code"))).toBe(true);
+    expect(fetchable({ ...unmanaged("broken", "claude-code"), invalid: { kind: SkillFileProblemKind.SkillFileInvalidYAML } })).toBe(false);
   });
 });
 

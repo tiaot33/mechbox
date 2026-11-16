@@ -15,8 +15,10 @@ func TestParseSkillMDNamesTheProblemAndTheLine(t *testing.T) {
 		{"---\nname: x\ndescription: y\n", UnclosedFrontmatter, 0},
 		{"---\nname: x\ndescription: Use when: you need it\n---\n", UnquotedColon, 3},
 		{"---\nname: x\ndescription: [unclosed\n---\n", InvalidYAML, 0},
+		{"---\nname: x\nname: y\ndescription: z\n---\n", InvalidYAML, 3},
 		{"---\ndescription: y\n---\n", InvalidName, 0},
 		{"---\nname: x\n---\n", NoDescription, 0},
+		{"---\nname: x\ndescription: 123\n---\n", NoDescription, 0},
 	}
 	for _, c := range cases {
 		_, err := ParseSkillMD([]byte(c.content), "x")

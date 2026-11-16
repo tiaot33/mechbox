@@ -17,7 +17,7 @@ import {
   updatableCollections,
   updateAvailable,
 } from "@/lib/model";
-import { knownRisks, rememberPlanRisks, snapshotRiskKey } from "@/lib/plan-risks";
+import { knownRisks, ReadRetries, rememberPlanRisks, snapshotRiskKey } from "@/lib/plan-risks";
 import { useBusy, useUI } from "@/lib/ui";
 import { riskSummary } from "@/features/update/risks";
 import { openUpdate, updateWithDefaults } from "@/features/update/update";
@@ -132,28 +132,34 @@ const maxTries = 3;
 
 function usePlanRisks(s: Snapshot, collections: Collection[]): Map<CollectionID, string> {
   const ui = useUI();
-  const keys = collections.map((c) => [c.id, snapshotRiskKey(c.id, collectionSkills(s, c))] as const);
+  const keys = collections.map((c) => {
+    const skills = collectionSkills(s, c);
+    return [c.id, snapshotRiskKey(c.id, skills), skills] as const;
+  });
   const [version, setVersion] = useState(0);
   const calls = useRef(new Map<string, CancellablePromise<unknown>>());
   const settled = useRef(new Set<string>());
-  const tries = useRef(new Map<string, number>());
+  const retries = useRef(new ReadRetries(retryDelay, maxTries));
+  const timers = useRef(new Set<number>());
   const wanted = keys.map(([, key]) => key).join("|");
 
   useEffect(() => {
     const running = calls.current;
+    const waiting = timers.current;
     return () => {
       for (const call of running.values()) void call.cancel();
       running.clear();
+      waiting.forEach((t) => window.clearTimeout(t));
+      waiting.clear();
     };
   }, []);
 
   useEffect(() => {
     const current = new Set(keys.map(([, key]) => key));
     for (const key of settled.current) if (!current.has(key)) settled.current.delete(key);
-    const timers: number[] = [];
-    for (const [id, key] of keys) {
-      if (knownRisks(key) || calls.current.has(key) || settled.current.has(key) || (tries.current.get(key) ?? 0) >= maxTries) continue;
-      tries.current.set(key, (tries.current.get(key) ?? 0) + 1);
+    for (const [id, key, skills] of keys) {
+      if (knownRisks(key, skills) || calls.current.has(key) || settled.current.has(key) || !retries.current.canRead(key, Date.now())) continue;
+      retries.current.started(key);
       const call = LibraryService.PlanUpdate(id);
       calls.current.set(key, call);
       let failed = false;
@@ -174,12 +180,16 @@ function usePlanRisks(s: Snapshot, collections: Collection[]): Map<CollectionID,
         .finally(() => {
           if (calls.current.get(key) !== call) return;
           calls.current.delete(key);
-          if (failed) timers.push(window.setTimeout(() => setVersion((n) => n + 1), retryDelay));
-          else setVersion((n) => n + 1);
+          if (!failed) return setVersion((n) => n + 1);
+          retries.current.failed(key, Date.now());
+          const timer = window.setTimeout(() => {
+            timers.current.delete(timer);
+            setVersion((n) => n + 1);
+          }, retryDelay);
+          timers.current.add(timer);
         });
     }
-    return () => timers.forEach((t) => window.clearTimeout(t));
   }, [wanted, version]);
 
-  return new Map(keys.map(([id, key]) => [id, riskSummary(knownRisks(key) ?? [])]));
+  return new Map(keys.map(([id, key, skills]) => [id, riskSummary(knownRisks(key, skills) ?? [])]));
 }

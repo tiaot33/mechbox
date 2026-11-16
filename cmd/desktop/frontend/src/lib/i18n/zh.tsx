@@ -344,14 +344,12 @@ export const zh = {
     fetched: (name: string) => `已入库「${name}」，文件夹原样没动`,
     installElsewhere: "装到别处…",
     fetchTitle: (name: string) => `入库「${name}」`,
-    takeOverTitle: (name: string) => `接管「${name}」`,
-    takeOver: "接管",
     fetchSameFolder: (places: string[]) => `${places.join("、")} 里是同一个文件夹（经符号链接），一起记为装在那里，不用在那里再入库一次。`,
     reinstallSourceLatest: "这里是作者的新版（在 app 外更新的）。覆盖会换回库里的版本；想跟上作者，用「更新」",
     fetchIdenticalOld: (name: string, source: string, place: string) =>
-      `这份和库里「${name}」（${source}）的一个旧版本一模一样：接管只记下它也装在 ${place}，不会多出一个技能。接管后这里显示为旧版本，之后更新、重新安装会换成当前版本。`,
+      `这份和库里「${name}」（${source}）的一个旧版本一模一样：入库只记下它也装在 ${place}，不会多出一个技能。入库后这里显示为旧版本，之后更新、重新安装会换成当前版本。`,
     fetchIdentical: (name: string, source: string, place: string) =>
-      `这份和库里的「${name}」（${source}）一模一样：接管只记下它也装在 ${place}，不会多出一个技能，之后跟着库里的「${name}」更新。`,
+      `这份和库里的「${name}」（${source}）一模一样：入库只记下它也装在 ${place}，不会多出一个技能，之后跟着库里的「${name}」更新。`,
     fetch: "入库",
     fetchHandOver: (place: string) => `入库就是把它交给 app 管。${place} 里的文件夹原样不动，Agent 用到的内容不变。`,
     fetchCliCost: "之后如果还用命令行工具更新它：更新到作者的新版时，app 会认出来，在 app 里点「更新」就能对上；改成别的内容，app 会把它报为被手动改过。",
@@ -582,7 +580,7 @@ export const zh = {
     updateFromHere: "用这里的修改更新",
     updateToLatest: "更新",
     updateToLatestHint: "这里已经是作者的新版（在 app 外更新的）。用更新把库里的技能也换成这一版",
-    takeOver: "接管",
+    takeOver: "入库",
     notInstalled: "还没有安装到任何作用域。",
     switchHint: (): ReactNode => (
       <>
@@ -666,7 +664,7 @@ export const zh = {
     skillFileColon: (line: number) =>
       `SKILL.md ${line ? `第 ${line} 行` : "的 frontmatter 里"}：值里带「: 」，整个值要加上引号（如 description: "Use when: …"）`,
     skillFileName: "SKILL.md 的 frontmatter 里没有 name，或 name 是空的、带斜杠或换行",
-    skillFileDescription: "SKILL.md 的 frontmatter 里没有 description",
+    skillFileDescription: "SKILL.md 的 frontmatter 里没有 description，或 description 不是文本",
     skillFileOther: "SKILL.md 写得不对",
     inRepositoryTitle: "这个文件夹已提交在项目的 git 仓库里，由仓库管理",
     inRepository: "在项目仓库里",
@@ -691,8 +689,8 @@ export const zh = {
     statNotInLibrary: "不在技能库里",
     statIdentical: "不是 app 装的",
     identicalHere: "已在库里 · 这一份不是 app 装的",
-    identicalHereTitle: (name: string) => `它已经在技能库里：这里的文件夹和库里的「${name}」一模一样，只是这一份不是 app 装的。点「接管」交给 app 管：只记下它装在这里，文件夹原样不动；不点也照样能用`,
-    takeOver: "接管",
+    identicalHereTitle: (name: string) => `它已经在技能库里：这里的文件夹和库里的「${name}」一模一样，只是这一份不是 app 装的。点「入库」交给 app 管：只记下它装在这里，文件夹原样不动；不点也照样能用`,
+    takeOver: "入库",
     sameAsLibrary: (name: string) => `和库里的「${name}」一样`,
     sourceLatestOf: (name: string) => `库里「${name}」的新版`,
     sourceLatestOfTitle: (name: string) =>
@@ -872,6 +870,7 @@ export const zh = {
   },
 
   unmanaged: {
+    sameFolder: (places: string[]) => `一并记为装在 ${places.join("、")}`,
     elsewhere: (places: string[]) => `${places.join("、")} 也有同名的，内容不同`,
     elsewhereTitle: (name: string, places: string[]) =>
       `${places.join("、")} 里也有 ${name}，内容和这里的不同。不合成一个技能：这次只入库这里的这一份，别处的仍不在技能库里`,

@@ -11,7 +11,7 @@ import {
   type SkillAudit,
 } from "@bindings/internal/library";
 import { configQuery, useLoadedSnapshot } from "@/lib/library";
-import { homePath, installedWhere, noSource, sourceLabel } from "@/lib/model";
+import { homePath, sameNameInLibrary, twinNote } from "@/lib/model";
 import { defaultCandidates } from "@/lib/consent";
 import { isWSLPath } from "@/lib/paths";
 import { messages, useT } from "@/lib/i18n";
@@ -71,7 +71,7 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
   const fresh = candidates.filter((c) => !c.fetched);
   // 库里已有同名技能(别的来源或没有来源)的候选：标出来，写明库里那个是哪来的、装在哪，默认不勾(见 lib/consent 的 defaultCandidates)。
   const library = s?.skills ?? [];
-  const twinsOf = (c: Candidate) => (c.fetched ? [] : library.filter((x) => x.name === c.name));
+  const twinsOf = (c: Candidate) => (c.fetched || !s ? [] : sameNameInLibrary(s, { id: 0, name: c.name }));
   // 默认勾选尚未入库的候选(从新技能提示进来时只勾新技能);已入库的不能再选(整批会因 AlreadyExists 失败)。
   const [selected, setSelected] = useState<Set<string>>(() => defaultCandidates(candidates, new Set(library.map((x) => x.name)), onlyNew));
   // 入库所选：running 时按钮上转圈，入库成功后合成对勾，停一下再关掉弹窗。
@@ -147,7 +147,7 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
               className="candidate-same-name shrink-0"
               title={t.sameNameTitle(
                 c.name,
-                twinsOf(c).map((x) => messages().actions.twin(noSource(x.source) ? messages().model.noSource : sourceLabel(s, x.source), installedWhere(s, x.id))),
+                twinsOf(c).map((x) => twinNote(s, x)),
               )}
             >
               {t.sameName}

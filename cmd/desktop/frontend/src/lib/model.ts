@@ -311,6 +311,12 @@ export function folderNotes(u: Ownership & Pick<UnmanagedSkill, "link_target">, 
 // copy 是和库里某个技能一样、但不是库装的那一份(见 identicalIn):它就是库里的技能，不说"不在技能库里"。
 export type SameNameKind = "managed" | "identical" | "unmanaged";
 
+// sameNameKind 是同名的一对里一边那份是什么：库装的、和库里一样但不是库装的，还是不在技能库里的。
+function sameNameKind(s: Snapshot, side: { skill_id?: SkillID; folder: string }): SameNameKind {
+  if (side.skill_id) return "managed";
+  return s.unmanaged.some((u) => u.folder === side.folder && !!u.skill_id) ? "identical" : "unmanaged";
+}
+
 export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text: string; title: string } | undefined {
   const m = messages().model;
   const scope = parseScope(key);
@@ -320,10 +326,7 @@ export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text
   if (scope.project_id) {
     const pairs = s.sameName.filter((p) => p.agent === scope.agent && p.project_id === scope.project_id && p.project.folder === folder);
     if (pairs.length === 0) return undefined;
-    const copied = (folder: string) => s.unmanaged.some((u) => u.folder === folder && !!u.skill_id);
-    const kinds = [
-      ...new Set(pairs.map((p): SameNameKind => (p.global.skill_id ? "managed" : copied(p.global.folder) ? "identical" : "unmanaged"))),
-    ];
+    const kinds = [...new Set(pairs.map((p) => sameNameKind(s, p.global)))];
     const name = pairs[0].name;
     const text = {
       [SameNameRule.SameNameGlobalWins]: m.sameNameGlobalWins(name, kinds, who),
@@ -348,8 +351,6 @@ export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text
 // 写出是哪两处(各是库装的、和库里一样的还是不在技能库里的)和后果;text 与 title 相同，逐对一行。没有同名时返回 undefined。
 export function skillSameNameNote(s: Snapshot, skillID: SkillID): { text: string; title: string } | undefined {
   const m = messages().model;
-  const copied = (folder: string) => s.unmanaged.some((u) => u.folder === folder && !!u.skill_id);
-  const kind = (side: { skill_id?: SkillID; folder: string }): SameNameKind => (side.skill_id ? "managed" : copied(side.folder) ? "identical" : "unmanaged");
   const lines = s.sameName
     .filter((p) => p.global.skill_id === skillID || p.project.skill_id === skillID)
     .map((p) => {
@@ -360,7 +361,7 @@ export function skillSameNameNote(s: Snapshot, skillID: SkillID): { text: string
         [SameNameRule.SameNameBothShown]: m.sameNamePairBoth,
         [SameNameRule.SameNameUnknown]: m.sameNamePairUnknown,
       }[agent?.same_name ?? SameNameRule.SameNameUnknown];
-      return say(who, projectName(s, p.project_id), p.name, kind(p.global), kind(p.project));
+      return say(who, projectName(s, p.project_id), p.name, sameNameKind(s, p.global), sameNameKind(s, p.project));
     });
   const text = [...new Set(lines)].join("\n");
   return text ? { text, title: text } : undefined;
@@ -404,6 +405,12 @@ export function sameNameCopies(plan: PlannedUnmanagedSkill[], key: ScopeKey): Ma
 // sameNameInLibrary 是库里和它同名的其他技能(同名但内容不同的不合并，见入库)。
 export function sameNameInLibrary(s: Snapshot, skill: Pick<Skill, "id" | "name">): Skill[] {
   return s.skills.filter((x) => x.name === skill.name && x.id !== skill.id);
+}
+
+// twinNote 是库里一个同名技能哪来的、装在哪，供各处的同名提示分辨是哪一个。
+export function twinNote(s: Snapshot, skill: Skill): string {
+  const m = messages();
+  return m.actions.twin(noSource(skill.source) ? m.model.noSource : sourceLabel(s, skill.source), installedWhere(s, skill.id));
 }
 
 // sameNameFetchNote 说明入库一个和库里技能同名的技能会怎样：不带来源时和库里所有技能比，带来源时只和这个来源里同名的比。
@@ -705,6 +712,11 @@ export function hasUpdate(skill: Skill): boolean {
 // 集合标题与技能详情里的「N 个有变化」、集合标题上的「更新」都按它，和更新页、计数、技能行上的标记说的是同一回事。
 export function changePending(skill: Skill): boolean {
   return pending(skill) && hasUpdate(skill);
+}
+
+// deletionPending 是来源里已删除、用户也没选继续保留:集合标题上的「N 个来源里已删除」和技能行上的提示都按它。
+export function deletionPending(skill: Skill): boolean {
+  return pending(skill) && deletedInSource(skill);
 }
 
 export const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
@@ -1142,12 +1154,18 @@ export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, searc
   };
 }
 
+// fetchable 是能入库的未纳管技能:SKILL.md 写错了的(invalid)不算。整批入库的入口只在有能入库的时候出现。
+export function fetchable(u: UnmanagedSkill): boolean {
+  return !u.invalid;
+}
+
 // scopeHereCount 是作用域目录里有几个技能：库装的、和库里一样但不是 app 装的、不在技能库里的都算(Agent 在这里都用得上),
 // 来自全局的不算。右栏这个作用域的数字和作用域页标题里的数字都是它。
 export function scopeHereCount(s: Snapshot, key: ScopeKey): number {
-  const listing = scopeListing(s, key, "collection", "");
-  return listing.hereCount + listing.hereUnmanaged.length;
+  return hereIn(scopeListing(s, key, "collection", ""));
 }
+
+const hereIn = (l: ScopeListing) => l.hereCount + l.hereUnmanaged.length;
 
 // ---------- 项目页 ----------
 
@@ -1183,7 +1201,8 @@ export function projectAgents(s: Snapshot, project: ProjectID, search: string): 
 // ---------- 每一页列什么、数到几 ----------
 
 // PageListing 是当前页要列的东西与个数，列表、顶栏和搜索行都读这一份。total 是顶栏标题旁的个数，不随搜索变:
-// 技能库页是库里的技能数，更新页是要处理的技能数，作用域页是 Agent 在这里看得到几个(和摘要一致;global 是其中来自全局的),
+// 技能库页是库里的技能数，更新页是要处理的技能数，作用域页是目录里有几个技能(scopeHereCount,和摘要标题、右栏一致;
+// global 是另外列出的来自全局的个数，不算在 total 里),
 // 项目页是项目里装了几个技能(几个 Agent 都装了的只算一个;unmanaged 是其中不在技能库里的，同样不随搜索变);
 // results 是搜索结果数：当前页里名字或描述匹配的行，一个技能在几个组里只算一次。
 // 关系图页的 total 是集合或组里的技能数;它的搜索结果数要算上图里虚线圆的技能，由关系图自己算(lib/graph 的 searchHits),这里的 results 不用。
@@ -1218,14 +1237,13 @@ export function pageListing(s: Snapshot, page: Page, arrange: Arrange, search: s
     const all = scopeListing(s, page.scope, arrange, "");
     const listing = search.trim() ? scopeListing(s, page.scope, arrange, search) : all;
     const global = (l: ScopeListing) => l.global.length + l.globalUnmanaged.length;
-    const seen = (l: ScopeListing) => l.hereCount + l.hereUnmanaged.length + global(l);
     return {
       kind: "scope",
       scope: page.scope,
       listing,
       global: global(all),
-      total: seen(all),
-      results: seen(listing) + listing.notHereSkills.length,
+      total: hereIn(all),
+      results: hereIn(listing) + global(listing) + listing.notHereSkills.length,
     };
   }
   if (page.kind === "project") {

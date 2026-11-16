@@ -1427,8 +1427,8 @@ await step("未纳管技能入库：磁盘不动，成为没有来源的技能;�
     assert((await unmanaged("npx-tool").count()) === 0, "同一个文件夹不再列在不在技能库里");
     const copy = page.locator('.in-use .skill-row[data-name="npx-tool"]');
     assert.equal(await copy.locator('[role="switch"][aria-checked="true"]').count(), 1, "Codex 里已经是装着的库里的技能");
-    assert.equal(await copy.locator(".take-over").count(), 0, "不用再接管");
-    // 另一个文件夹、内容一样的副本不自动接管：显示成库里那个技能的一行，写明已在库里，行首是「接管」。
+    assert.equal(await copy.locator(".take-over").count(), 0, "不用再入库");
+    // 另一个文件夹、内容一样的副本不自动记下：显示成库里那个技能的一行，写明已在库里，行首是「入库」。
     const separate = path.join(HOME, "code", "proj-b", ".agents", "skills", "npx-tool");
     fs.cpSync(real, separate, { recursive: true });
     try {
@@ -1437,8 +1437,8 @@ await step("未纳管技能入库：磁盘不动，成为没有来源的技能;�
       await selectScope("Codex", "proj-b");
       const twin = page.locator('.in-use .skill-row[data-name="npx-tool"]');
       assert((await twin.locator(".identical-state").textContent()).includes("已在库里"), "写明它已经在库里");
-      await btn(twin, "接管").click();
-      await modal().locator('[data-slot="dialog-title"]', { hasText: "接管「npx-tool」" }).waitFor();
+      await btn(twin, "入库").click();
+      await modal().locator('[data-slot="dialog-title"]', { hasText: "入库「npx-tool」" }).waitFor();
       assert((await modal().textContent()).includes("不会多出一个技能"), "确认里说清只补记安装");
       await btn(modal(), "取消").click();
     } finally {
@@ -1560,6 +1560,7 @@ await step("未纳管技能认出来源：npx skills 来源记录里的来源预
 
 await step("SKILL.md 写错了的未纳管技能：作用域里就说明不能入库、哪一行写错了，全部入库里原因写全", async () => {
   const folder = path.join(claudeGlobal, "broken-yaml");
+  const fine = path.join(claudeGlobal, "fine-skill");
   fs.mkdirSync(folder, { recursive: true });
   fs.writeFileSync(path.join(folder, "SKILL.md"), "---\nname: broken-yaml\ndescription: Use when: something breaks\n---\n# broken\n");
   const row = page.locator(".unmanaged-row", { has: page.locator(".unmanaged-name", { hasText: /^broken-yaml$/ }) });
@@ -1572,6 +1573,12 @@ await step("SKILL.md 写错了的未纳管技能：作用域里就说明不能�
     assert.equal(await row.locator(".cannot-fetch").count(), 1, "行首标出不能入库");
     const reason = await row.locator(".unmanaged-invalid").textContent();
     assert(reason.includes("SKILL.md 第 3 行") && reason.includes("加上引号"), `写出哪一行写错了、怎样改:${reason}`);
+    // 只剩写错了的时候不给「全部入库…」:点开也是 0 个能入库。
+    assert.equal(await page.locator(".fetch-all-unmanaged").count(), 0, "没有能入库的就没有全部入库");
+    fs.mkdirSync(fine, { recursive: true });
+    fs.writeFileSync(path.join(fine, "SKILL.md"), "---\nname: fine-skill\ndescription: a skill that can be fetched\n---\n# fine\n");
+    await refocus();
+    await settle();
     await page.locator(".fetch-all-unmanaged").first().click();
     const unusable = modal().locator(".fetch-unmanaged-unusable");
     await unusable.locator("summary").click();
@@ -1580,6 +1587,7 @@ await step("SKILL.md 写错了的未纳管技能：作用域里就说明不能�
     await page.keyboard.press("Escape");
   } finally {
     fs.rmSync(folder, { recursive: true, force: true });
+    fs.rmSync(fine, { recursive: true, force: true });
     await refocus();
     await settle();
   }

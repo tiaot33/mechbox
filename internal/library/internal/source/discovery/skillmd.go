@@ -31,7 +31,7 @@ func (e *SkillMDError) Error() string { return e.Err.Error() }
 
 func (e *SkillMDError) Unwrap() error { return e.Err }
 
-var yamlLine = regexp.MustCompile(`^yaml: line (\d+): `)
+var yamlLine = regexp.MustCompile(`line (\d+): `)
 
 func ParseSkillMD(content []byte, dir string) (Candidate, error) {
 	result := Candidate{Path: dir}

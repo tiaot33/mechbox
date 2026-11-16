@@ -22,6 +22,7 @@ import {
   type PageListing,
   type ScopeKey,
   type SkillSection,
+  fetchable,
 } from "@/lib/model";
 import { closeDrawer, doneRestoreScroll, openScope, setArrange, toggleUnfolded, usePageListing, useScopeDirectory, useView } from "@/lib/view";
 import { MentionGraphPage } from "@/components/app/mention-graph/mention-graph";
@@ -274,7 +275,7 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
   const same = useSameNameCopies(scope);
   return (
     <>
-      <ScopeSummary scope={scope} directory={directory} here={page.total - page.global} global={page.global} />
+      <ScopeSummary scope={scope} directory={directory} here={page.total} global={page.global} />
       {(l.hereSections.length > 0 || l.notHereSkills.length > 0) && (
         <div className="mt-2.5">
           <ArrangeBar>
@@ -294,8 +295,9 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
               icon={<Icon name="inbox" className="size-3.5 text-muted-foreground" />}
               head={<PlainHead name={t.notInLibrary} count={l.hereUnmanaged.length} title={t.notInLibraryTitle} />}
               actions={
-                // 搜索时节里只列搜到的，整批确认却是整个作用域的：只在不搜索时放这个入口。
-                !search && (
+                // 搜索时节里只列搜到的，整批确认却是整个作用域的：只在不搜索时放这个入口;都是 SKILL.md 写错了的也不放。
+                !search &&
+                l.hereUnmanaged.some(fetchable) && (
                   <Button
                     variant="ghost"
                     className="fetch-all-unmanaged shrink-0"

@@ -6,7 +6,7 @@ import { messages, useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import {
   collectionSkills,
-  installedWhere,
+  twinNote,
   isLocal,
   localChanged,
   noSource,
@@ -88,7 +88,7 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
               {d.sameNameList(
                 sameName.length,
                 skill.name,
-                sameName.map((x) => t.actions.twin(noSource(x.source) ? t.model.noSource : sourceLabel(s, x.source), installedWhere(s, x.id))),
+                sameName.map((x) => twinNote(s, x)),
               )}
             </dd>
           </>

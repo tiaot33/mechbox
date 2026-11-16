@@ -378,14 +378,12 @@ export const en = {
     fetched: (name: string) => `Fetched “${name}”; the folder is left as it was`,
     installElsewhere: "Install elsewhere…",
     fetchTitle: (name: string) => `Fetch “${name}”`,
-    takeOverTitle: (name: string) => `Manage “${name}”`,
-    takeOver: "Manage",
     fetchSameFolder: (places: string[]) => `${places.join(", ")} has the same folder (through a symlink); it is recorded as installed there too, so there's no need to fetch it again there.`,
     reinstallSourceLatest: "This place has the author’s newer version (updated outside the app). Overwriting puts back the version in the Library; to follow the author, use “Update”",
     fetchIdenticalOld: (name: string, source: string, place: string) =>
-      `This copy is identical to an older version of “${name}” in the Library (${source}). Managing it only records that it is also installed in ${place}; no second skill is added. It then shows as an old version here, and updating or reinstalling replaces it with the current version.`,
+      `This copy is identical to an older version of “${name}” in the Library (${source}). Fetching it only records that it is also installed in ${place}; no second skill is added. It then shows as an old version here, and updating or reinstalling replaces it with the current version.`,
     fetchIdentical: (name: string, source: string, place: string) =>
-      `This copy is identical to “${name}” in the Library (${source}). Managing it only records that it is also installed in ${place}; no second skill is added, and it follows “${name}” in the Library from now on.`,
+      `This copy is identical to “${name}” in the Library (${source}). Fetching it only records that it is also installed in ${place}; no second skill is added, and it follows “${name}” in the Library from now on.`,
     fetch: "Fetch",
     fetchHandOver: (place: string) => `Fetching hands it over to the app. The folder in ${place} stays exactly as it is, and the Agent sees the same content.`,
     fetchCliCost: "If you keep updating it with a command-line tool afterwards: when it is updated to the author’s newer version, the app recognizes it, and “Update” in the app brings the Library in line; other changes are reported as edited by hand.",
@@ -620,7 +618,7 @@ export const en = {
     updateFromHere: "Update with these edits",
     updateToLatest: "Update",
     updateToLatestHint: "This place already has the author’s newer version (updated outside the app). Update the skill in the Library to this version too",
-    takeOver: "Manage",
+    takeOver: "Fetch",
     notInstalled: "Not installed in any Scope yet.",
     switchHint: (): ReactNode => (
       <>
@@ -705,7 +703,7 @@ export const en = {
     skillFileColon: (line: number) =>
       `SKILL.md ${line ? `line ${line}` : "frontmatter"}: a value contains “: ”, so the whole value needs quotes (e.g. description: "Use when: …")`,
     skillFileName: "SKILL.md's frontmatter has no name, or the name is empty or has a slash or line break",
-    skillFileDescription: "SKILL.md's frontmatter has no description",
+    skillFileDescription: "SKILL.md's frontmatter has no description, or the description isn't text",
     skillFileOther: "SKILL.md isn't written correctly",
     inRepositoryTitle: "This folder is committed in the project's git repository and managed by it",
     inRepository: "In project repo",
@@ -731,8 +729,8 @@ export const en = {
     statNotInLibrary: "not in the Library",
     statIdentical: "not installed by the app",
     identicalHere: "In the Library · this copy not installed by the app",
-    identicalHereTitle: (name: string) => `It is already in the Library: the folder here is identical to “${name}”, only this copy was not installed by the app. Click “Manage” to let the app manage it: it only records that it is installed here; the folder stays as it is. It works the same if you leave it`,
-    takeOver: "Manage",
+    identicalHereTitle: (name: string) => `It is already in the Library: the folder here is identical to “${name}”, only this copy was not installed by the app. Click “Fetch” to let the app manage it: it only records that it is installed here; the folder stays as it is. It works the same if you leave it`,
+    takeOver: "Fetch",
     sameAsLibrary: (name: string) => `Same as “${name}” in the Library`,
     sourceLatestOf: (name: string) => `Newer version of “${name}”`,
     sourceLatestOfTitle: (name: string) =>
@@ -920,6 +918,7 @@ export const en = {
   },
 
   unmanaged: {
+    sameFolder: (places: string[]) => `Also recorded in ${places.join(", ")}`,
     elsewhere: (places: string[]) => `${places.join(", ")} also ${places.length === 1 ? "has" : "have"} one, different content`,
     elsewhereTitle: (name: string, places: string[]) =>
       `${places.join(", ")} also ${places.length === 1 ? "has" : "have"} ${name} with different content. They aren't merged into one skill: only this copy is fetched now; the others stay out of the Library`,

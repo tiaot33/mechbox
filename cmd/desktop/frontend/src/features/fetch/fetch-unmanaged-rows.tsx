@@ -67,6 +67,7 @@ export function PlannedRow({
   sameNameInLibrary,
   elsewhere,
   agents,
+  sameFolder,
   edit,
 }: {
   planned: PlannedUnmanagedSkill;
@@ -76,6 +77,7 @@ export function PlannedRow({
   sameNameInLibrary: boolean; // 库里已有同名的技能(内容可能不同)
   elsewhere?: string[]; // 只看一个作用域时，同一层的别处有同名、内容不同的(那几处的名字)
   agents: string;
+  sameFolder: string[]; // 入库时一并记下的别处(经符号链接是同一个文件夹，见 lib/consent 的 sameFolderElsewhere)
   edit: SourceEdit;
 }) {
   const t = useT().unmanaged;
@@ -105,6 +107,7 @@ export function PlannedRow({
             </Badge>
           )}
           <span className="min-w-0 grow truncate text-caption text-muted-foreground">{agents}</span>
+          <SameFolderBadge places={sameFolder} />
           {!p.skill_id && (
             <>
               <ChangedSource planned={p} link={edit.link} className="fetch-unmanaged-changed min-w-0 truncate text-caption text-foreground" />
@@ -127,6 +130,7 @@ export function ConflictRow({
   onPick,
   home,
   agents,
+  sameFolder,
   edit,
 }: {
   planned: PlannedUnmanagedSkill;
@@ -135,6 +139,7 @@ export function ConflictRow({
   onPick: () => void;
   home: string;
   agents: string;
+  sameFolder: string[]; // 入库时一并记下的别处
   edit: SourceEdit;
 }) {
   const t = useT().unmanaged;
@@ -157,6 +162,7 @@ export function ConflictRow({
               {t.sourceLatest}
             </Badge>
           )}
+          <SameFolderBadge places={sameFolder} />
           <span className="grow" />
           <span className="shrink-0 text-caption text-muted-foreground">
             {p.modified_at ? t.modifiedAt(p.modified_at) : ""}
@@ -172,5 +178,16 @@ export function ConflictRow({
       </ListRow>
       <SourceEditor edit={edit} />
     </div>
+  );
+}
+
+// SameFolderBadge 写出入库时库会一并记下的别处：那里经符号链接是同一个文件夹，不用在那里再入库一次。
+function SameFolderBadge({ places }: { places: string[] }) {
+  const t = useT();
+  if (!places.length) return null;
+  return (
+    <Badge tone="info" className="fetch-unmanaged-same-folder min-w-0 shrink truncate" title={t.actions.fetchSameFolder(places)}>
+      {t.unmanaged.sameFolder(places)}
+    </Badge>
   );
 }

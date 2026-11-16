@@ -19,7 +19,8 @@ import {
   identicalState,
   globalScopesSeenFrom,
   groupName,
-  hasUpdate,
+  changePending,
+  deletionPending,
   installedSummary,
   installedWhere,
   needsReinstall,
@@ -269,13 +270,12 @@ export function SkillRow(props: {
 function updateAlerts(t: Messages, skill: Skill, plan?: () => void): Alert[] {
   const to = renamedTo(skill);
   const items: (Alert | false)[] = [
-    pending(skill) &&
-      hasUpdate(skill) &&
+    changePending(skill) &&
       (to
         ? { tone: "rename" as const, label: t.drawer.maybeRenamedTo(to), tip: t.list.renamedTitle(to), onClick: plan }
         : { tone: "update" as const, label: t.list.newVersion, tip: t.list.availableTitle, onClick: plan }),
     pending(skill) && updateAvailable(skill) && !!skill.edited && { tone: "warn" as const, label: t.list.edited, tip: t.list.editedTitle, className: "update-edited-note" },
-    deletedInSource(skill) && !skill.kept_deleted && { tone: "info" as const, label: t.list.deleted, tip: t.list.deletedTitle },
+    deletionPending(skill) && { tone: "info" as const, label: t.list.deleted, tip: t.list.deletedTitle },
   ];
   return items.filter((x): x is Alert => !!x);
 }

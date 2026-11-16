@@ -26,6 +26,7 @@ import {
   defaultCandidates,
   defaultInstallOn,
   fetchPlan,
+  sameFolderElsewhere,
   defaultSkills,
   detachedBy,
   linkWrites,
@@ -291,6 +292,13 @@ describe("整批入库的默认勾选", () => {
     in_project_lock: folders.some((f) => f.in_project_lock),
     link_outside: folders.some((f) => f.link_outside),
     ...extra,
+  });
+
+  it("入库时一并记下的别处：同一个文件夹在这一条以外的作用域，在这一条里的不再写", () => {
+    const link = folder(global(claude), { same_folder: [global(codex), project(codex, 7)] });
+    const real = folder(project(codex, 7), { same_folder: [global(claude)] });
+    expect(sameFolderElsewhere(planned([link, real]))).toEqual([global(codex)]);
+    expect(sameFolderElsewhere(planned([folder(global(claude))]))).toEqual([]);
   });
 
   it("全局里自己的和项目里团队的内容一样时拆成两条：自己的默认勾上，团队的不勾", () => {

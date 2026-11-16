@@ -60,10 +60,11 @@ type UnmanagedSkill struct {
 	// Windows 本机的目录里,来源的新版加了可执行文件或改了可执行位时认不出(见包说明「实现」一节)。
 	SourceLatestOf SkillID `json:"source_latest_of,omitzero"`
 	// SameFolder 是别的作用域里和这一处解析符号链接后是同一个文件夹的未纳管技能(如 npx skills 的布局:Claude Code 的目录里是链接,
-	// 真实文件夹在 Codex 的目录里),按 Agent、作用域排序;入库这一处时(FetchUnmanaged)一并记为装在那里,确认前界面据此说明。
-	// 共用目录的 Agent 不在这里。没有时为空。
+	// 真实文件夹在 Codex 的目录里),按 Agent、作用域排序;入库这一处时(FetchUnmanaged、FetchUnmanagedSkills)一并记为装在那里,
+	// 确认前界面据此说明。不限于这次列出的作用域,读不出来的作用域不算;共用目录的 Agent、归项目仓库管的那一处(InRepository、
+	// InProjectLock)不在这里,入库时也不一并记下。没有时为空。
 	SameFolder []Scope `json:"same_folder,omitempty"`
-	// Invalid 不为 nil 时,文件夹根上的 SKILL.md 不是有效的技能描述,给出哪里写错了:这个文件夹不能入库
+	// Invalid 不为 nil 时,文件夹根上的 SKILL.md 不是有效的技能描述,给出哪里写错了(SKILL.md 超出列出时的读取上限时不判断):这个文件夹不能入库
 	// (FetchUnmanaged 返回 SourceInvalid,整批入库的计划里这一条带 Error),界面在作用域里就据此说明,不给入库的按钮。
 	Invalid *SkillFileProblem `json:"invalid,omitempty"`
 }
@@ -133,11 +134,7 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 	if err != nil {
 		return nil, err
 	}
-	type repository struct {
-		projectID ProjectID
-		relative  string
-	}
-	committed := map[repository]map[string]bool{}
+	committed := committedFolders{}
 	directories, err := l.agentDirectories(ctx)
 	if err != nil {
 		return nil, err
@@ -152,41 +149,98 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 		target := found.target
 		entry := unmanagedEntry{UnmanagedSkill: UnmanagedSkill{Scope: target.scope(), Name: found.Name, Folder: found.Path, LinkTarget: found.Target}, found: found}
 		entry.LinkOutside = found.Target != "" && !within(found.Target)
-		if candidate, err := discovery.ParseSkillMD(found.SkillMD, found.Name); err == nil {
-			entry.Description = candidate.Description
-		} else {
-			entry.Invalid = skillFileProblem(err)
+		if found.SkillMD != nil {
+			if candidate, err := discovery.ParseSkillMD(found.SkillMD, found.Name); err == nil {
+				entry.Description = candidate.Description
+			} else {
+				entry.Invalid = skillFileProblem(err)
+			}
 		}
 		if record, ok := records.find(target, skillName(found.Folder), found.Name); ok {
 			entry.SourceInput, entry.SourceRef = record.input, record.ref
 			entry.InProjectLock = target.projectID != nil
 		}
-		if target.projectID != nil {
-			key := repository{projectID: *target.projectID, relative: target.relative}
-			if _, ok := committed[key]; !ok {
-				if committed[key], err = agentdir.Committed(ctx, target.root, target.relative); err != nil {
-					return nil, err
-				}
-			}
-			entry.InRepository = committed[key][found.Name]
+		if entry.InRepository, err = committed.has(ctx, target, found.Name); err != nil {
+			return nil, err
 		}
 		entries = append(entries, entry)
 	}
 	slices.SortFunc(entries, func(a, b unmanagedEntry) int {
 		return cmp.Or(cmp.Compare(a.Scope.Agent, b.Scope.Agent), cmp.Compare(a.Scope.ProjectID, b.Scope.ProjectID), cmp.Compare(a.Name, b.Name))
 	})
-	real := make([]string, len(entries))
-	for i, entry := range entries {
-		real[i] = agentdir.Canonical(cmp.Or(entry.LinkTarget, entry.Folder))
+	if len(entries) == 0 {
+		return entries, nil
 	}
-	for i := range entries {
-		for j, other := range entries {
-			if i != j && real[i] == real[j] && !entries[i].found.target.sharesFolderWith(other.found.target) {
-				entries[i].SameFolder = append(entries[i].SameFolder, other.Scope)
-			}
+	everywhere := folders
+	if only != nil {
+		if everywhere, err = l.readableScopeFolders(ctx); err != nil {
+			return nil, err
+		}
+	}
+	same := indexSameFolders(everywhere, committed, records)
+	for i, entry := range entries {
+		for _, other := range same.of(ctx, entry.found.target, entry.Folder) {
+			entries[i].SameFolder = append(entries[i].SameFolder, other.target.scope())
 		}
 	}
 	return entries, nil
+}
+
+type repository struct {
+	projectID ProjectID
+	relative  string
+}
+
+type committedFolders map[repository]map[string]bool
+
+func (c committedFolders) has(ctx context.Context, target resolvedScope, name string) (bool, error) {
+	if target.projectID == nil {
+		return false, nil
+	}
+	key := repository{projectID: *target.projectID, relative: target.relative}
+	if _, ok := c[key]; !ok {
+		committed, err := agentdir.Committed(ctx, target.root, target.relative)
+		if err != nil {
+			return false, err
+		}
+		c[key] = committed
+	}
+	return c[key][name], nil
+}
+
+type sameFolders struct {
+	folders   []scopeFolder
+	real      []string
+	committed committedFolders
+	records   *sourceRecords
+}
+
+func indexSameFolders(folders []scopeFolder, committed committedFolders, records *sourceRecords) sameFolders {
+	index := sameFolders{folders: folders, real: make([]string, len(folders)), committed: committed, records: records}
+	for i, found := range folders {
+		if found.skillID == 0 {
+			index.real[i] = agentdir.Canonical(found.Path)
+		}
+	}
+	return index
+}
+
+func (s sameFolders) of(ctx context.Context, target resolvedScope, path string) []scopeFolder {
+	real := agentdir.Canonical(path)
+	var same []scopeFolder
+	for i, other := range s.folders {
+		if other.skillID != 0 || s.real[i] != real || other.target.scope() == target.scope() || target.sharesFolderWith(other.target) {
+			continue
+		}
+		if inRepository, err := s.committed.has(ctx, other.target, other.Name); err != nil || inRepository {
+			continue
+		}
+		if _, inLock := s.records.find(other.target, skillName(other.Folder), other.Name); inLock && other.target.projectID != nil {
+			continue
+		}
+		same = append(same, other)
+	}
+	return same
 }
 
 func (l *Library) recognizeUnmanaged(ctx context.Context, entries []unmanagedEntry) error {
@@ -340,6 +394,14 @@ type scopeFolder struct {
 }
 
 func (l *Library) scopeFolders(ctx context.Context, only map[Scope]bool) ([]scopeFolder, error) {
+	return l.listScopeFolders(ctx, only, false)
+}
+
+func (l *Library) readableScopeFolders(ctx context.Context) ([]scopeFolder, error) {
+	return l.listScopeFolders(ctx, nil, true)
+}
+
+func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, skipUnreadable bool) ([]scopeFolder, error) {
 	agents, err := l.store.ListAgents(ctx)
 	if err != nil {
 		return nil, err
@@ -371,15 +433,23 @@ func (l *Library) scopeFolders(ctx context.Context, only map[Scope]bool) ([]scop
 				continue
 			}
 			target, err := l.resolveRow(ctx, row)
+			if err != nil && skipUnreadable {
+				continue
+			}
 			if err != nil {
 				return nil, err
 			}
-			if missing, err := target.rootMissing("list skill folders"); err != nil {
+			missing, err := target.rootMissing("list skill folders")
+			if err != nil && !skipUnreadable {
 				return nil, err
-			} else if missing != nil {
+			}
+			if err != nil || missing != nil {
 				continue
 			}
 			listed, err := agentdir.List(target.directory)
+			if err != nil && skipUnreadable {
+				continue
+			}
 			if err != nil {
 				return nil, err
 			}

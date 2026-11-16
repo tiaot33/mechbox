@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/tiaot33/mechbox/internal/library"
@@ -344,5 +345,21 @@ func TestListUnmanagedSkillsReadsSourceRecordsOfNpxSkills(t *testing.T) {
 		if skill.Name == "pdf" && skill.SourceInput != "" {
 			t.Fatalf("pdf = %#v, want no source from version 2 records", skill)
 		}
+	}
+}
+
+// SKILL.md 超出列出时的读取上限：列出时没读它，不判为写错了;入库照常读。
+func TestListUnmanagedSkillsDoesNotJudgeALargeSkillMD(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	lib := openTestLibrary(t)
+	claude := library.GlobalScope(library.AgentClaudeCode)
+	writeFile(t, filepath.Join(scopeDirectory(t, lib, claude), "big", "SKILL.md"), []byte("---\nname: big\ndescription: large body\n---\n"+strings.Repeat("x", 2<<20)), 0o644)
+	got := listUnmanagedSkills(t, lib)
+	if len(got) != 1 || got[0].Invalid != nil {
+		t.Fatalf("ListUnmanagedSkills() = %#v, want the large SKILL.md not judged invalid", got)
+	}
+	fetched := fetchUnmanaged(t, lib, claude, "big")
+	if fetched.Skill.Name != "big" {
+		t.Fatalf("FetchUnmanaged() = %#v", fetched)
 	}
 }
