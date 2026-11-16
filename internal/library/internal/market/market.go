@@ -19,12 +19,12 @@ var (
 	ErrInvalidResponse = errors.New("invalid market response")
 )
 
-func get(ctx context.Context, url string) (*http.Response, error) {
+func get(ctx context.Context, client *http.Client, url string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
-	response, err := http.DefaultClient.Do(req)
+	response, err := client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()

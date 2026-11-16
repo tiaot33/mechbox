@@ -403,6 +403,7 @@ var deviceName = regexp.MustCompile(`^[A-Za-z0-9_-]+-[0-9a-f]{6}$`)
 // 推送在 <文件夹>/<设备目录>/ 下新建一份备份,不覆盖已有的;本机的库没变时不新建。
 // 设备目录是主机名加随机后缀,两台主机名相同的机器也各用各的目录。
 func TestSyncPushCreatesBackupsInThisDeviceFolder(t *testing.T) {
+	t.Parallel()
 	stub := newS3Stub(t)
 	lib := stub.open(t)
 	ctx := t.Context()
@@ -470,6 +471,7 @@ func mustGroupID(t *testing.T, lib *library.Library, name string) library.GroupI
 // 推送后删掉这台机器超出保留份数的最旧备份,别的设备的备份不动;调小份数后,下一次推送(即使没变化)就删到新份数。
 // 没填份数时保留 10 份。
 func TestSyncPushKeepsConfiguredNumberOfBackups(t *testing.T) {
+	t.Parallel()
 	stub := newS3Stub(t)
 	settings := stub.settings
 	settings.Keep = 3
@@ -529,6 +531,7 @@ func TestSyncPushKeepsConfiguredNumberOfBackups(t *testing.T) {
 // 备份已经传上去、删旧备份被拒时,推送仍算成功,删不掉的原因放在 RemoveError,上次推送的时间照样更新;
 // 能删以后,下一次推送把超出的删掉。
 func TestSyncPushReportsFailedRemovalAfterUploading(t *testing.T) {
+	t.Parallel()
 	stub := newS3Stub(t)
 	settings := stub.settings
 	settings.Keep = 1
@@ -563,6 +566,7 @@ func TestSyncPushReportsFailedRemovalAfterUploading(t *testing.T) {
 
 // 这台机器的时钟往回调过时,刚推送的备份按时间排在旧备份后面,删超出份数的旧备份时也不删它。
 func TestSyncPushNeverRemovesTheBackupItJustPushed(t *testing.T) {
+	t.Parallel()
 	stub := newS3Stub(t)
 	settings := stub.settings
 	settings.Keep = 1
@@ -579,6 +583,7 @@ func TestSyncPushNeverRemovesTheBackupItJustPushed(t *testing.T) {
 
 // 同时发起的两次推送依次进行:第二次看到第一次刚推的备份,内容相同不再新建,保留份数不会被超出。
 func TestConcurrentSyncPushesKeepTheLimit(t *testing.T) {
+	t.Parallel()
 	stub := newS3Stub(t)
 	settings := stub.settings
 	settings.Keep = 1
@@ -610,6 +615,7 @@ func TestConcurrentSyncPushesKeepTheLimit(t *testing.T) {
 // 「没变化」按库里的内容判断:检查更新结论没变、只记下检查时间,同样的应用设置重新保存,都不算变化;
 // 备注里 NUL 字符之后的改动算变化。
 func TestSyncPushDetectsChangesByContent(t *testing.T) {
+	t.Parallel()
 	stub := newS3Stub(t)
 	lib := stub.open(t)
 	ctx := t.Context()
@@ -645,6 +651,7 @@ func TestSyncPushDetectsChangesByContent(t *testing.T) {
 
 // 改了推到哪里(服务地址、存储桶或文件夹)以后,上次推送的时间不算数,自动推送立即推到新位置;改回去又算数。
 func TestSyncStatusLastPushIsPerLocation(t *testing.T) {
+	t.Parallel()
 	stub := newS3Stub(t)
 	lib := stub.open(t)
 	pushBackup(t, lib)
@@ -667,6 +674,7 @@ func TestSyncStatusLastPushIsPerLocation(t *testing.T) {
 // 列出备份时列出文件夹里所有设备的备份,最新推送的在前,标出哪些是这台机器的;
 // 文件夹里不是备份的对象、别的文件夹里的对象都不列出;分页的列出结果合在一起。
 func TestListSyncBackupsAcrossDevicesNewestFirst(t *testing.T) {
+	t.Parallel()
 	stub := newS3Stub(t)
 	stub.pageSize = 2
 	lib := stub.open(t)
@@ -706,6 +714,7 @@ func TestListSyncBackupsAcrossDevicesNewestFirst(t *testing.T) {
 // 拉回计划之后那份备份被删掉(推送它的机器按份数删了)或改写,拉回返回 Conflict,本机的库不变;
 // 传的不是列出的标识返回 InvalidArgument。
 func TestSyncPullRejectsBackupRemovedOrChangedSincePlan(t *testing.T) {
+	t.Parallel()
 	stub := newS3Stub(t)
 	ctx := t.Context()
 	lib := stub.open(t)
@@ -744,6 +753,7 @@ func TestSyncPullRejectsBackupRemovedOrChangedSincePlan(t *testing.T) {
 // 那份备份不能拉回时,拉回的同步计划说明原因:不是本应用的库、来自较新或较旧版本的应用;
 // 执行拉回返回 FailedPrecondition,本机的库不变。
 func TestSyncPullPlanExplainsWhyBackupCannotBePulled(t *testing.T) {
+	t.Parallel()
 	stub := newS3Stub(t)
 	ctx := t.Context()
 	lib := stub.open(t)
@@ -826,8 +836,14 @@ func TestSyncPullReplacesLibraryAndKeepsProjectsForRelocation(t *testing.T) {
 	if err := os.MkdirAll(oldHome, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// 这里不带主目录选项:Library 跟着进程的 HOME 走,和应用里一样,下面换 HOME 模拟拉回发生在另一台机器上。
 	t.Setenv("HOME", oldHome)
-	lib := stub.open(t)
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"), testHTTPOption(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+	setSyncSettings(t, lib, stub.settings)
 	originalSource := filepath.Join(t.TempDir(), "original")
 	writeLocalSkill(t, originalSource, "original\n")
 	original, err := fetchLocalDir(ctx, lib, originalSource)
@@ -963,8 +979,9 @@ func TestSyncPullReplacesLibraryAndKeepsProjectsForRelocation(t *testing.T) {
 
 // 拉回的库里内置 Agent 缺行或名称、目录规则来自另一个版本的应用时,拉回后与 Open 一样以本机应用为准。
 func TestSyncPullRewritesBuiltinAgentsForThisApp(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	stub := newS3Stub(t)
 	lib := stub.open(t)
 	pushBackup(t, lib)
@@ -980,6 +997,7 @@ func TestSyncPullRewritesBuiltinAgentsForThisApp(t *testing.T) {
 }
 
 func TestSyncMapsFailuresAndMissingConfiguration(t *testing.T) {
+	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "denied", http.StatusForbidden)
 	}))
@@ -1002,6 +1020,7 @@ func TestSyncMapsFailuresAndMissingConfiguration(t *testing.T) {
 }
 
 func TestAllSyncOperationsReportMissingConfiguration(t *testing.T) {
+	t.Parallel()
 	stub := newS3Stub(t)
 	lib := openTestLibrary(t)
 	for name, drop := range map[string]func(*library.SyncSettings){
@@ -1032,6 +1051,7 @@ func TestAllSyncOperationsReportMissingConfiguration(t *testing.T) {
 
 // S3 的响应里没有 ETag 时认不出是哪一份:推送不新建备份、拉回不替换本机的库,都返回 SourceUnreachable。
 func TestSyncRejectsRemoteWithoutIdentity(t *testing.T) {
+	t.Parallel()
 	stub := newS3Stub(t)
 	lib := stub.open(t)
 	ctx := t.Context()
@@ -1115,13 +1135,13 @@ func TestGitHubTokenTravelsWithSync(t *testing.T) {
 	api.anonymousStatus = http.StatusNotFound
 	blockGitHubClone(t)
 	stub := newS3Stub(t)
-	gitHub := http.DefaultClient.Transport
-	http.DefaultClient = &http.Client{Transport: fetchTransport(func(r *http.Request) (*http.Response, error) {
+	gitHub := testTransport(t)
+	stubHTTP(t, func(r *http.Request) (*http.Response, error) {
 		if "http://"+r.URL.Host == stub.endpoint {
 			return http.DefaultTransport.RoundTrip(r)
 		}
 		return gitHub.RoundTrip(r)
-	})}
+	})
 	ctx := t.Context()
 
 	pushing := stub.open(t)
@@ -1163,6 +1183,7 @@ func TestGitHubTokenTravelsWithSync(t *testing.T) {
 
 // 清空或换掉的令牌不会留在推送出去的库里:删掉的内容在数据库文件里清零,S3 上的对象里找不到旧令牌原文。
 func TestClearedGitHubTokenDoesNotLeaveInPushedLibrary(t *testing.T) {
+	t.Parallel()
 	stub := newS3Stub(t)
 	lib := stub.open(t)
 	setGitHubToken(t, lib, "ghp_REPLACEDMARKER0123456789")
@@ -1248,6 +1269,7 @@ func TestSyncSettingsAreStoredAndTakeEffectImmediately(t *testing.T) {
 
 // 保留份数为负、自动推送的间隔不认识时不存,按字段返回 InvalidArgument。
 func TestSetSyncSettingsRejectsInvalidKeepAndInterval(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	saved := library.SyncSettings{Bucket: "bucket", Keep: 2, AutoPush: library.SyncHourly}
 	setSyncSettings(t, lib, saved)
@@ -1276,6 +1298,7 @@ func TestSetSyncSettingsRejectsInvalidKeepAndInterval(t *testing.T) {
 // 同步设置与同步状态只属于这台机器:推送出去的库里没有 S3 密钥,拉回时保留本机的同步设置、设备目录与上次推送时间;
 // 应用的设置随推送、拉回走,拉回后换成那份库里的。设备目录重新打开数据库后不变。
 func TestSyncSettingsStayOnThisMachineAndAppSettingsTravel(t *testing.T) {
+	t.Parallel()
 	stub := newS3Stub(t)
 	ctx := t.Context()
 	pushingSettings := stub.settings
@@ -1333,6 +1356,7 @@ func TestSyncSettingsStayOnThisMachineAndAppSettingsTravel(t *testing.T) {
 
 // 拖出来的集合与组的先后存在库里:推送带上它,拉回后换成备份里的先后。
 func TestSyncCarriesCollectionAndGroupOrder(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	stub := newS3Stub(t)
 	lib := stub.open(t)

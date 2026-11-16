@@ -31,7 +31,7 @@ func TestCheckUpdatesIsReadOnlyAndUpdateIsLibraryOnly(t *testing.T) {
 		commitGit(t, repository, "source state")
 	}
 	writeSource("old", "old")
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	serveGitHubCloneOnly(t, repository)
 	lib := openTestLibrary(t)
 	preview, err := lib.PreviewFetch(ctx, gitHubRequest())
@@ -135,6 +135,7 @@ func TestCheckUpdatesIsReadOnlyAndUpdateIsLibraryOnly(t *testing.T) {
 }
 
 func TestLocalCheckUpdatesDetectsContentAndMode(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "local")
@@ -182,20 +183,18 @@ func TestLocalCheckUpdatesDetectsContentAndMode(t *testing.T) {
 }
 
 func TestCheckUpdatesReadsEachCollectionOnceAndKeepsCollectionsIndependent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	archive := zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "old"), "second/SKILL.md": skillDocument("second", "old")})
 	failed := false
 	requests := map[string]int{}
-	client := http.DefaultClient
-	http.DefaultClient = &http.Client{Transport: fetchTransport(func(r *http.Request) (*http.Response, error) {
+	stubHTTP(t, func(r *http.Request) (*http.Response, error) {
 		requests[r.URL.Path]++
 		if failed && r.URL.Path == "/broken" {
 			return nil, errors.New("offline")
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(bytes.NewReader(archive))}, nil
-	})}
-	t.Cleanup(func() { http.DefaultClient = client })
+	})
 	var skills []library.Skill
 	for _, suffix := range []string{"/good", "/broken"} {
 		preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://source.example" + suffix})
@@ -358,8 +357,8 @@ func TestCheckUpdatesCancellationReturnsOnlyCompletedCollections(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	transport := http.DefaultClient.Transport
-	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
+	transport := testTransport(t)
+	stubHTTP(t, func(r *http.Request) (*http.Response, error) {
 		if r.URL.RawQuery == "second" {
 			cancel()
 			return nil, r.Context().Err()
@@ -385,6 +384,7 @@ func TestCheckUpdatesCancellationReturnsOnlyCompletedCollections(t *testing.T) {
 // 结论
 
 func TestUpdateChecksReplaceEarlierConclusionsAndRemovalStartsUnchecked(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	skill, source := fetchLocalSkill(t, lib, "example", "old")
 	for _, status := range []library.UpdateCheckStatus{library.UpdateCurrent, library.UpdateAvailable, library.UpdateFailed, library.UpdateCurrent} {
@@ -424,8 +424,9 @@ func TestUpdateChecksReplaceEarlierConclusionsAndRemovalStartsUnchecked(t *testi
 }
 
 func TestUpdateCheckSurvivesReopen(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "library.db")
-	lib, err := library.Open(path)
+	lib, err := library.Open(path, testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -471,7 +472,7 @@ func TestUpdateCheckSurvivesReopen(t *testing.T) {
 	if err := lib.Close(); err != nil {
 		t.Fatal(err)
 	}
-	lib, err = library.Open(path)
+	lib, err = library.Open(path, testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}

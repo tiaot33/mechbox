@@ -34,8 +34,9 @@ func listAgents(t *testing.T, lib *library.Library) []library.Agent {
 
 // 内置 Agent 按主目录下它的配置目录是否存在报出是否检测到,列出时现查。
 func TestListAgentsReportsWhetherBuiltinAgentsAreDetected(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	if got := listAgents(t, lib); !reflect.DeepEqual(got, seededAgents(home)) {
 		t.Fatalf("ListAgents() = %#v, want %#v", got, seededAgents(home))
@@ -59,9 +60,10 @@ func TestListAgentsReportsWhetherBuiltinAgentsAreDetected(t *testing.T) {
 
 // 添加的自定义 Agent 和内置 Agent 一样能装到全局和项目;重开库时写入内置 Agent 不动它。
 func TestCustomAgentInstallsLikeBuiltinAgents(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	path := filepath.Join(t.TempDir(), "library.db")
 	lib := openTestLibraryAt(t, path)
 	agent, err := lib.AddAgent(ctx, library.CustomAgent{Name: "  My Agent ", GlobalDirectory: "~/.my-agent/skills", ProjectDirectory: "./.my-agent/skills/"})
@@ -114,8 +116,9 @@ func TestCustomAgentInstallsLikeBuiltinAgents(t *testing.T) {
 
 // 填写不合法时返回 InvalidArgument 并指向字段,什么都不添加;全局目录必须在主目录里面。
 func TestAddAgentRejectsInvalidSettings(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	valid := library.CustomAgent{Name: "Agent", GlobalDirectory: filepath.Join(home, ".agent", "skills"), ProjectDirectory: ".agent/skills"}
 	cases := map[string]struct {
@@ -148,9 +151,10 @@ func TestAddAgentRejectsInvalidSettings(t *testing.T) {
 
 // 内置 Agent 不能改也不能删;未知代码返回 NotFound。
 func TestBuiltinAgentsCannotBeEditedOrDeleted(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	settings := library.CustomAgent{Name: "Codex", GlobalDirectory: filepath.Join(home, ".other", "skills"), ProjectDirectory: ".other/skills"}
 	_, err := lib.EditAgent(ctx, library.AgentCodex, settings, library.EditAgentOptions{})
@@ -168,9 +172,10 @@ func TestBuiltinAgentsCannotBeEditedOrDeleted(t *testing.T) {
 
 // 只改名称时代码不变,安装记录和文件夹都不动。
 func TestEditAgentRenameKeepsInstalls(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	agent := addAgent(t, lib, home, "Old", ".agent/skills", ".agent/skills")
 	skill := fetchNamedSkill(t, lib, "example")
@@ -190,9 +195,10 @@ func TestEditAgentRenameKeepsInstalls(t *testing.T) {
 // 改目录并迁移:已装的文件夹原样搬到新目录(保留用户改过的内容),记录保留;新目录里已有同名文件夹的不覆盖、
 // 不搬,旧文件夹留在原处,去掉这一处的安装记录并在结果里报出。没变的层级不受影响。
 func TestEditAgentMigratesFoldersAndReportsConflicts(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	agent := addAgent(t, lib, home, "Agent", ".old/skills", ".agent/skills")
 	project, err := lib.RegisterProject(ctx, t.TempDir())
@@ -249,9 +255,10 @@ func TestEditAgentMigratesFoldersAndReportsConflicts(t *testing.T) {
 
 // 改目录不迁移:只改目录,旧目录里的文件夹不动,去掉这个 Agent 在该层级的直接安装与组安装;没变的层级不受影响。
 func TestEditAgentWithoutMigrationDropsInstallsOfChangedLevel(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	agent := addAgent(t, lib, home, "Agent", ".old/skills", ".agent/skills")
 	project, err := lib.RegisterProject(ctx, t.TempDir())
@@ -300,11 +307,12 @@ func TestEditAgentWithoutMigrationDropsInstallsOfChangedLevel(t *testing.T) {
 
 // 删除自定义 Agent 和注销项目一样:默认连同文件夹删除,Keep 时文件夹留着,库不再管;记录都撤掉。
 func TestDeleteAgentRemovesOrKeepsFolders(t *testing.T) {
+	t.Parallel()
 	for _, policy := range []library.FolderPolicy{"", library.Remove, library.Keep} {
 		t.Run(string(policy), func(t *testing.T) {
 			ctx := t.Context()
 			home := t.TempDir()
-			t.Setenv("HOME", home)
+			setTestHome(t, home)
 			lib := openTestLibrary(t)
 			agent := addAgent(t, lib, home, "Agent", ".agent/skills", ".agent/skills")
 			skill := fetchNamedSkill(t, lib, "example")
@@ -344,9 +352,10 @@ func TestDeleteAgentRemovesOrKeepsFolders(t *testing.T) {
 // 两个 Agent 共用目录:装到其中一个,另一个也算已装(列表、巡检、安装计划一致),并能查到共用的 Agent;
 // 对另一个再安装只补记选择,不报占用;从任何一个卸载都删除文件夹,两个都不再算已装。
 func TestSharedDirectoryCountsAsInstalledForEveryAgent(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	skill := fetchNamedSkill(t, lib, "example")
 	codex := library.GlobalScope(library.AgentCodex)
@@ -408,9 +417,10 @@ func TestSharedDirectoryCountsAsInstalledForEveryAgent(t *testing.T) {
 
 // 共用目录里装着另一个同名技能时,仍按占用处理;项目层级按项目里的技能目录判断共用。
 func TestSharedDirectoryStillReportsAnotherSkillAsOccupier(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	project, err := lib.RegisterProject(ctx, t.TempDir())
 	if err != nil {
@@ -439,9 +449,10 @@ func TestSharedDirectoryStillReportsAnotherSkillAsOccupier(t *testing.T) {
 
 // 组装到共用目录的两个 Agent:加入成员时只放一次文件夹,两处都算装上;撤掉一处组安装,另一处的组安装还留着文件夹。
 func TestGroupInstallsAcrossAgentsSharingADirectory(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	agent := addAgent(t, lib, home, "Agent", ".agents/skills", ".agent/skills")
 	codex := library.GlobalScope(library.AgentCodex)
@@ -487,9 +498,10 @@ func TestGroupInstallsAcrossAgentsSharingADirectory(t *testing.T) {
 
 // 共用目录里一个 Agent 的组安装把技能装上后,在另一个 Agent 上组安装只补记,不报占用。
 func TestGroupInstallCountsSkillInstalledByASharingAgent(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	agent := addAgent(t, lib, home, "Agent", ".agents/skills", ".agent/skills")
 	skill := fetchNamedSkill(t, lib, "member")
@@ -526,9 +538,10 @@ func TestGroupInstallCountsSkillInstalledByASharingAgent(t *testing.T) {
 
 // 共用目录里文件夹不在了,从共用的另一个 Agent 同意后也能重新安装回去。
 func TestReinstallThroughASharingAgent(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	agent := addAgent(t, lib, home, "Agent", ".agents/skills", ".agent/skills")
 	skill := fetchNamedSkill(t, lib, "example")
@@ -547,11 +560,12 @@ func TestReinstallThroughASharingAgent(t *testing.T) {
 // 自定义 Agent 离开一个 Codex 还在读的共用目录:迁移时文件夹原样复制过去,旧文件夹和安装留给 Codex;
 // 不迁移时安装记录转给 Codex,文件夹不动。
 func TestEditAgentLeavingASharedDirectoryKeepsItForTheOthers(t *testing.T) {
+	t.Parallel()
 	for _, migrate := range []bool{true, false} {
 		t.Run(map[bool]string{true: "migrate", false: "keep"}[migrate], func(t *testing.T) {
 			ctx := t.Context()
 			home := t.TempDir()
-			t.Setenv("HOME", home)
+			setTestHome(t, home)
 			lib := openTestLibrary(t)
 			agent := addAgent(t, lib, home, "Agent", ".agents/skills", ".agent/skills")
 			skill := fetchNamedSkill(t, lib, "example")
@@ -596,9 +610,10 @@ func TestEditAgentLeavingASharedDirectoryKeepsItForTheOthers(t *testing.T) {
 // 删除共用目录的自定义 Agent:即使选了一并删除,Codex 还在读的文件夹也保留,安装记录转给 Codex,结果里列出保留了哪些、
 // 还有哪些 Agent 在读;只因共用而算已装的也列出。没有别的 Agent 在读的照常删除。
 func TestDeleteAgentKeepsFoldersStillReadByAnotherAgent(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	agent := addAgent(t, lib, home, "Agent", ".agents/skills", ".agent/skills")
 	project, err := lib.RegisterProject(ctx, t.TempDir())
@@ -643,11 +658,12 @@ func TestDeleteAgentKeepsFoldersStillReadByAnotherAgent(t *testing.T) {
 
 // 只因共用目录而算已装的技能,改目录迁移时也原样复制到新目录,之后这个 Agent 在新目录照常算已装;旧文件夹留给 Codex。
 func TestEditAgentMigratesSkillsCountedThroughASharedDirectory(t *testing.T) {
+	t.Parallel()
 	for _, level := range []string{"global", "project"} {
 		t.Run(level, func(t *testing.T) {
 			ctx := t.Context()
 			home := t.TempDir()
-			t.Setenv("HOME", home)
+			setTestHome(t, home)
 			lib := openTestLibrary(t)
 			agent := addAgent(t, lib, home, "Agent", ".agents/skills", ".agents/skills")
 			project, err := lib.RegisterProject(ctx, t.TempDir())
@@ -693,9 +709,10 @@ func TestEditAgentMigratesSkillsCountedThroughASharedDirectory(t *testing.T) {
 // 迁移不光看磁盘,也看库里的安装:新目录里另一个同名技能的文件夹不在了、但它的安装还在时,不搬过去,
 // 之后卸载那个技能也不会删掉这个 Agent 的文件夹。
 func TestEditAgentMigrationRespectsAnotherSkillsInstall(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	agent := addAgent(t, lib, home, "Agent", ".old/skills", ".agent/skills")
 	first := fetchSkillWithBody(t, lib, "example", "# first\n")
@@ -731,9 +748,10 @@ func TestEditAgentMigrationRespectsAnotherSkillsInstall(t *testing.T) {
 
 // 复制期间新目录里冒出同名文件夹(用户或别的程序建的)时不覆盖它:整次返回 AlreadyExists 并指出路径,什么都不改。
 func TestEditAgentMigrationNeverOverwritesAFolderThatAppearsDuringCopy(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	agent := addAgent(t, lib, home, "Agent", ".old/skills", ".agent/skills")
 	skill := fetchNamedSkill(t, lib, "example")
@@ -769,9 +787,10 @@ func TestEditAgentMigrationNeverOverwritesAFolderThatAppearsDuringCopy(t *testin
 
 // 新目录填在要迁移的技能文件夹里面时拒绝,什么都不改,也不在源文件夹里建出目录。
 func TestEditAgentRejectsDirectoryInsideAnInstalledSkill(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	agent := addAgent(t, lib, home, "Agent", ".old/skills", ".agent/skills")
 	for _, name := range []string{"aaa", "example"} {
@@ -796,9 +815,10 @@ func TestEditAgentRejectsDirectoryInsideAnInstalledSkill(t *testing.T) {
 // 迁移在提交阶段失败(旧项目目录不让删)时整次复原:新目录里的副本(哪怕复制成只读)撤掉,已挪走的旧全局文件夹放回,
 // 安装记录和 Agent 的目录都不变。
 func TestEditAgentMigrationFailureWhileCommittingRestoresEverything(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	agent := addAgent(t, lib, home, "Agent", ".old/skills", ".old/skills")
 	project, err := lib.RegisterProject(ctx, t.TempDir())
@@ -843,9 +863,10 @@ func TestEditAgentMigrationFailureWhileCommittingRestoresEverything(t *testing.T
 
 // 改目录迁移中途失败时整次复原:磁盘、安装记录和 Agent 的目录都保持原样。
 func TestEditAgentMigrationFailureLeavesEverythingAsItWas(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	agent := addAgent(t, lib, home, "Agent", ".old/skills", ".agent/skills")
 	skill := fetchNamedSkill(t, lib, "example")

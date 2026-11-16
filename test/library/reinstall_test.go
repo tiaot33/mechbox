@@ -138,10 +138,11 @@ func scopeFilter(scope library.Scope) library.SkillScopeFilter {
 }
 
 func TestInspectSkillScopesCurrentStaleModifiedAndInstallAgain(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
 	writeLocalSkill(t, source, "# v1\n")
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
@@ -191,11 +192,12 @@ func TestInspectSkillScopesCurrentStaleModifiedAndInstallAgain(t *testing.T) {
 }
 
 func TestInspectSkillScopesReportsModifiedForExtraFileAndExecutableBit(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
 	writeLocalSkill(t, source, "# Example\n")
 	writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
@@ -227,10 +229,11 @@ func TestInspectSkillScopesReportsModifiedForExtraFileAndExecutableBit(t *testin
 
 // Finder 留下的 .DS_Store、运行脚本生成的 __pycache__ 不算改过已装的文件夹。
 func TestInspectSkillScopesIgnoresSystemAndCacheFiles(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
 	writeLocalSkill(t, source, "# Example\n")
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
@@ -253,8 +256,9 @@ func TestInspectSkillScopesIgnoresSystemAndCacheFiles(t *testing.T) {
 
 // 技能文件夹不在了、整个 Agent 目录不在了,对用户都是「文件夹不在了」,同为 missing。
 func TestInspectSkillScopesReportsMissingWhenFolderOrAgentDirectoryRemoved(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill := fetchExampleSkill(t, lib, "example")
 	claude := library.GlobalScope(library.AgentClaudeCode)
@@ -288,6 +292,7 @@ func TestInspectSkillScopesReportsMissingWhenFolderOrAgentDirectoryRemoved(t *te
 
 // 项目不在这台机器上:作用域根目录不存在是 root_missing,与文件夹不在了区分开。
 func TestInspectSkillScopesReportsRootMissingWhenProjectRootGone(t *testing.T) {
+	t.Parallel()
 	for name, replace := range map[string]func(t *testing.T, root string){
 		"deleted": func(t *testing.T, root string) {
 			if err := os.RemoveAll(root); err != nil {
@@ -303,7 +308,7 @@ func TestInspectSkillScopesReportsRootMissingWhenProjectRootGone(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx := t.Context()
-			t.Setenv("HOME", t.TempDir())
+			setTestHome(t, t.TempDir())
 			lib := openTestLibrary(t)
 			projectRoot := filepath.Join(t.TempDir(), "project")
 			if err := os.Mkdir(projectRoot, 0o755); err != nil {
@@ -325,8 +330,9 @@ func TestInspectSkillScopesReportsRootMissingWhenProjectRootGone(t *testing.T) {
 }
 
 func TestInspectSkillScopesInspectsGroupSkillScopes(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "group-skill")
 	writeLocalSkill(t, source, "# Group\n")
@@ -369,8 +375,9 @@ func TestInspectSkillScopesInspectsGroupSkillScopes(t *testing.T) {
 }
 
 func TestInspectSkillScopesIsReadOnlyAndMatchesListSkillScopes(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	firstSource := filepath.Join(t.TempDir(), "first")
 	secondSource := filepath.Join(t.TempDir(), "second")
@@ -446,8 +453,9 @@ func TestInspectSkillScopesIsReadOnlyAndMatchesListSkillScopes(t *testing.T) {
 
 // 同一个筛选条件下,ListSkillScopes 与 InspectSkillScopes 列出的是同样几处,都是全库结果的子集。
 func TestSkillScopeFilterNarrowsListAndInspection(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	project, err := lib.RegisterProject(ctx, t.TempDir())
 	if err != nil {
@@ -542,8 +550,9 @@ func TestSkillScopeFilterNarrowsListAndInspection(t *testing.T) {
 }
 
 func TestReinstallKeepsInstalls(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	groupOnly, groupOnlySource := fetchLocalSkill(t, lib, "group-only", "# group-only v1\n")
 	directOnly, directOnlySource := fetchLocalSkill(t, lib, "direct-only", "# direct-only v1\n")
@@ -606,8 +615,9 @@ func TestReinstallKeepsInstalls(t *testing.T) {
 
 // 只换列出的几处,顺序与请求一致;没列出的地方即使落后也不动。
 func TestReinstallOnlyTheListedPlaces(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	project, err := lib.RegisterProject(ctx, t.TempDir())
 	if err != nil {
@@ -657,8 +667,9 @@ func TestReinstallOnlyTheListedPlaces(t *testing.T) {
 
 // 改过的地方只在这一处同意覆盖时才换;同一次调用里,同意的那处换掉,没同意的那处保持原样并报 AlreadyExists。
 func TestReinstallOverwritesModifiedOnlyWhereAgreed(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	kept, _ := fetchLocalSkill(t, lib, "kept", "# kept v1\n")
 	overwritten, _ := fetchLocalSkill(t, lib, "overwritten", "# overwritten v1\n")
@@ -705,11 +716,12 @@ func TestReinstallOverwritesModifiedOnlyWhereAgreed(t *testing.T) {
 }
 
 func TestReinstallWriteFailureRestoresItemAndContinues(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root 不受目录权限限制")
 	}
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, source := fetchLocalSkill(t, lib, "example", "# example v1\n")
 	writable := library.GlobalScope(library.AgentCodex)
@@ -753,8 +765,9 @@ func TestReinstallWriteFailureRestoresItemAndContinues(t *testing.T) {
 
 // 文件夹不在了(连同整个 Agent 目录)时,没同意不装回去、也不建目录;同意后装回去。
 func TestReinstallPutsBackMissingFolderAndAgentDirectory(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill := fetchExampleSkill(t, lib, "example")
 	codex := library.GlobalScope(library.AgentCodex)
@@ -808,8 +821,9 @@ func TestReinstallPutsBackMissingFolderAndAgentDirectory(t *testing.T) {
 }
 
 func TestReinstallFailsWithoutCreatingMissingProjectRoot(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	root := filepath.Join(t.TempDir(), "project")
 	if err := os.Mkdir(root, 0o755); err != nil {
@@ -858,8 +872,9 @@ func TestReinstallFailsWithoutCreatingMissingProjectRoot(t *testing.T) {
 // 请求里的某一处已经不装在那里(巡检之后被卸载、组安装时被跳过),或技能、Agent、项目已不在库里:
 // 这一处报 NotFound、磁盘不动,其余照常。
 func TestReinstallReportsPlacesNoLongerInstalled(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	installed, installedSource := fetchLocalSkill(t, lib, "installed", "# installed v1\n")
 	uninstalled := fetchNamedSkill(t, lib, "uninstalled")
@@ -921,8 +936,9 @@ func TestReinstallReportsPlacesNoLongerInstalled(t *testing.T) {
 
 // 只有请求本身不合法时整次失败,一处都不动。
 func TestReinstallRejectsInvalidRequests(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, source := fetchLocalSkill(t, lib, "example", "# example v1\n")
 	scope := library.GlobalScope(library.AgentCodex)
@@ -966,8 +982,9 @@ func (c cancelWhen) Err() error {
 }
 
 func TestReinstallCancelReturnsCompletedItems(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	first, firstSource := fetchLocalSkill(t, lib, "first", "# first v1\n")
 	second, secondSource := fetchLocalSkill(t, lib, "second", "# second v1\n")

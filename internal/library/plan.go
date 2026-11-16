@@ -273,7 +273,7 @@ func (l *Library) readScopeEdit(ctx context.Context, operation string, id SkillI
 	if err != nil {
 		return scopeEdit{}, err
 	}
-	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.record())
+	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.Scope)
 	if err != nil {
 		return scopeEdit{}, err
 	}

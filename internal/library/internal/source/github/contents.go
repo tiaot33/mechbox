@@ -77,13 +77,14 @@ func (c *githubCredentials) currentToken() string {
 }
 
 type githubClient struct {
+	http    *http.Client
 	session atomic.Pointer[githubSessionAuth]
 	auth    *githubAuth
 	memo    *githubObjectMemo
 }
 
 func (c *Client) session() *githubClient {
-	client := &githubClient{auth: &c.auth, memo: &c.memo}
+	client := &githubClient{http: c.http, auth: &c.auth, memo: &c.memo}
 	client.session.Store(newGitHubSessionAuth(c.auth.current.Load()))
 	return client
 }
@@ -189,7 +190,7 @@ func githubAPIURL(pattern string, owner, repo, object string) string {
 }
 
 func (c *githubClient) get(ctx context.Context, location string, dest any) error {
-	return c.request(ctx, func(token string) error { return githubAPIGetOnce(ctx, location, token, dest) }, func() error { return githubCLIGet(ctx, location, dest) })
+	return c.request(ctx, func(token string) error { return githubAPIGetOnce(ctx, c.http, location, token, dest) }, func() error { return githubCLIGet(ctx, location, dest) })
 }
 
 func (c *githubClient) request(ctx context.Context, httpGet func(string) error, cliGet func() error) error {
@@ -277,9 +278,9 @@ func isGitHubAuthRetry(err error) bool {
 	return ok && (httpErr.status == http.StatusUnauthorized || httpErr.status == http.StatusForbidden || httpErr.status == http.StatusNotFound || httpErr.rateLimited)
 }
 
-func githubAPIGetOnce(ctx context.Context, location, token string, dest any) error {
+func githubAPIGetOnce(ctx context.Context, httpClient *http.Client, location, token string, dest any) error {
 	var body bytes.Buffer
-	if err := githubDownload(ctx, location, token, &body); err != nil {
+	if err := githubDownload(ctx, httpClient, location, token, &body); err != nil {
 		return err
 	}
 	if json.Unmarshal(body.Bytes(), dest) != nil {

@@ -34,6 +34,7 @@ type state struct {
 }
 
 type snapshot struct {
+	client      *http.Client
 	url         string
 	maxFiles    int
 	maxBytes    int64
@@ -69,7 +70,7 @@ func (k Kind) Probe(ctx context.Context, link string) (source.Target, bool, erro
 	if err != nil {
 		return source.Target{}, false, err
 	}
-	s := &snapshot{url: link, maxFiles: k.maxFiles, maxBytes: k.maxBytes}
+	s := &snapshot{client: k.client, url: link, maxFiles: k.maxFiles, maxBytes: k.maxBytes}
 	err = s.read(ctx, "")
 	switch {
 	case err == nil:
@@ -92,12 +93,13 @@ func Locate(link string) (source.Target, error) {
 }
 
 type Kind struct {
+	client   *http.Client
 	maxFiles int
 	maxBytes int64
 }
 
-func New(maxFiles int, maxBytes int64) Kind {
-	return Kind{maxFiles: maxFiles, maxBytes: maxBytes}
+func New(client *http.Client, maxFiles int, maxBytes int64) Kind {
+	return Kind{client: client, maxFiles: maxFiles, maxBytes: maxBytes}
 }
 
 func (k Kind) Describe(loc source.Locator) (source.Description, error) {
@@ -113,7 +115,7 @@ func (k Kind) Open(ctx context.Context, loc source.Locator, _ string, hint sourc
 	if err != nil {
 		return nil, err
 	}
-	s := &snapshot{url: decoded.URL, maxFiles: k.maxFiles, maxBytes: k.maxBytes}
+	s := &snapshot{client: k.client, url: decoded.URL, maxFiles: k.maxFiles, maxBytes: k.maxBytes}
 	if err := s.read(ctx, decodeState(hint)); err != nil {
 		return nil, err
 	}
@@ -208,7 +210,7 @@ func (s *snapshot) read(ctx context.Context, validator string) error {
 		return &source.InputError{Reason: "fetch source: invalid source URL"}
 	}
 	applyValidator(req, validator)
-	response, err := http.DefaultClient.Do(req)
+	response, err := s.client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()

@@ -43,7 +43,7 @@ func (l *Library) targetClaimant(ctx context.Context, id SkillID, name string, t
 	}
 	want := agentdir.Canonical(target.directory)
 	for _, other := range claimants {
-		claimed, err := l.resolveRow(ctx, scopeRowOf(other.Scope))
+		claimed, err := l.resolveRow(ctx, other.Scope)
 		if err != nil {
 			return nil, err
 		}

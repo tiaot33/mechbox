@@ -158,7 +158,7 @@ func memberNameCounts(members []Skill) map[string]int {
 
 func (l *Library) planInstall(ctx context.Context, id SkillID, name string, scope resolvedScope) (InstallPlan, error) {
 	plan := InstallPlan{SkillID: id, Name: name, Folder: agentdir.FolderPath(scope.directory, name), Status: InstallReady}
-	place, err := l.store.PlaceSkillScopes(ctx, int64(id), scope.record())
+	place, err := l.store.PlaceSkillScopes(ctx, int64(id), scope.Scope)
 	if err != nil {
 		return plan, err
 	}
@@ -206,16 +206,16 @@ func (l *Library) Install(ctx context.Context, id SkillID, scope Scope, opts Ins
 	if err := target.requireRoot("install skill"); err != nil {
 		return err
 	}
-	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.record())
+	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.Scope)
 	if err != nil {
 		return err
 	}
-	if len(place) > 0 && place[0].Agent == string(target.agent) {
+	if len(place) > 0 && place[0].Agent == target.Agent {
 		return l.store.MarkDirect(ctx, place[0].ID)
 	}
 	if len(place) > 0 {
 		return l.store.InTx(ctx, func(tx *store.Tx) error {
-			return tx.RecordSkillScope(ctx, int64(skill.ID), target.record(), true, clockNow())
+			return tx.RecordSkillScope(ctx, int64(skill.ID), target.Scope, true, clockNow())
 		})
 	}
 	conflict, err := l.placementConflict(ctx, "install skill", skill.ID, skill.Name, target, opts.Overwrite)
@@ -227,7 +227,7 @@ func (l *Library) Install(ctx context.Context, id SkillID, scope Scope, opts Ins
 	}
 	placements := []*placement{{skill: skill, files: current.files, scope: target}}
 	return l.place(ctx, placements, func(tx *store.Tx) error {
-		return tx.RecordSkillScope(ctx, int64(skill.ID), target.record(), true, clockNow())
+		return tx.RecordSkillScope(ctx, int64(skill.ID), target.Scope, true, clockNow())
 	})
 }
 
@@ -246,7 +246,7 @@ func (l *Library) Uninstall(ctx context.Context, id SkillID, scope Scope) (err e
 	if err != nil {
 		return err
 	}
-	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.record())
+	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.Scope)
 	if err != nil {
 		return err
 	}
@@ -254,7 +254,7 @@ func (l *Library) Uninstall(ctx context.Context, id SkillID, scope Scope) (err e
 		return &Error{Code: NotFound, Message: "uninstall skill: skill is not installed in scope"}
 	}
 	if !slices.ContainsFunc(place, func(row store.PlaceSkillScope) bool { return row.Direct }) {
-		covered := target.record()
+		covered := target.Scope
 		covered.Agent = place[0].Agent
 		name, err := l.store.CoveringGroupName(ctx, int64(id), covered)
 		if err != nil {
@@ -306,7 +306,7 @@ func newMemberPlan(operation string, opts InstallOptions) *memberPlan {
 
 func (l *Library) planMember(ctx context.Context, plan *memberPlan, id SkillID, name string, target resolvedScope, duplicate bool) error {
 	result := GroupMemberResult{SkillID: id, Scope: target.scope(), Outcome: MemberSkipped}
-	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.record())
+	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.Scope)
 	if err != nil {
 		return err
 	}
@@ -315,7 +315,7 @@ func (l *Library) planMember(ctx context.Context, plan *memberPlan, id SkillID, 
 	switch {
 	case len(place) > 0:
 		result.Outcome = MemberAlreadyInstalled
-		if place[0].Agent != string(target.agent) {
+		if place[0].Agent != target.Agent {
 			plan.records = append(plan.records, memberRecord{skillID: id, scope: target})
 		}
 	case planned != nil && planned.skill.ID == id && planned.scope.sharesFolderWith(target):
@@ -362,12 +362,12 @@ func (l *Library) applyMemberPlan(ctx context.Context, plan *memberPlan, record 
 			return err
 		}
 		for _, item := range plan.placements {
-			if err := tx.RecordSkillScope(ctx, int64(item.skill.ID), item.scope.record(), false, now); err != nil {
+			if err := tx.RecordSkillScope(ctx, int64(item.skill.ID), item.scope.Scope, false, now); err != nil {
 				return err
 			}
 		}
 		for _, item := range plan.records {
-			if err := tx.RecordSkillScope(ctx, int64(item.skillID), item.scope.record(), false, now); err != nil {
+			if err := tx.RecordSkillScope(ctx, int64(item.skillID), item.scope.Scope, false, now); err != nil {
 				return err
 			}
 		}
@@ -410,7 +410,7 @@ func (l *Library) InstallGroup(ctx context.Context, groupID GroupID, scope Scope
 		}
 	}
 	return l.applyMemberPlan(ctx, plan, func(tx *store.Tx, now time.Time) error {
-		return tx.RecordGroupInstall(ctx, int64(groupID), target.record(), now)
+		return tx.RecordGroupInstall(ctx, int64(groupID), target.Scope, now)
 	})
 }
 
@@ -428,14 +428,14 @@ func (l *Library) UninstallGroup(ctx context.Context, groupID GroupID, scope Sco
 	if err := l.requireGroup(ctx, groupID); err != nil {
 		return err
 	}
-	groupInstallID, err := l.store.FindGroupInstall(ctx, int64(groupID), target.record())
+	groupInstallID, err := l.store.FindGroupInstall(ctx, int64(groupID), target.Scope)
 	if errors.Is(err, store.ErrNotFound) {
 		return &Error{Code: NotFound, Message: "uninstall group: group is not installed in scope"}
 	}
 	if err != nil {
 		return err
 	}
-	members, err := l.store.MemberSkillScopes(ctx, int64(groupID), 0, new(target.record()))
+	members, err := l.store.MemberSkillScopes(ctx, int64(groupID), 0, new(target.Scope))
 	if err != nil {
 		return err
 	}
@@ -475,7 +475,7 @@ func (l *Library) ListGroupInstalls(ctx context.Context) (installs []GroupInstal
 		return nil, err
 	}
 	for _, row := range rows {
-		installs = append(installs, GroupInstall{GroupID: GroupID(row.GroupID), Scope: scopeRowOf(row.Scope).scope(), CreatedAt: row.CreatedAt})
+		installs = append(installs, GroupInstall{GroupID: GroupID(row.GroupID), Scope: scopeFrom(row.Scope), CreatedAt: row.CreatedAt})
 	}
 	return installs, nil
 }
@@ -488,7 +488,7 @@ func (l *Library) ListSkillScopes(ctx context.Context, filter SkillScopeFilter) 
 	return l.filteredSkillScopes(ctx, "list skill scopes", filter)
 }
 
-func (l *Library) listSkillScopes(ctx context.Context, skillID SkillID, scope *scopeRow) ([]SkillScope, error) {
+func (l *Library) listSkillScopes(ctx context.Context, skillID SkillID, scope *store.Scope) ([]SkillScope, error) {
 	rows, err := l.store.ListSkillScopes(ctx, int64(skillID))
 	if err != nil {
 		return nil, err
@@ -502,13 +502,13 @@ func (l *Library) listSkillScopes(ctx context.Context, skillID SkillID, scope *s
 	sharers := map[folder][]AgentCode{}
 	var folders []folder
 	for _, row := range rows {
-		target, err := l.resolveRow(ctx, scopeRowOf(row.Scope))
+		target, err := l.resolveRow(ctx, row.Scope)
 		if err != nil {
 			return nil, err
 		}
 		key := folder{skillID: row.SkillID, relative: target.relative}
-		if target.projectID != nil {
-			key.projectID = *target.projectID
+		if target.ProjectID != nil {
+			key.projectID = ProjectID(*target.ProjectID)
 		}
 		entry := merged[key]
 		if entry == nil {
@@ -537,15 +537,15 @@ func (l *Library) listSkillScopes(ctx context.Context, skillID SkillID, scope *s
 		slices.Sort(entry.Groups)
 		entry.Groups = slices.Compact(entry.Groups)
 		for _, agent := range sharers[key] {
-			row := scopeRow{agent: agent}
+			listed := GlobalScope(agent)
 			if key.projectID != 0 {
-				row.projectID = new(key.projectID)
+				listed = ProjectScope(agent, key.projectID)
 			}
-			if scope != nil && row.scope() != scope.scope() {
+			if scope != nil && listed != scopeFrom(*scope) {
 				continue
 			}
 			skillScope := entry
-			skillScope.Scope = row.scope()
+			skillScope.Scope = listed
 			for _, other := range sharers[key] {
 				if other != agent {
 					skillScope.SharedWith = append(skillScope.SharedWith, other)

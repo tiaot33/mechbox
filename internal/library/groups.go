@@ -60,13 +60,17 @@ func (l *Library) CreateGroup(ctx context.Context, name string) (group Group, er
 	if name == "" {
 		return Group{}, argumentError("create group", "name", "name is required")
 	}
-	taken, err := l.store.GroupNames(ctx)
-	if err != nil {
-		return Group{}, err
-	}
-	name = uniqueGroupName(name, taken)
 	createdAt := clockNow()
-	id, err := l.store.CreateGroup(ctx, name, createdAt)
+	var id int64
+	err = l.store.InTx(ctx, func(tx *store.Tx) error {
+		taken, err := tx.GroupNames(ctx)
+		if err != nil {
+			return err
+		}
+		name = uniqueGroupName(name, taken)
+		id, err = tx.CreateGroup(ctx, name, createdAt)
+		return err
+	})
 	if err != nil {
 		return Group{}, err
 	}
@@ -100,28 +104,30 @@ func (l *Library) RenameGroup(ctx context.Context, id GroupID, name string) (gro
 	if name == "" {
 		return Group{}, argumentError("rename group", "name", "name is required")
 	}
-	row, err := l.store.GetGroup(ctx, int64(id))
+	err = l.store.InTx(ctx, func(tx *store.Tx) error {
+		row, err := tx.GetGroup(ctx, int64(id))
+		if err != nil {
+			return err
+		}
+		if row.Members, err = tx.GroupMembers(ctx, int64(id)); err != nil {
+			return err
+		}
+		group = groupOf(row)
+		if group.Name == name {
+			return nil
+		}
+		taken, err := tx.GroupNames(ctx)
+		if err != nil {
+			return err
+		}
+		delete(taken, group.Name)
+		group.Name = uniqueGroupName(name, taken)
+		return tx.RenameGroup(ctx, int64(id), group.Name)
+	})
 	if err != nil {
 		return Group{}, err
 	}
-	if row.Members, err = l.store.GroupMembers(ctx, int64(id)); err != nil {
-		return Group{}, err
-	}
-	current := groupOf(row)
-	if current.Name == name {
-		return current, nil
-	}
-	taken, err := l.store.GroupNames(ctx)
-	if err != nil {
-		return Group{}, err
-	}
-	delete(taken, current.Name)
-	name = uniqueGroupName(name, taken)
-	if err := l.store.RenameGroup(ctx, int64(id), name); err != nil {
-		return Group{}, err
-	}
-	current.Name = name
-	return current, nil
+	return group, nil
 }
 
 // ReorderGroups 按 ids 的先后排列组,左栏把一个组拖到另一个组前后时调用:ids 里的排在前面,
@@ -223,7 +229,7 @@ func (l *Library) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID 
 	}
 	plan := newMemberPlan("add skill to group", InstallOptions{})
 	for _, install := range installs {
-		target, err := l.resolveScope(ctx, "add skill to group", scopeRowOf(install.Scope).scope())
+		target, err := l.resolveScope(ctx, "add skill to group", scopeFrom(install.Scope))
 		if err != nil {
 			return nil, err
 		}
@@ -279,7 +285,7 @@ func (l *Library) releasedMemberScopes(ctx context.Context, groupID, skillID int
 	}
 	released := make([]releasedMemberScope, len(skillScopes))
 	for i, skillScope := range skillScopes {
-		target, err := l.resolveRow(ctx, scopeRowOf(skillScope.Scope))
+		target, err := l.resolveRow(ctx, skillScope.Scope)
 		if err != nil {
 			return nil, err
 		}

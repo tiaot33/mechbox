@@ -645,11 +645,9 @@ func TestGitHubErrorsDoNotExposeCredentials(t *testing.T) {
 
 	stubGitHubCLI(t, "echo '"+secret+"'\necho '"+secret+"' >&2\nexit 1\n")
 	setGitHubToken(t, lib, secret)
-	client := http.DefaultClient
-	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
+	stubHTTP(t, func(*http.Request) (*http.Response, error) {
 		return jsonResponse(http.StatusForbidden, map[string]string{"message": secret}), nil
-	})}
-	t.Cleanup(func() { http.DefaultClient = client })
+	})
 	for _, operation := range []struct {
 		name string
 		run  func() error
@@ -890,9 +888,7 @@ func serveGitHubAPI(t *testing.T, fx gitHubFixture) *gitHubAPIMock {
 	t.Setenv("GITHUB_TOKEN", "")
 	t.Setenv("GH_TOKEN", "")
 	mock := &gitHubAPIMock{fx: cloneGitHubFixture(fx)}
-	client := http.DefaultClient
-	http.DefaultClient = &http.Client{Transport: fetchTransport(mock.roundTrip)}
-	t.Cleanup(func() { http.DefaultClient = client })
+	stubHTTP(t, mock.roundTrip)
 	return mock
 }
 

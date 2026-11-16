@@ -12,6 +12,7 @@ import (
 )
 
 func TestLocalDirectoryPreviewsCandidatesAndFetchesThemIntoOneCollection(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	root := t.TempDir()
@@ -60,6 +61,7 @@ func TestLocalDirectoryPreviewsCandidatesAndFetchesThemIntoOneCollection(t *test
 
 // 选的是一个技能文件夹时,来源是它的上一级目录:入库预览只列这个技能,先后从同一个目录入库的技能进同一个集合。
 func TestLocalSkillFolderJoinsTheCollectionOfItsParentDirectory(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	root := t.TempDir()
@@ -96,6 +98,7 @@ func TestLocalSkillFolderJoinsTheCollectionOfItsParentDirectory(t *testing.T) {
 
 // 来源是上一级目录:删掉目录里最后一个技能,检查更新报来源里已删除,不报来源读不到。
 func TestLocalSkillFolderRemovedFromItsParentIsDeletedInSource(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	root := t.TempDir()
 	writeLocalSkill(t, filepath.Join(root, "alpha"), "alpha")
@@ -113,6 +116,7 @@ func TestLocalSkillFolderRemovedFromItsParentIsDeletedInSource(t *testing.T) {
 
 // 上一级目录列不出这个技能文件夹时,来源就是这个文件夹本身。
 func TestLocalSkillFolderIsItsOwnSourceWhenTheParentCannotListIt(t *testing.T) {
+	t.Parallel()
 	skillInside := t.TempDir()
 	writeFile(t, filepath.Join(skillInside, "SKILL.md"), []byte(skillDocument("outer", "")), 0o644)
 	writeFile(t, filepath.Join(skillInside, "inner", "SKILL.md"), []byte(skillDocument("inner", "")), 0o644)
@@ -120,7 +124,7 @@ func TestLocalSkillFolderIsItsOwnSourceWhenTheParentCannotListIt(t *testing.T) {
 	writeFile(t, filepath.Join(sameName, "a", "SKILL.md"), []byte(skillDocument("twin", "first")), 0o644)
 	writeFile(t, filepath.Join(sameName, "b", "SKILL.md"), []byte(skillDocument("twin", "second")), 0o644)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	writeFile(t, filepath.Join(home, "mine", "SKILL.md"), []byte(skillDocument("mine", "")), 0o644)
 	for name, folder := range map[string]string{
 		"parent is a skill":      filepath.Join(skillInside, "inner"),
@@ -140,6 +144,7 @@ func TestLocalSkillFolderIsItsOwnSourceWhenTheParentCannotListIt(t *testing.T) {
 }
 
 func TestLocalSkillLeavesOutSystemAndCacheFiles(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "alpha", "SKILL.md"), []byte(skillDocument("alpha", "alpha body")), 0o644)
@@ -188,6 +193,7 @@ func TestLocalPreviewResolvesRelativePathAndListsAllCandidates(t *testing.T) {
 }
 
 func TestLocalPreviewPinsContentUntilFetch(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	root := t.TempDir()
@@ -211,6 +217,7 @@ func TestLocalPreviewPinsContentUntilFetch(t *testing.T) {
 }
 
 func TestLocalUpdateRelocatesSkillByNameInPreviewedDirectory(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	root := t.TempDir()
@@ -261,6 +268,7 @@ func TestLocalUpdateRelocatesSkillByNameInPreviewedDirectory(t *testing.T) {
 }
 
 func TestLocalPreviewRejectsInvalidDirectories(t *testing.T) {
+	t.Parallel()
 	file := filepath.Join(t.TempDir(), "not-dir")
 	writeFile(t, file, []byte("x"), 0o644)
 	withoutCandidates := t.TempDir()

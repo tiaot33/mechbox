@@ -48,9 +48,10 @@ func scopeDirectory(t *testing.T, lib *library.Library, scope library.Scope) str
 }
 
 func TestListUnmanagedSkillsListsFoldersTheLibraryDidNotInstall(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	codex := library.GlobalScope(library.AgentCodex)
@@ -95,8 +96,9 @@ func TestListUnmanagedSkillsListsFoldersTheLibraryDidNotInstall(t *testing.T) {
 }
 
 func TestListUnmanagedSkillsListsSymlinkedFolders(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	codex := library.GlobalScope(library.AgentCodex)
@@ -134,7 +136,8 @@ func TestListUnmanagedSkillsListsSymlinkedFolders(t *testing.T) {
 // SKILL.md 写错了的文件夹照样列出(Agent 目录里确实有它),带出哪里写错了:界面在作用域里就说明它不能入库,
 // 整批入库的计划里那一处也带着同样的说明。
 func TestListUnmanagedSkillsSaysWhySkillMDIsInvalid(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	folder := filepath.Join(scopeDirectory(t, lib, claude), "broken")
@@ -153,8 +156,9 @@ func TestListUnmanagedSkillsSaysWhySkillMDIsInvalid(t *testing.T) {
 }
 
 func TestListUnmanagedSkillsMarksFoldersCommittedInTheProjectRepository(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	repository := t.TempDir()
 	runGit(t, repository, "init", "-b", "main")
@@ -194,8 +198,9 @@ func TestListUnmanagedSkillsMarksFoldersCommittedInTheProjectRepository(t *testi
 }
 
 func TestListUnmanagedSkillsInProjectThatIsNotARepository(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	root := t.TempDir()
 	project, err := lib.RegisterProject(ctx, root)
@@ -214,9 +219,10 @@ func TestListUnmanagedSkillsInProjectThatIsNotARepository(t *testing.T) {
 }
 
 func TestInspectSkillScopesFollowsSymlinkedInstalledFolder(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	scope := library.GlobalScope(library.AgentClaudeCode)
 	skill := fetchExampleSkill(t, lib, "pdf")
@@ -262,9 +268,10 @@ func TestInspectSkillScopesFollowsSymlinkedInstalledFolder(t *testing.T) {
 }
 
 func TestListUnmanagedSkillsDoesNotFollowSymlinkedAgentDirectories(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	codex := library.GlobalScope(library.AgentCodex)
@@ -291,9 +298,10 @@ func TestListUnmanagedSkillsDoesNotFollowSymlinkedAgentDirectories(t *testing.T)
 }
 
 func TestListUnmanagedSkillsReadsSourceRecordsOfNpxSkills(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	recordsPath := globalRecordsPath(home)
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
@@ -350,7 +358,8 @@ func TestListUnmanagedSkillsReadsSourceRecordsOfNpxSkills(t *testing.T) {
 
 // SKILL.md 超出列出时的读取上限：列出时没读它，不判为写错了;入库照常读。
 func TestListUnmanagedSkillsDoesNotJudgeALargeSkillMD(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	writeFile(t, filepath.Join(scopeDirectory(t, lib, claude), "big", "SKILL.md"), []byte("---\nname: big\ndescription: large body\n---\n"+strings.Repeat("x", 2<<20)), 0o644)

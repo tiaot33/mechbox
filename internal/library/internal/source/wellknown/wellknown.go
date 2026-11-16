@@ -43,12 +43,13 @@ type locator struct {
 }
 
 type Kind struct {
+	client   *http.Client
 	maxFiles int
 	maxBytes int64
 }
 
-func New(maxFiles int, maxBytes int64) Kind {
-	return Kind{maxFiles: maxFiles, maxBytes: maxBytes}
+func New(client *http.Client, maxFiles int, maxBytes int64) Kind {
+	return Kind{client: client, maxFiles: maxFiles, maxBytes: maxBytes}
 }
 
 func SearchInput(host, name string) (string, bool) {
@@ -88,7 +89,7 @@ func baseURL(index string) string {
 	return index
 }
 
-func Locate(ctx context.Context, link string) (source.Target, bool, error) {
+func (k Kind) Locate(ctx context.Context, link string) (source.Target, bool, error) {
 	u, err := url.Parse(link)
 	if err != nil || u.Host == "" {
 		return source.Target{}, false, &source.InputError{Reason: "invalid link"}
@@ -112,7 +113,7 @@ func Locate(ctx context.Context, link string) (source.Target, bool, error) {
 	origin := u.Scheme + "://" + u.Host
 	for _, known := range wellKnownPaths {
 		location := origin + base + "/" + known + "/" + indexFile
-		parsed, err := fetchIndex(ctx, location)
+		parsed, err := fetchIndex(ctx, k.client, location)
 		if err != nil {
 			return source.Target{}, false, err
 		}
@@ -133,7 +134,7 @@ func Locate(ctx context.Context, link string) (source.Target, bool, error) {
 		return source.Target{}, false, nil
 	}
 	for _, known := range wellKnownPaths {
-		parsed, err := fetchIndex(ctx, origin+"/"+known+"/"+indexFile)
+		parsed, err := fetchIndex(ctx, k.client, origin+"/"+known+"/"+indexFile)
 		if err != nil {
 			return source.Target{}, false, err
 		}
@@ -174,8 +175,8 @@ type index struct {
 	diagnostics []discovery.Diagnostic
 }
 
-func fetchIndex(ctx context.Context, location string) (*index, error) {
-	content, status, err := get(ctx, location, maxIndex)
+func fetchIndex(ctx context.Context, client *http.Client, location string) (*index, error) {
+	content, status, err := get(ctx, client, location, maxIndex)
 	if err != nil {
 		switch status {
 		case http.StatusNotFound, http.StatusGone, http.StatusUnauthorized, http.StatusForbidden:
@@ -284,14 +285,14 @@ func (e *statusError) Error() string {
 	return fmt.Sprintf("HTTP %d", e.status)
 }
 
-func get(ctx context.Context, location string, limit int64) ([]byte, int, error) {
+func get(ctx context.Context, client *http.Client, location string, limit int64) ([]byte, int, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
 	if err != nil {
 		return nil, 0, &source.InputError{Reason: "invalid well-known URL"}
 	}
-	response, err := http.DefaultClient.Do(req)
+	response, err := client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, 0, ctx.Err()
@@ -329,7 +330,7 @@ func (k Kind) Open(ctx context.Context, loc source.Locator, _ string, _ source.S
 	if err != nil {
 		return nil, err
 	}
-	parsed, err := fetchIndex(ctx, decoded.Index)
+	parsed, err := fetchIndex(ctx, k.client, decoded.Index)
 	if err != nil {
 		return nil, err
 	}
@@ -500,7 +501,7 @@ func (s *snapshot) download(ctx context.Context, location string, limit int64) (
 	if limit < 0 {
 		return nil, fmt.Errorf("%w: more than %d bytes", discovery.ErrTooLarge, s.kind.maxBytes)
 	}
-	content, _, err := get(ctx, location, limit)
+	content, _, err := get(ctx, s.kind.client, location, limit)
 	return content, err
 }
 

@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,6 +15,7 @@ import (
 )
 
 func TestGroupCanContainSkillsAcrossSourcesAndSkillsCanBelongToMultipleGroups(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	firstSource := filepath.Join(root, "source-one")
 	secondSource := filepath.Join(root, "source-two")
@@ -57,10 +61,11 @@ func TestGroupCanContainSkillsAcrossSourcesAndSkillsCanBelongToMultipleGroups(t 
 }
 
 func TestGroupOperationsReturnNotFoundForUnknownIDs(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example")
 	writeLocalSkill(t, source, "# Example\n")
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
@@ -109,8 +114,9 @@ func TestGroupOperationsReturnNotFoundForUnknownIDs(t *testing.T) {
 }
 
 func TestGroupLifecycleKeepsSkillsAndSkillScopes(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "group-skill")
 	writeLocalSkill(t, source, "group\n")
@@ -210,6 +216,7 @@ func TestGroupLifecycleKeepsSkillsAndSkillScopes(t *testing.T) {
 }
 
 func TestCreateGroupMakesOccupiedNamesUniqueAndRecordsCreatedAt(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	start := time.Now().UTC()
@@ -258,7 +265,40 @@ func TestCreateGroupMakesOccupiedNamesUniqueAndRecordsCreatedAt(t *testing.T) {
 	}
 }
 
+// 同时建几个同名的组:各自得到不重复的名字(后来的追加 #N),没有一个因为重名失败。
+func TestConcurrentCreateGroupWithTheSameNameGetsDistinctNames(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	const count = 16
+	names := make([]string, count)
+	errs := make([]error, count)
+	var wg sync.WaitGroup
+	for i := range count {
+		wg.Go(func() {
+			group, err := lib.CreateGroup(ctx, "writing")
+			names[i], errs[i] = group.Name, err
+		})
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent CreateGroup: %v", err)
+		}
+	}
+	want := []string{"writing"}
+	for n := 2; n <= count; n++ {
+		want = append(want, "writing#"+strconv.Itoa(n))
+	}
+	slices.Sort(names)
+	slices.Sort(want)
+	if !reflect.DeepEqual(names, want) {
+		t.Fatalf("group names = %v; want %v", names, want)
+	}
+}
+
 func TestRenameGroupMakesOccupiedNamesUniqueAndKeepsOwnName(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	a, err := lib.CreateGroup(ctx, "a")
@@ -284,6 +324,7 @@ func TestRenameGroupMakesOccupiedNamesUniqueAndKeepsOwnName(t *testing.T) {
 }
 
 func TestGroupValidationAndDuplicateMembershipCarryDetails(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	_, err := lib.CreateGroup(t.Context(), " ")
 	requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "name"})
@@ -305,6 +346,7 @@ func TestGroupValidationAndDuplicateMembershipCarryDetails(t *testing.T) {
 }
 
 func TestListGroupsListsEveryGroupWithAscendingMembers(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	f := seedGroupsWithMembers(t, lib)
 
@@ -317,6 +359,7 @@ func TestListGroupsListsEveryGroupWithAscendingMembers(t *testing.T) {
 }
 
 func TestListGroupsReflectsMembershipChanges(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	f := seedGroupsWithMembers(t, lib)
@@ -345,6 +388,7 @@ func TestListGroupsReflectsMembershipChanges(t *testing.T) {
 }
 
 func TestListGroupsWithoutGroupsIsEmpty(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	requireGroups(t, lib, []library.Group{})
 	fetchNamedSkill(t, lib, "ungrouped")
@@ -352,6 +396,7 @@ func TestListGroupsWithoutGroupsIsEmpty(t *testing.T) {
 }
 
 func TestRenameGroupReturnsCurrentMembers(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	f := seedGroupsWithMembers(t, lib)
 
@@ -441,8 +486,9 @@ func requireNoInstalledFolder(t *testing.T, directory, name string) {
 // issue #85 的复现:组已安装到全局与项目两个 Scope 后,加入的成员安装到两处;移出的成员(默认 keep)
 // 改为直接安装,可以单独卸载,不再卡在"只经由组安装"。
 func TestGroupMembershipFollowsGroupInstallInEveryScope(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	a := fetchNamedSkill(t, lib, "a")
 	b := fetchNamedSkill(t, lib, "b")
@@ -523,10 +569,11 @@ func TestGroupMembershipFollowsGroupInstallInEveryScope(t *testing.T) {
 // 技能同属两个已安装的组时,移出其中一个(无论 keep 还是 uninstall)技能仍由另一组留着,不补直接安装;
 // uninstall 只卸载因此没有直接安装或组安装留着的技能,有直接安装的保留。
 func TestRemovingMemberFromOneOfTwoInstalledGroups(t *testing.T) {
+	t.Parallel()
 	for _, policy := range []library.MemberRemovalPolicy{library.KeepAsDirectInstall, library.UninstallMember} {
 		t.Run(string(policy), func(t *testing.T) {
 			ctx := t.Context()
-			t.Setenv("HOME", t.TempDir())
+			setTestHome(t, t.TempDir())
 			lib := openTestLibrary(t)
 			shared := fetchNamedSkill(t, lib, "shared")
 			direct := fetchNamedSkill(t, lib, "direct")
@@ -590,8 +637,9 @@ func TestRemovingMemberFromOneOfTwoInstalledGroups(t *testing.T) {
 // 删组选一并卸载:只因为这个组才装上的技能从各作用域卸载、移除文件夹;同一作用域里有直接安装或别的组安装的照常保留,
 // 不补直接安装。某个文件夹移不走时整次复原,组、组安装与文件夹都还在。
 func TestDeleteGroupUninstallingMembers(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	only := fetchNamedSkill(t, lib, "only")
 	direct := fetchNamedSkill(t, lib, "direct")
@@ -687,8 +735,9 @@ func TestDeleteGroupUninstallingMembers(t *testing.T) {
 // 加入已安装的组时:已安装的(即使文件夹被手动改过)只补组安装、不写盘;有未记录文件夹或与组内成员同名的跳过,
 // 成员关系照常成立,之后同意覆盖再次 InstallGroup 补齐未记录文件夹那一项。
 func TestAddingMemberToInstalledGroupReportsEachScope(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	scope := library.GlobalScope(library.AgentCodex)
 	directory, err := lib.ScopeDirectory(ctx, scope)
@@ -753,8 +802,9 @@ func TestAddingMemberToInstalledGroupReportsEachScope(t *testing.T) {
 
 // 加入成员时落盘失败,整个操作复原:不留成员关系、安装记录与半成品目录。
 func TestAddingMemberRollsBackMembershipWhenInstallFails(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	scope := library.GlobalScope(library.AgentCodex)
 	directory, err := lib.ScopeDirectory(ctx, scope)
@@ -789,8 +839,9 @@ func TestAddingMemberRollsBackMembershipWhenInstallFails(t *testing.T) {
 
 // 注销项目清掉该项目各 Scope 上的组安装;删除分组清掉它的全部组安装,只由它留着的技能转为直接安装。
 func TestUnregisterProjectAndDeleteGroupClearGroupInstalls(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill := fetchNamedSkill(t, lib, "member")
 	project, err := lib.RegisterProject(ctx, t.TempDir())
@@ -840,8 +891,9 @@ func TestUnregisterProjectAndDeleteGroupClearGroupInstalls(t *testing.T) {
 // uninstall 先记录后删盘(#75):某个 Scope 的文件夹移不走时整体复原——已移走的其他 Scope 文件夹放回原处,
 // 成员关系与安装记录不变。
 func TestWithdrawRestoresEverythingWhenAFolderCannotBeRemoved(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill := fetchNamedSkill(t, lib, "member")
 	project, err := lib.RegisterProject(ctx, t.TempDir())
@@ -895,6 +947,7 @@ func TestWithdrawRestoresEverythingWhenAFolderCannotBeRemoved(t *testing.T) {
 // 两个 Scope 实际落在同一目录时(已登记项目就是主目录,或路径经符号链接指到同一处),同一次加入成员里
 // 先处理的那个照常安装、后一个按占用跳过;之后再对后一个 Scope 安装组也不会让两个 Scope 共用一个文件夹。
 func TestAddingMemberSkipsSecondScopeResolvingToTheSameDirectory(t *testing.T) {
+	t.Parallel()
 	cases := map[string]func(t *testing.T, real string) (home, project string){
 		"project is home": func(t *testing.T, real string) (string, string) {
 			return real, real
@@ -927,7 +980,7 @@ func TestAddingMemberSkipsSecondScopeResolvingToTheSameDirectory(t *testing.T) {
 				t.Fatal(err)
 			}
 			home, projectPath := arrange(t, real)
-			t.Setenv("HOME", home)
+			setTestHome(t, home)
 			lib := openTestLibrary(t)
 			project, err := lib.RegisterProject(ctx, projectPath)
 			if err != nil {
@@ -970,6 +1023,7 @@ func TestAddingMemberSkipsSecondScopeResolvingToTheSameDirectory(t *testing.T) {
 
 // 拖出来的先后:排过的在前,没列出的按原来的先后接在后面;之后新建的组排在最后,删掉的组不再占位置;传空恢复组 ID 升序。
 func TestReorderGroupsListsGroupsInTheChosenOrder(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	a := mustCreateGroup(t, lib, "a")
@@ -998,6 +1052,7 @@ func TestReorderGroupsListsGroupsInTheChosenOrder(t *testing.T) {
 
 // 重复、不是正数或不存在的组整次拒绝,先后不变。
 func TestReorderGroupsValidatesInput(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	a := mustCreateGroup(t, lib, "a")

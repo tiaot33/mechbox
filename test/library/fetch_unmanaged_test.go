@@ -35,9 +35,10 @@ func requireScopeStatus(t *testing.T, lib *library.Library, id library.SkillID, 
 }
 
 func TestFetchUnmanagedSkillLeavesDiskAsItIsAndHasNoSource(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	directory := scopeDirectory(t, lib, claude)
@@ -83,8 +84,9 @@ func TestFetchUnmanagedSkillLeavesDiskAsItIsAndHasNoSource(t *testing.T) {
 }
 
 func TestFetchUnmanagedSymlinkedFolderKeepsTheLink(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	codex := library.GlobalScope(library.AgentCodex)
@@ -130,8 +132,9 @@ func TestFetchUnmanagedSymlinkedFolderKeepsTheLink(t *testing.T) {
 
 // 从链接指向的真实文件夹那一处入库也一样：链着它的那一处一起记下。
 func TestFetchUnmanagedRealFolderAlsoRecordsTheLinkToIt(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	codex := library.GlobalScope(library.AgentCodex)
@@ -160,9 +163,10 @@ func TestFetchUnmanagedRealFolderAlsoRecordsTheLinkToIt(t *testing.T) {
 }
 
 func TestFetchUnmanagedRecordsAnInstallWhenTheContentMatchesAVersion(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	codex := library.GlobalScope(library.AgentCodex)
@@ -199,8 +203,9 @@ func TestFetchUnmanagedRecordsAnInstallWhenTheContentMatchesAVersion(t *testing.
 }
 
 func TestFetchUnmanagedCreatesASeparateSkillWhenTheContentDiffers(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	codex := library.GlobalScope(library.AgentCodex)
@@ -227,8 +232,9 @@ func TestFetchUnmanagedCreatesASeparateSkillWhenTheContentDiffers(t *testing.T) 
 }
 
 func TestFetchUnmanagedKeepsTheFolderNameWhenItDiffersFromTheSkillName(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	codex := library.GlobalScope(library.AgentCodex)
@@ -252,7 +258,8 @@ func TestFetchUnmanagedKeepsTheFolderNameWhenItDiffersFromTheSkillName(t *testin
 }
 
 func TestFetchUnmanagedSkillCommittedInTheProjectRepository(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	root := t.TempDir()
 	project, err := lib.RegisterProject(t.Context(), root)
@@ -278,8 +285,9 @@ func TestFetchUnmanagedSkillCommittedInTheProjectRepository(t *testing.T) {
 
 // 入库后和其他技能一样:装到别的作用域、用目录里的修改更新并回滚、移除。
 func TestFetchedUnmanagedSkillIsUsedLikeOtherSkills(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	codex := library.GlobalScope(library.AgentCodex)
@@ -345,8 +353,9 @@ func TestFetchedUnmanagedSkillIsUsedLikeOtherSkills(t *testing.T) {
 }
 
 func TestFetchedUnmanagedSkillTravelsWithSync(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	stub := newS3Stub(t)
 	stub.secrets["key"] = "secret"
 	lib := openTestLibrary(t)
@@ -366,8 +375,9 @@ func TestFetchedUnmanagedSkillTravelsWithSync(t *testing.T) {
 }
 
 func TestFetchUnmanagedErrors(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	directory := scopeDirectory(t, lib, claude)
@@ -417,9 +427,10 @@ func TestFetchUnmanagedErrors(t *testing.T) {
 // 全局里的链接指着归项目仓库管的那份(提交在仓库里，或记在项目的 skills-lock.json 里):从全局入库只记全局这一处，
 // 项目里那份不一并记下，列出时也不说是同一个文件夹。
 func TestFetchUnmanagedLinkIntoTheProjectRepositoryLeavesTheTeamFolder(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []string{"committed", "lock"} {
 		t.Run(mode, func(t *testing.T) {
-			t.Setenv("HOME", t.TempDir())
+			setTestHome(t, t.TempDir())
 			lib := openTestLibrary(t)
 			root := t.TempDir()
 			project, err := lib.RegisterProject(t.Context(), root)
@@ -462,7 +473,8 @@ func TestFetchUnmanagedLinkIntoTheProjectRepositoryLeavesTheTeamFolder(t *testin
 
 // 整批入库也一并记下同一个文件夹，包括不在这次计划里的作用域;计划里的 SameFolder 也列出它，确认时据此说明。
 func TestFetchUnmanagedSkillsAlsoRecordsTheSameFolderOutsideThePlan(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	codex := library.GlobalScope(library.AgentCodex)
@@ -488,10 +500,11 @@ func TestFetchUnmanagedSkillsAlsoRecordsTheSameFolderOutsideThePlan(t *testing.T
 
 // 找同一个文件夹时读不出来的作用域跳过，不挡住这次入库。
 func TestFetchUnmanagedIsNotBlockedByAnotherUnreadableScope(t *testing.T) {
+	t.Parallel()
 	if os.Getuid() == 0 {
 		t.Skip("root reads any directory")
 	}
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	project, err := lib.RegisterProject(t.Context(), t.TempDir())
 	if err != nil {
@@ -511,7 +524,8 @@ func TestFetchUnmanagedIsNotBlockedByAnotherUnreadableScope(t *testing.T) {
 
 // 链接里写的路径和真实文件夹只差大小写(不区分大小写的卷上照样指得到):列出时说不说是同一个文件夹，和入库时记不记下那一处一致。
 func TestSameFolderListedAndRecordedAgreeWhenTheLinkDiffersInCase(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	codex := library.GlobalScope(library.AgentCodex)

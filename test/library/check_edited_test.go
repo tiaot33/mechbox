@@ -48,7 +48,7 @@ func TestEditedSkillInGitSourceFollowsOnlyItsOwnChanges(t *testing.T) {
 	runGit(t, repository, "rm", "--quiet", "SKILL.md")
 	commitGit(t, repository, "Move every skill under skills")
 	redirectRemote(t, config, repository, "https://gitlab.com/group/repo.git")
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	preview, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Input: "https://gitlab.com/group/repo"})
 	if err != nil {

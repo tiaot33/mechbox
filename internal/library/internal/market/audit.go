@@ -23,11 +23,11 @@ type AuditEntry struct {
 	DetailURL  string
 }
 
-func Audit(ctx context.Context, owner, repo, name string) ([]AuditEntry, error) {
+func Audit(ctx context.Context, client *http.Client, owner, repo, name string) ([]AuditEntry, error) {
 	ctx, cancel := context.WithTimeout(ctx, auditTimeout)
 	defer cancel()
 	id := url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/" + url.PathEscape(name)
-	response, err := get(ctx, baseURL+"/api/v1/skills/audit/"+id)
+	response, err := get(ctx, client, baseURL+"/api/v1/skills/audit/"+id)
 	if err != nil {
 		return nil, fmt.Errorf("audit skill: %w", err)
 	}

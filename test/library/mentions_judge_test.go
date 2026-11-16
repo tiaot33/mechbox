@@ -107,6 +107,7 @@ func userTextOf(call aiCall) string {
 // 前 3 行(不同的行)和被提到技能的名字、描述,不带这个技能自己的名字、描述和别的行。判断为提到的画线,
 // 悬停原文就是交给 AI 的那几行;判断为不是的不画。
 func TestJudgeMentionsAsksOnlySingleWordNamesWithoutInvocationForms(t *testing.T) {
+	t.Parallel()
 	shared := "Shared: ask review for help."
 	root := t.TempDir()
 	writeJudgeSkill(t, filepath.Join(root, "entry"), "Entry point of the set", strings.Join([]string{
@@ -190,6 +191,7 @@ func TestJudgeMentionsAsksOnlySingleWordNamesWithoutInvocationForms(t *testing.T
 // 结论随技能的版本存下:同一个版本只判断一次,再判断、重开数据库都不再请求;只判断这组技能,组外的不判断。
 // 技能出了新版本只重判它自己;新入库了单个词名字的技能,只判断正文里出现这个名字的那一处。
 func TestJudgeMentionsJudgesEachVersionOnce(t *testing.T) {
+	t.Parallel()
 	stub := newAIStub(t)
 	stub.replyWith(answerBySkillWord)
 	path := filepath.Join(t.TempDir(), "library.db")
@@ -263,6 +265,7 @@ func TestJudgeMentionsJudgesEachVersionOnce(t *testing.T) {
 // 只因某一个技能没判断成的(服务拒绝了这一条、回答被截断、回答不是编号的数组)记进 Failed,它的几处还算没判断,
 // 其余照常判断、存下;整体性的失败(如 Key 被拒)返回错误,已判断的保留。
 func TestJudgeMentionsSkipsSkillsThatFailAndStopsOnOverallFailures(t *testing.T) {
+	t.Parallel()
 	lib, stub := judgingLibrary(t)
 	group, err := lib.CreateGroup(t.Context(), "all")
 	if err != nil {
@@ -336,6 +339,7 @@ func TestJudgeMentionsSkipsSkillsThatFailAndStopsOnOverallFailures(t *testing.T)
 // 没填模型时有要判断的就返回 NotConfigured,不发请求,规则确定的线照画;没有要判断的不看 AI 设置。
 // 参数和集合、组的错误同 ListMentions。
 func TestJudgeMentionsErrors(t *testing.T) {
+	t.Parallel()
 	stub := newAIStub(t)
 	lib := openTestLibrary(t)
 	entry := fetchSkillWithBody(t, lib, "entry", "Use the review skill, then /ship.\n")
@@ -370,6 +374,7 @@ func TestJudgeMentionsErrors(t *testing.T) {
 
 // 判断结论随技能一并删除:移除判断过的技能不受影响,被提到的技能移除后线也不再画。
 func TestRemoveSkillWithMentionJudgments(t *testing.T) {
+	t.Parallel()
 	lib, _ := judgingLibrary(t)
 	entry := fetchSkillWithBody(t, lib, "entry", "Use the review skill.\n")
 	review := fetchSkillWithBody(t, lib, "review", "# review\n")
@@ -388,6 +393,7 @@ func TestRemoveSkillWithMentionJudgments(t *testing.T) {
 // 路径中间的一段不交给 AI,用反斜杠分隔的 Windows 路径也一样;反斜杠写的指向技能文件夹的路径照样算点名,
 // 名字前的反斜杠不当成斜杠命令,按路径的一段不算。
 func TestJudgeMentionsSkipsBackslashPaths(t *testing.T) {
+	t.Parallel()
 	root := mentionSource(t, map[string]string{
 		"entry": strings.Join([]string{
 			`Copy C:\work\review\guide.md first.`,
@@ -416,6 +422,7 @@ func TestJudgeMentionsSkipsBackslashPaths(t *testing.T) {
 
 // 判断途中数据库被同步拉回换掉了:回答不写进拉回的库,返回 Conflict,拉回的库里这一处还算没判断。
 func TestJudgeMentionsDropsAnswersAfterSyncPull(t *testing.T) {
+	t.Parallel()
 	stub := newS3Stub(t)
 	lib := stub.open(t)
 	ai := newAIStub(t)

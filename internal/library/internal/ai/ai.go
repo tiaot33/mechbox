@@ -49,6 +49,7 @@ type Header struct {
 }
 
 type Settings struct {
+	Client                           *http.Client
 	Provider, BaseURL, APIKey, Model string
 	Headers                          []Header
 	Body                             map[string]any
@@ -208,6 +209,9 @@ func askOpenAI(ctx context.Context, received func(), settings Settings, system, 
 		openaioption.WithAPIKey(settings.APIKey),
 		openaioption.WithMaxRetries(0),
 	}
+	if settings.Client != nil {
+		opts = append(opts, openaioption.WithHTTPClient(settings.Client))
+	}
 	for _, header := range settings.Headers {
 		opts = append(opts, openaioption.WithHeader(header.Name, header.Value))
 	}
@@ -258,6 +262,9 @@ func askAnthropic(ctx context.Context, received func(), settings Settings, syste
 		anthropicoption.WithoutEnvironmentDefaults(),
 		anthropicoption.WithAPIKey(settings.APIKey),
 		anthropicoption.WithMaxRetries(0),
+	}
+	if settings.Client != nil {
+		opts = append(opts, anthropicoption.WithHTTPClient(settings.Client))
 	}
 	if settings.BaseURL != "" {
 		opts = append(opts, anthropicoption.WithBaseURL(settings.BaseURL))

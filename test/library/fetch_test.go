@@ -56,7 +56,7 @@ func TestFetchKeepsCandidateDescription(t *testing.T) {
 
 func TestFetchFailureKeepsHandleAndLibraryUnchanged(t *testing.T) {
 	repository := previewRepository(t)
-	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"), testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestFetchConcurrentCallsConsumeHandleOnce(t *testing.T) {
 	repository := previewRepository(t)
 	// 每轮使用独立的库,两个调用选择不同候选,避免唯一约束掩盖重复消费。
 	for range 10 {
-		lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+		lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"), testOptions(t)...)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -148,7 +148,7 @@ func previewRepository(t *testing.T) string {
 
 func TestFetchIsAtomicAndDiscardsSuccessfulHandle(t *testing.T) {
 	repository := previewRepository(t)
-	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"), testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,6 +217,7 @@ func TestFetchIsAtomicAndDiscardsSuccessfulHandle(t *testing.T) {
 }
 
 func TestFetchDefaultsToAllSkillsWithoutRereading(t *testing.T) {
+	t.Parallel()
 	archive := zipArchive(t, map[string]string{
 		"first/SKILL.md":  skillDocument("first", "# First\n"),
 		"first/guide.md":  "guide\n",
@@ -229,7 +230,7 @@ func TestFetchDefaultsToAllSkillsWithoutRereading(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 
 	ctx := t.Context()
@@ -294,6 +295,7 @@ func TestFetchDefaultsToAllSkillsWithoutRereading(t *testing.T) {
 }
 
 func TestFetchPersistsTypedSourceAndSharesIt(t *testing.T) {
+	t.Parallel()
 	archive := zipArchive(t, map[string]string{
 		"first/SKILL.md":  skillDocument("first", "# First\n"),
 		"second/SKILL.md": skillDocument("second", "# Second\n"),

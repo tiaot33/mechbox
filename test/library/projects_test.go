@@ -15,6 +15,7 @@ import (
 
 // Scope 以 {"kind","agent","project_id"?} 往返 JSON:读出来的就是传回去的,没有目录字段。
 func TestScopeJSONRoundTrip(t *testing.T) {
+	t.Parallel()
 	cases := map[string]struct {
 		scope library.Scope
 		json  string
@@ -44,8 +45,9 @@ func TestScopeJSONRoundTrip(t *testing.T) {
 
 // ListSkillScopes 读出的 Scope 经 JSON 往返后仍能原样传回 Uninstall。
 func TestSkillScopeRoundTripsThroughJSONIntoUninstall(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill := fetchExampleSkill(t, lib, "demo")
 	project, err := lib.RegisterProject(ctx, t.TempDir())
@@ -77,8 +79,9 @@ func TestSkillScopeRoundTripsThroughJSONIntoUninstall(t *testing.T) {
 
 // 每个接收 Scope 的方法在入口拒绝非法组合,Details.Field 指向出错的字段;不触及技能或分组是否存在。
 func TestInvalidScopeIsInvalidArgumentOnEveryScopeMethod(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 
 	scopes := map[string]struct {
@@ -129,9 +132,10 @@ func TestInvalidScopeIsInvalidArgumentOnEveryScopeMethod(t *testing.T) {
 
 // ScopeDirectory(全局 Scope) 按该 Agent 的规则算出 $HOME 下的目录;测试隔离 HOME,不碰真实主目录。
 func TestScopeDirectoryGlobalScopeUsesHomeAndAgentRule(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 
 	cases := map[library.AgentCode]string{
@@ -148,9 +152,10 @@ func TestScopeDirectoryGlobalScopeUsesHomeAndAgentRule(t *testing.T) {
 
 // 全局目录以 Open 时的 $HOME 为准;之后改环境变量不能让 Uninstall 删到别处。
 func TestScopeDirectoryAndUninstallUseHomeBoundAtOpen(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	homeA, homeB := t.TempDir(), t.TempDir()
-	t.Setenv("HOME", homeA)
+	setTestHome(t, homeA)
 	lib := openTestLibrary(t)
 	skill := fetchExampleSkill(t, lib, "example")
 	scope := library.GlobalScope(library.AgentCodex)
@@ -160,7 +165,7 @@ func TestScopeDirectoryAndUninstallUseHomeBoundAtOpen(t *testing.T) {
 	original := filepath.Join(homeA, ".agents", "skills", skill.Name, "SKILL.md")
 	foreign := filepath.Join(homeB, ".agents", "skills", skill.Name, "SKILL.md")
 	writeFile(t, foreign, []byte("other home content"), 0o644)
-	t.Setenv("HOME", homeB)
+	setTestHome(t, homeB)
 	want := filepath.Join(homeA, ".agents", "skills")
 	got, err := lib.ScopeDirectory(ctx, scope)
 	if err != nil || got != want {
@@ -180,8 +185,9 @@ func TestScopeDirectoryAndUninstallUseHomeBoundAtOpen(t *testing.T) {
 
 // ScopeDirectory(项目 Scope) 按该 Agent 的规则算出 Registered project 根下的目录。
 func TestScopeDirectoryProjectScopeUsesRegisteredRootAndAgentRule(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	project, err := lib.RegisterProject(ctx, t.TempDir())
 	if err != nil {
@@ -202,8 +208,9 @@ func TestScopeDirectoryProjectScopeUsesRegisteredRootAndAgentRule(t *testing.T) 
 
 // 拼错 Agent 代码或引用未登记的项目都得到 NotFound,而不是算出一条不存在的目录。
 func TestScopeDirectoryUnknownAgentOrProjectIsNotFound(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	project, err := lib.RegisterProject(ctx, t.TempDir())
 	if err != nil {
@@ -228,9 +235,10 @@ func TestScopeDirectoryUnknownAgentOrProjectIsNotFound(t *testing.T) {
 
 // ScopeDirectory 只读:不留下安装,也不在磁盘上创建目标目录。
 func TestScopeDirectoryIsReadOnly(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	project, err := lib.RegisterProject(ctx, t.TempDir())
 	if err != nil {
@@ -259,8 +267,9 @@ func TestScopeDirectoryIsReadOnly(t *testing.T) {
 // 登记项目后,该项目与各 Agent 组成项目 Scope:安装落在 ScopeDirectory 给出的目录;UnregisterProject
 // 清掉项目 Scope 记录,磁盘上的技能文件夹按 Folders 决定去留,外来文件夹与全局安装不动。
 func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	if _, err := lib.RegisterProject(ctx, ""); err == nil {
 		t.Fatal("RegisterProject() accepted an empty path")
@@ -392,8 +401,9 @@ func TestRegisteredProjectScopesAndUnregisterOptions(t *testing.T) {
 // UnregisterProject(Remove) 先删记录、把项目下全部技能文件夹改名暂存、提交后才真正删除:改名失败时
 // 项目、记录与文件夹都原样不动;技能文件夹已被手动删掉时仍成功;成功后不留暂存残留。
 func TestUnregisterProjectRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	project, err := lib.RegisterProject(ctx, t.TempDir())
 	if err != nil {
@@ -458,8 +468,9 @@ func TestUnregisterProjectRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 
 // 项目名是项目目录的名字;列表按项目名排序,同名再按路径,库不为同名项目改名。
 func TestRegisteredProjectsAreNamedAndSortedByName(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	var registered []library.RegisteredProject
 	for _, root := range []string{
@@ -492,8 +503,9 @@ func TestRegisteredProjectsAreNamedAndSortedByName(t *testing.T) {
 
 // 路径不存在(或路径中间有一段是文件)是参数错误,不是来源连不上。
 func TestRegisterProjectMissingPathIsInvalidArgument(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	file := filepath.Join(t.TempDir(), "file")
 	writeFile(t, file, []byte("x"), 0o644)
@@ -508,8 +520,9 @@ func TestRegisterProjectMissingPathIsInvalidArgument(t *testing.T) {
 
 // 项目目录不在这台机器上时,列表里标出 Missing;目录回来后标记随之消失。
 func TestListRegisteredProjectsMarksProjectsNotOnThisMachine(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	root := filepath.Join(t.TempDir(), "app")
 	if err := os.MkdirAll(root, 0o755); err != nil {
@@ -539,8 +552,9 @@ func TestListRegisteredProjectsMarksProjectsNotOnThisMachine(t *testing.T) {
 
 // 项目目录树被移走、原来的上级目录处留下一个同名文件时,该项目同样算不在这台机器上:列表照常返回,其他项目不受影响。
 func TestListRegisteredProjectsMarksProjectWhoseParentBecameAFile(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	parent := filepath.Join(t.TempDir(), "parent")
 	if err := os.MkdirAll(filepath.Join(parent, "app"), 0o755); err != nil {
@@ -572,8 +586,9 @@ func TestListRegisteredProjectsMarksProjectWhoseParentBecameAFile(t *testing.T) 
 
 // 项目不在这台机器上时也能注销:要删的文件夹本来就不在,算成功,安装记录与组安装一并撤掉。
 func TestUnregisterProjectNotOnThisMachine(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	project, err := lib.RegisterProject(ctx, t.TempDir())
 	if err != nil {
@@ -611,8 +626,9 @@ func TestUnregisterProjectNotOnThisMachine(t *testing.T) {
 // 改项目位置后项目 ID、直接安装与组安装都延续,目录改按新位置算;旧位置的文件夹原样留着,库不再管。
 // 新位置的状态照常由巡检给出:新位置没有这些文件夹时是 missing,整个项目目录搬过去时是 current。
 func TestRelocateProjectKeepsInstallsAndLeavesOldFolders(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	oldRoot := filepath.Join(t.TempDir(), "app")
 	if err := os.MkdirAll(oldRoot, 0o755); err != nil {
@@ -704,8 +720,9 @@ func TestRelocateProjectKeepsInstallsAndLeavesOldFolders(t *testing.T) {
 
 // 改项目位置的路径规则与登记相同;新路径已被另一个项目占用是 AlreadyExists,改到原路径什么都不变。
 func TestRelocateProjectRejectsInvalidOrTakenPaths(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	project, err := lib.RegisterProject(ctx, t.TempDir())
 	if err != nil {

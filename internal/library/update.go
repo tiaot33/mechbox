@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"math"
 	"slices"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
@@ -185,7 +184,7 @@ func (l *Library) applyScopeUpdate(ctx context.Context, operation string, state 
 		if err != nil {
 			return err
 		}
-		from := edit.target.record()
+		from := edit.target.Scope
 		recordID, err := tx.AddRecord(ctx, store.Record{SourceID: state.sourceID, Kind: recordUpdate, FromScope: &from, At: now, Skills: []store.RecordSkill{{SkillID: int64(id), Name: edit.skill.Name, From: edit.current.versionID, To: versionID}}})
 		if err != nil {
 			return err
@@ -217,7 +216,7 @@ func (l *Library) sameFolder(ctx context.Context, operation string, id SkillID, 
 	if target.sharesFolderWith(edit.target) {
 		return true
 	}
-	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.record())
+	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.Scope)
 	if err != nil || len(place) == 0 {
 		return false
 	}
@@ -328,18 +327,14 @@ func (l *Library) applyUpdate(ctx context.Context, read *collectionRead, ids []S
 			} else if err := tx.ConfirmVersion(ctx, id, string(latest.State), revision); err != nil {
 				return err
 			}
-			stored, err := tx.UpdateCheck(ctx, id)
+			conclusion := store.UpdateCheck{At: now, Status: string(UpdateCurrent), Revision: read.revision, Found: true}
+			if selected >= 0 {
+				err = tx.SaveUpdateCheck(ctx, id, conclusion)
+			} else {
+				_, err = tx.ConcludeCheck(ctx, id, read.states[i].versionID, read.states[i].checkSerial, conclusion)
+			}
 			if err != nil {
 				return err
-			}
-			conclusion := store.UpdateCheck{At: now, Status: string(UpdateCurrent), Revision: read.revision, Found: true, Since: math.MaxInt64}
-			if selected < 0 {
-				conclusion.Since = read.states[i].checkSerial
-			}
-			if selected >= 0 || stored.Serial == read.states[i].checkSerial {
-				if err := tx.SaveUpdateCheck(ctx, id, conclusion); err != nil {
-					return err
-				}
 			}
 			if link := read.linked[i]; link.ID != 0 {
 				if err := tx.ForgetRename(ctx, link.ID); err != nil {

@@ -1,6 +1,7 @@
 package library_test
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,8 +15,9 @@ import (
 // 更新记录、单独重试与回滚
 
 func TestRetriedPlaceIsRolledBackWithTheUpdate(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, source := fetchLocalSkill(t, lib, "pdf", "v1")
 	projectPath := t.TempDir()
@@ -83,7 +85,7 @@ func TestRetriedPlaceIsRolledBackWithTheUpdate(t *testing.T) {
 
 func TestRollbackRestoresLibraryAndCheckedPlacesAndSkipsTheChange(t *testing.T) {
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	server := newArchiveServer(t, zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v1"), "docx/SKILL.md": skillDocument("docx", "v1")}), "")
 	skills := fetchArchive(t, lib, server.request())
@@ -197,6 +199,47 @@ func TestRollbackAlsoSkipsTheNewerRevisionAlreadySeen(t *testing.T) {
 	}
 }
 
+// 回滚前最近一次检查更新失败了(断网、来源一时读不到):回滚照样按之前读成来源的那一次,跳过来源里现在的那份。
+// 来源恢复后检查更新不把回滚掉的改动算回待办,来源再变了才重新计入。
+func TestRollbackAfterAFailedCheckStillSkipsTheNewerRevisionSeenBefore(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	server := newArchiveServer(t, zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v1")}), "")
+	pdf := fetchArchive(t, lib, server.request())[0]
+	server.serve(zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v2")}), "")
+	updated, err := lib.Update(ctx, mustPlanUpdate(t, lib, pdf.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.serve(zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v3")}), "")
+	if check := checkedSkill(t, lib, pdf.ID); check.Status != library.UpdateAvailable || !check.Pending {
+		t.Fatalf("check before rollback = %#v; want v3 pending", check)
+	}
+	reachable := testTransport(t)
+	stubHTTPResponse(t, http.StatusServiceUnavailable, strings.NewReader("down"))
+	if status, err := checkSkillUpdate(t, lib, ctx, pdf.ID); status != library.UpdateFailed || !library.IsCode(err, library.SourceUnreachable) {
+		t.Fatalf("check while the source is down = %v, %v; want failed with SourceUnreachable", status, err)
+	}
+	if got, err := lib.GetSkill(ctx, pdf.ID); err != nil || *got.LastUpdateCheck != (library.UpdateCheck{CheckedAt: got.LastUpdateCheck.CheckedAt, Status: library.UpdateFailed}) {
+		t.Fatalf("after the failed check = %#v, %v; want only the failure", got.LastUpdateCheck, err)
+	}
+	stubHTTP(t, reachable.RoundTrip)
+	if _, err := lib.Rollback(ctx, updated.Record); err != nil {
+		t.Fatal(err)
+	}
+	got, err := lib.GetSkill(ctx, pdf.ID)
+	if err != nil || got.VersionID != pdf.VersionID || got.LastUpdateCheck.Status != library.UpdateAvailable || got.LastUpdateCheck.Pending || !got.LastUpdateCheck.Skipped {
+		t.Fatalf("after rollback = %#v, %v; want v1 with the change skipped", got.LastUpdateCheck, err)
+	}
+	if check := checkedSkill(t, lib, pdf.ID); check.Status != library.UpdateAvailable || check.Pending || !check.Skipped {
+		t.Fatalf("rechecked after rollback = %#v; want v3 still skipped", check)
+	}
+	server.serve(zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v4")}), "")
+	if check := checkedSkill(t, lib, pdf.ID); !check.Pending || check.Skipped {
+		t.Fatalf("checked after the source moved again = %#v; want pending", check)
+	}
+}
+
 // 回滚较早的一次更新:之后那次更新已经跟上了来源,来源里现在的那份同样带着回滚掉的改动,一并跳过。
 func TestRollingBackAnEarlierUpdateSkipsWhatTheSourceHasNow(t *testing.T) {
 	ctx := t.Context()
@@ -303,8 +346,9 @@ func TestUpdateHistoryByTheSkillShowsCommitMessages(t *testing.T) {
 // 审查补充
 
 func TestCanceledRollbackContinuesOnTheNextCall(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, source := fetchLocalSkill(t, lib, "pdf", "v1")
 	claude := library.GlobalScope(library.AgentClaudeCode)
@@ -350,8 +394,9 @@ func TestCanceledRollbackContinuesOnTheNextCall(t *testing.T) {
 }
 
 func TestFailedRetryKeepsAnEarlierSuccessForRollback(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, source := fetchLocalSkill(t, lib, "pdf", "v1")
 	global := library.GlobalScope(library.AgentCodex)
@@ -383,8 +428,9 @@ func TestFailedRetryKeepsAnEarlierSuccessForRollback(t *testing.T) {
 }
 
 func TestRollbackLeavesAProjectRegisteredAfterTheUpdate(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, source := fetchLocalSkill(t, lib, "pdf", "v1")
 	old, err := lib.RegisterProject(ctx, t.TempDir())

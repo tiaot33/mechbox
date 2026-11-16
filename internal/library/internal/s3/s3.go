@@ -24,6 +24,7 @@ var (
 )
 
 type Settings struct {
+	Client                                                               *http.Client
 	Endpoint, Bucket, Region, AccessKeyID, SecretAccessKey, SessionToken string
 }
 
@@ -121,7 +122,7 @@ func request(ctx context.Context, settings Settings, method, key string, query u
 		req.Header.Set(name, value)
 	}
 	sign(req, body, cfg, time.Now().UTC())
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := settings.Client.Do(req)
 	if err != nil {
 		return nil, Object{}, fmt.Errorf("reach S3: %v: %w", err, ErrUnreachable)
 	}

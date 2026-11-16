@@ -15,7 +15,8 @@ import (
 )
 
 func TestPlanInstallReadyAndInstalled(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example")
@@ -53,11 +54,12 @@ func TestPlanInstallReadyAndInstalled(t *testing.T) {
 }
 
 func TestPlanInstallOccupancyAndUntracked(t *testing.T) {
+	t.Parallel()
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	fetchSame := func() library.Skill {
@@ -114,7 +116,8 @@ func TestPlanInstallOccupancyAndUntracked(t *testing.T) {
 }
 
 func TestPlanGroupInstallReportsDuplicatesAndMemberStates(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	scope := library.GlobalScope(library.AgentCodex)
@@ -174,7 +177,8 @@ func TestPlanGroupInstallReportsDuplicatesAndMemberStates(t *testing.T) {
 // 安装计划标出的 duplicate 与安装时的跳过一致:两个同名成员都没安装时,即使有未记录文件夹也显示 duplicate,
 // 同意覆盖的 InstallGroup 也照样跳过它们、不覆盖该文件夹。
 func TestPlanGroupInstallDuplicateMatchesGroupInstall(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	scope := library.GlobalScope(library.AgentCodex)
@@ -211,6 +215,7 @@ func TestPlanGroupInstallDuplicateMatchesGroupInstall(t *testing.T) {
 }
 
 func TestInstallPlansReportMissingAndCanceled(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	group, err := lib.CreateGroup(ctx, "empty")
@@ -240,6 +245,7 @@ func TestInstallPlansReportMissingAndCanceled(t *testing.T) {
 // 单项安装的主路径只选定 Agent(全局 Scope):Agent 目录由 Library 在隔离的 $HOME 下算出,
 // 冲突 / Overwrite / Uninstall 的断言全部对着 ScopeDirectory 给出的目录,而不是测试自拟的路径。
 func TestInstallAndUninstallGlobalSkill(t *testing.T) {
+	t.Parallel()
 	for agent, agentDirectory := range map[library.AgentCode]string{
 		library.AgentCodex:      ".agents",
 		library.AgentClaudeCode: ".claude",
@@ -250,7 +256,7 @@ func TestInstallAndUninstallGlobalSkill(t *testing.T) {
 			writeFile(t, filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o755)
 
 			home := t.TempDir()
-			t.Setenv("HOME", home)
+			setTestHome(t, home)
 			lib := openTestLibrary(t)
 			ctx := t.Context()
 			skill, err := fetchLocalDir(ctx, lib, source)
@@ -333,7 +339,7 @@ func TestInstallAndUninstallGlobalSkill(t *testing.T) {
 }
 
 func TestInstallRecordsFirstInstallTimeAndIgnoresInstallingAgain(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "timed")
@@ -369,8 +375,9 @@ func TestInstallRecordsFirstInstallTimeAndIgnoresInstallingAgain(t *testing.T) {
 // Uninstall 先删记录、把技能文件夹改名暂存、提交后才真正删除:改名失败时记录与文件夹都原样不动;
 // 技能文件夹已被手动删掉时仍成功并删掉记录;成功后 Scope 目录下不留暂存残留。
 func TestUninstallKeepsLibraryAndDiskTogether(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	present := fetchNamedSkill(t, lib, "present")
 	missing := fetchNamedSkill(t, lib, "missing")
@@ -425,7 +432,8 @@ func TestUninstallKeepsLibraryAndDiskTogether(t *testing.T) {
 }
 
 func TestUninstallGroupBackedSkillNamesTheGroup(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill := fetchNamedSkill(t, lib, "grouped")
 	group, err := lib.CreateGroup(t.Context(), "only")
@@ -444,10 +452,11 @@ func TestUninstallGroupBackedSkillNamesTheGroup(t *testing.T) {
 
 // 直接安装与组安装叠加;重复安装不增加安装,撤销组只卸载只由该组安装留着的技能。
 func TestInstallAndUninstallGroupPreservesDirectInstall(t *testing.T) {
+	t.Parallel()
 	for _, overwrite := range []bool{false, true} {
 		t.Run(fmt.Sprintf("overwrite=%t", overwrite), func(t *testing.T) {
 			ctx := t.Context()
-			t.Setenv("HOME", t.TempDir())
+			setTestHome(t, t.TempDir())
 			lib := openTestLibrary(t)
 			first := fetchExampleSkill(t, lib, "first")
 			second := fetchExampleSkill(t, lib, "second")
@@ -510,8 +519,9 @@ func TestInstallAndUninstallGroupPreservesDirectInstall(t *testing.T) {
 
 // 有未记录文件夹的成员默认被跳过;同意覆盖再次安装只补齐它,已安装的成员不重新安装,组安装不重复记录。
 func TestInstallGroupSkipsUntrackedMemberUntilOverwrite(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	root := t.TempDir()
 	firstSource := filepath.Join(root, "first")
 	secondSource := filepath.Join(root, "second")
@@ -575,10 +585,11 @@ func TestInstallGroupSkipsUntrackedMemberUntilOverwrite(t *testing.T) {
 // 对自己已安装的身份 Scope 再次安装,不同意覆盖时也幂等成功,只补安装、不重新安装已被手动修改的文件夹;
 // 记录仍是同一条身份。组安装与再次组安装同样不写盘。
 func TestInstallingAgainNeverOverwritesAnExistingFolder(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
 	writeLocalSkill(t, source, "# Example\n")
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, err := fetchLocalDir(ctx, lib, source)
 	if err != nil {
@@ -624,12 +635,13 @@ func TestInstallingAgainNeverOverwritesAnExistingFolder(t *testing.T) {
 
 // 组内同名的成员都被跳过(不按顺序先到先得),其他成员照常安装。
 func TestInstallGroupSkipsAllMembersSharingAName(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	root := t.TempDir()
 	writeLocalSkill(t, filepath.Join(root, "one", "dup"), "# One\n")
 	writeLocalSkill(t, filepath.Join(root, "two", "dup"), "# Two\n")
-	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"), testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -670,14 +682,15 @@ func TestInstallGroupSkipsAllMembersSharingAName(t *testing.T) {
 }
 
 func TestInstallGroupFailurePreservesDirectInstall(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	root := t.TempDir()
 	firstSource := filepath.Join(root, "first")
 	secondSource := filepath.Join(root, "second")
 	writeLocalSkill(t, firstSource, "# First\n")
 	writeLocalSkill(t, secondSource, "# Second\n")
-	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"), testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -733,8 +746,9 @@ func TestInstallGroupFailurePreservesDirectInstall(t *testing.T) {
 // 用项目 Scope 安装:文件夹落在该 Registered project 根下 ScopeDirectory 给出的目录;Uninstall 后
 // 目录与记录一起消失,Library 里的 skill 仍在;再次 Uninstall 得到 NotFound。
 func TestInstallAndUninstallProjectScope(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill := fetchExampleSkill(t, lib, "example-skill")
 	project, err := lib.RegisterProject(ctx, t.TempDir())
@@ -791,8 +805,9 @@ func TestInstallAndUninstallProjectScope(t *testing.T) {
 // 整组安装在身份路径上仍是原子的:某成员目标被外来文件夹占用时整组拒绝,不留装了一半的组。
 // 项目 Scope 上有未记录文件夹的成员被跳过,其余成员照常安装,组安装照常成立。
 func TestInstallGroupOnIdentityScopeSkipsUntrackedMember(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	first := fetchExampleSkill(t, lib, "first")
 	second := fetchExampleSkill(t, lib, "second")
@@ -841,8 +856,9 @@ func TestInstallGroupOnIdentityScopeSkipsUntrackedMember(t *testing.T) {
 
 // 同一 skill 可同时占用两个 Agent 的全局 Scope,以及同一 Agent 的全局与项目 Scope:各是一个 SkillScope。
 func TestIdentityScopesOfOneSkillAreIndependentSkillScopes(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill := fetchExampleSkill(t, lib, "example-skill")
 	project, err := lib.RegisterProject(ctx, t.TempDir())
@@ -890,13 +906,14 @@ func TestIdentityScopesOfOneSkillAreIndependentSkillScopes(t *testing.T) {
 // 两个不同身份的 Scope 解析到同一目录(把 $HOME 本身登记为项目)时,第二次安装不能悄悄改写
 // 第一个 SkillScope 的身份:得到 AlreadyExists,原记录与磁盘保持原样。
 func TestInstallDoesNotOverwriteAnotherScopeSharingTheDirectory(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	// RegisterProject 会解析符号链接(macOS 的 /var → /private/var),HOME 先取规范路径以便两边一致。
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	skill := fetchExampleSkill(t, lib, "example-skill")
 	project, err := lib.RegisterProject(ctx, home)
@@ -932,12 +949,13 @@ func TestInstallDoesNotOverwriteAnotherScopeSharingTheDirectory(t *testing.T) {
 
 // 两个身份争同一实际目录时,并发 Install 也不能绕过占用保护:最多一条记录,磁盘上的技能文件夹仍在。
 func TestInstallSerializesSharedDirectoryClaims(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	project, err := lib.RegisterProject(ctx, home)
 	if err != nil {
@@ -992,8 +1010,9 @@ func TestInstallSerializesSharedDirectoryClaims(t *testing.T) {
 // 同名不同 Source 的 A 已安装到某 Scope 时,安装 B 不能接管那个文件夹:同不同意覆盖都得到
 // FailedPrecondition 并指认占用者;A 的记录与内容原样保留,不会出现两条记录指向同一文件夹。
 func TestInstallRejectsNameClaimedByAnotherSkill(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	first := fetchSkillWithBody(t, lib, "commit", "# A\n")
 	second := fetchSkillWithBody(t, lib, "commit", "# B\n")
@@ -1036,8 +1055,9 @@ func TestInstallRejectsNameClaimedByAnotherSkill(t *testing.T) {
 // 占用者只由组安装留着(无直接安装)时同样受保护;另一组向该 Scope 安装时只跳过被占名字的成员,
 // 其他成员照常安装。占用者撤走后再次安装该组即可补齐。
 func TestInstallGroupSkipsMemberWhoseNameIsClaimedByAnotherSkill(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	first := fetchSkillWithBody(t, lib, "commit", "# A\n")
 	second := fetchSkillWithBody(t, lib, "commit", "# B\n")
@@ -1101,12 +1121,13 @@ func TestInstallGroupSkipsMemberWhoseNameIsClaimedByAnotherSkill(t *testing.T) {
 // 占用以实际目录为准:A 在全局 Scope,把 $HOME 登记为项目后向项目 Scope 安装同名的 B 同样被拒;
 // 而 A、B 安装到不同目录的 Scope 互不干扰。即使 A 的文件夹已被手删,只要记录在,B 仍被拒。
 func TestSameNameSkillsCollideOnlyInTheSameDirectory(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	first := fetchSkillWithBody(t, lib, "commit", "# A\n")
 	second := fetchSkillWithBody(t, lib, "commit", "# B\n")
@@ -1155,9 +1176,10 @@ func TestSameNameSkillsCollideOnlyInTheSameDirectory(t *testing.T) {
 
 // 身份 Scope 里的错误指认在安装时同样得到 NotFound,不会写到任何目录。
 func TestInstallUnknownAgentOrProjectIsNotFound(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	skill := fetchExampleSkill(t, lib, "example-skill")
 

@@ -18,6 +18,7 @@ func noteOf(t *testing.T, lib *library.Library, id library.SkillID) string {
 
 // 备注去掉首尾空白存进数据库,读技能和列出技能都带着它,重新打开仍在;更新技能不动备注,留空即删掉。
 func TestSkillNoteIsKeptAndCleared(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "library.db")
 	first := openTestLibraryAt(t, path)
 	skill, source := fetchLocalSkill(t, first, "formatter", "# formatter\n")
@@ -52,6 +53,7 @@ func TestSkillNoteIsKeptAndCleared(t *testing.T) {
 
 // 给不存在的技能写备注返回 NotFound。
 func TestSkillNoteOfMissingSkill(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	if err := lib.SetSkillNote(t.Context(), 9999, "note"); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("SetSkillNote = %v, want NotFound", err)
