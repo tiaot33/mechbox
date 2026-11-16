@@ -10,7 +10,7 @@ import (
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/local"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/catalog"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
@@ -342,7 +342,7 @@ func seenInSource(ctx context.Context, tx *store.Tx, row store.Skill) (store.Upd
 		if err != nil {
 			return store.UpdateCheck{}, err
 		}
-		if row.Source.Type != local.Type {
+		if !catalog.UserAuthored(row.Source.Type) {
 			origin, err := tx.Origin(ctx, row.VersionID)
 			if err != nil {
 				return store.UpdateCheck{}, err

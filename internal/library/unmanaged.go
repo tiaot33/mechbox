@@ -12,6 +12,7 @@ import (
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
 	"github.com/tiaot33/mechbox/internal/library/internal/market"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/catalog"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
@@ -547,7 +548,7 @@ func (l *Library) FindUnmanagedSources(ctx context.Context, req FindUnmanagedSou
 				}
 				var inputs []string
 				for _, result := range results {
-					if _, input, ok := searchInputs(result); ok && result.Name == name && !slices.Contains(inputs, input) {
+					if _, input, ok := catalog.SearchInputs(result.Source, result.Name); ok && result.Name == name && !slices.Contains(inputs, input) {
 						inputs = append(inputs, input)
 					}
 				}

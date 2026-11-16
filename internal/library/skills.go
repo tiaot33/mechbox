@@ -9,8 +9,7 @@ import (
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 	"github.com/tiaot33/mechbox/internal/library/internal/source"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/github"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/local"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/catalog"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
@@ -129,7 +128,7 @@ func (l *Library) skillOf(row store.Skill) (Skill, error) {
 			Revision:  row.CheckRevision,
 			RenamedTo: row.RenamedTo,
 			Skipped:   skipped,
-			Pending:   pending && row.Source.Type != local.Type,
+			Pending:   pending && !catalog.UserAuthored(row.Source.Type),
 		}
 	}
 	return skill, nil
@@ -178,7 +177,7 @@ func (l *Library) GetSkillAudit(ctx context.Context, id SkillID) (audit *SkillAu
 	if err != nil {
 		return nil, err
 	}
-	owner, repo, ok := github.OwnerRepo(row.Source.Type, row.Source.Locator)
+	owner, repo, ok := catalog.GitHubRepository(row.Source.Type, row.Source.Locator)
 	if !ok {
 		return nil, nil
 	}

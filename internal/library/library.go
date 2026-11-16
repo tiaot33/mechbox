@@ -7,12 +7,7 @@ import (
 	"sync"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
-	"github.com/tiaot33/mechbox/internal/library/internal/source"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/download"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/git"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/github"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/local"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/wellknown"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/catalog"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 	"github.com/tiaot33/mechbox/internal/library/internal/wsl"
 )
@@ -35,10 +30,7 @@ type Library struct {
 	plans     map[UpdatePlanID]*planState
 	closed    bool
 
-	github   *github.Client
-	download download.Kind
-	local    local.Kind
-	sources  source.Kinds
+	sources *catalog.Catalog
 }
 
 const (
@@ -101,25 +93,14 @@ func Open(path string) (lib *Library, err error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("open library: %w", err)
 	}
-	client := github.NewClient()
-	client.SetToken(token)
-	direct := download.New(maxFetchFiles, maxFetchSize)
-	directory := local.New(maxFetchFiles, maxFetchSize)
+	sources := catalog.New(maxFetchFiles, maxFetchSize)
+	sources.SetToken(token)
 	return &Library{
 		store:    db,
 		home:     home,
 		previews: map[FetchPreviewID]*previewState{},
 		plans:    map[UpdatePlanID]*planState{},
-		github:   client,
-		download: direct,
-		local:    directory,
-		sources: source.Kinds{
-			github.Type:    client,
-			git.Type:       git.Kind{},
-			download.Type:  direct,
-			wellknown.Type: wellknown.New(maxFetchFiles, maxFetchSize),
-			local.Type:     directory,
-		},
+		sources:  sources,
 	}, nil
 }
 
@@ -139,7 +120,7 @@ func (l *Library) Close() (err error) {
 	}
 	clear(l.plans)
 	l.previewMu.Unlock()
-	l.github.Close()
+	l.sources.Close()
 	return l.store.Close()
 }
 
@@ -224,7 +205,7 @@ func (l *Library) SetGitHubToken(ctx context.Context, token string) (err error) 
 	if err := l.store.SetGitHubToken(ctx, token); err != nil {
 		return err
 	}
-	l.github.SetToken(token)
+	l.sources.SetToken(token)
 	return nil
 }
 

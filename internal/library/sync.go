@@ -520,7 +520,7 @@ func (l *Library) SyncPull(ctx context.Context, backup SyncBackupID) (err error)
 	if err != nil {
 		return fmt.Errorf("sync pull: %w", err)
 	}
-	l.github.SetToken(token)
+	l.sources.SetToken(token)
 	return nil
 }
 

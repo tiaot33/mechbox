@@ -89,6 +89,7 @@ var (
 var ErrUnsupported = errors.New("unsupported source type")
 
 type InputError struct {
+	Field  string
 	Reason string
 }
 

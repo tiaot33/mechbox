@@ -10,7 +10,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 - `internal/library/internal/` — 实现子包,每个外部系统一个:
   - `store` — SQLite:建表与校验、旧数据库的备份与逐版升级、事务、同步用的快照与整库替换;`schema.sql` 是唯一的 DDL 来源,`migrations/` 是从 schema 版本 27(v0.0.2 起)往后每一版的升级。
   - `agentdir` — Agent 目录与已登记项目的全部路径与文件操作:用户主目录、由相对路径拼出作用域目录与技能文件夹、路径的规范化与比较、校验用户填的目录与项目路径，以及技能文件夹的暂存、移到位、撤销与读取。`library` 不直接用 `os` / `filepath` 处理这些路径。每个操作按路径选实现:路径在 `\\wsl.localhost\` 下的交给 `distro.go`(经 `wsl` 在那个发行版里执行命令),其余交给 `native.go`。
-  - `source` — 来源的公共接口(`Kind`、`Snapshot`)、按类型分派与子包共用的错误;每种来源一个子包:`local`(本地目录)、`github`、`git`(GitLab 与其他 Git 服务)、`download`(直接下载)、`wellknown`(well-known 索引);`gitcmd` 是 Git 类来源共用的 git 命令,`discovery` 是各来源共用的候选发现规则与读取上限。
+  - `source` — 来源的公共接口(`Kind`、`Snapshot`)、按类型分派与子包共用的错误;每种来源一个子包:`local`(本地目录)、`github`、`git`(GitLab 与其他 Git 服务)、`download`(直接下载)、`wellknown`(well-known 索引);`catalog` 把这几种来源登记在一起，按固定顺序认出用户输入是哪种来源，`library` 只经它和 `source` 的公共接口用来源;`gitcmd` 是 Git 类来源共用的 git 命令,`discovery` 是各来源共用的候选发现规则与读取上限。
   - `market` — skills.sh 的搜索与审计接口。
   - `ai` — 调用 AI 服务:OpenAI 兼容的接口用 OpenAI SDK,Anthropic 的接口用 Anthropic SDK;两个 SDK 都不读环境变量。
   - `s3` — 同步用的 S3 对象读写。
@@ -34,11 +34,10 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 ### 新增一种来源
 
 1. 在 `internal/library/internal/source/` 下加子包,导出 `Type`、识别输入的 `Matches` / `Locate`(要联网才认得出的给 `Probe`)和实现 `source.Kind` 的类型。
-2. 在 `library.go` 的 `Open` 里登记。
-3. 在 `fetch.go` 的 `previewTarget`(或 `probeLink`)识别顺序里放到合适的位置。
-4. 在 `test/library/library_sources_test.go` 的 `sourceKinds` 里加一行，让它和其他来源走同一遍入库、检查更新、更新、新技能、删除。
+2. 在 `source/catalog` 的 `New` 里登记，并在 `Locate`(要联网才认得出的在 `probe`)的识别顺序里放到合适的位置。
+3. 在 `test/library/library_sources_test.go` 的 `sourceKinds` 里加一行，让它和其他来源走同一遍入库、检查更新、更新、新技能、删除。
 
-`PreviewFetchRequest` 只有一个输入,不加字段。更新、检查更新、展示与错误翻译都不用改。
+`PreviewFetchRequest` 只有一个输入,不加字段。`library` 包、更新、检查更新、展示与错误翻译都不用改。
 
 ### 改表结构
 

@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net/url"
-	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -15,13 +13,8 @@ import (
 	"github.com/tiaot33/mechbox/internal/library/internal/market"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 	"github.com/tiaot33/mechbox/internal/library/internal/source"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/catalog"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/download"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/git"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/gitcmd"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/github"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/local"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/wellknown"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
@@ -136,31 +129,13 @@ func (l *Library) SearchSkills(ctx context.Context, query string) (result []Sear
 	}
 	result = []SearchSkill{}
 	for _, skill := range skills {
-		input, _, ok := searchInputs(skill)
+		input, _, ok := catalog.SearchInputs(skill.Source, skill.Name)
 		if !ok {
 			continue
 		}
 		result = append(result, SearchSkill{ID: skill.ID, Name: skill.Name, DetailURL: skill.DetailURL, Installs: skill.Installs, Preview: PreviewFetchRequest{Input: input}})
 	}
 	return result, nil
-}
-
-func searchInputs(skill market.Skill) (skillInput, sourceInput string, ok bool) {
-	if !discovery.ValidName(skill.Name) || strings.Contains(skill.Name, "#") {
-		return "", "", false
-	}
-	if repository, ok := github.PlainRepository(skill.Source); ok {
-		return repository + "@" + skill.Name, repository, true
-	}
-	link, ok := wellknown.SearchInput(skill.Source, skill.Name)
-	if !ok {
-		return "", "", false
-	}
-	u, err := url.Parse(link)
-	if err != nil {
-		return "", "", false
-	}
-	return link, u.Scheme + "://" + u.Host, true
 }
 
 const previewTTL = 30 * time.Minute
@@ -286,42 +261,18 @@ func (l *Library) previewTarget(ctx context.Context, req PreviewFetchRequest) (t
 		target, err = l.collectionTarget(ctx, req.Collection)
 		return target, "collection", err
 	}
-	input = withHTTPS(input)
-	switch {
-	case local.Matches(input):
-		if err := gitOnly(req); err != nil {
-			return source.Target{}, "", err
-		}
-		_, unlock := l.sharedOperation(ctx)
-		home := l.home.Root()
-		unlock()
-		target, err = l.local.Locate(ctx, input, home)
-	case download.Hosted(input):
-		if err := gitOnly(req); err != nil {
-			return source.Target{}, "", err
-		}
-		target, err = download.Locate(input)
-	case github.Matches(input):
-		target, err = github.Locate(ctx, github.Input{Input: input, Ref: req.Ref, Subpath: req.Subpath})
-	case git.Matches(input):
-		target, err = git.Locate(ctx, git.Input{Input: input, Ref: req.Ref, Subpath: req.Subpath})
-	case webLink(input):
-		target, err = l.probeLink(ctx, input, req)
-	default:
-		err = &source.InputError{Reason: "unrecognized source input; expected a local path, a GitHub repository, a Git repository or an http(s) link"}
-	}
-	return target, "input", err
+	_, unlock := l.sharedOperation(ctx)
+	home := l.home.Root()
+	unlock()
+	target, err = l.sources.Locate(ctx, catalog.Input{Input: input, Ref: req.Ref, Subpath: req.Subpath}, home)
+	return target, "input", requestError("preview fetch", err)
 }
 
-var bareHost = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+(?::[0-9]+)?$`)
-
-func withHTTPS(input string) string {
-	host, _, _ := strings.Cut(input, "/")
-	host, _, _ = strings.Cut(host, "#")
-	if strings.Contains(input, "://") || !bareHost.MatchString(host) {
-		return input
+func requestError(operation string, err error) error {
+	if input, ok := errors.AsType[*source.InputError](err); ok && input.Field != "" {
+		return argumentError(operation, input.Field, input.Reason)
 	}
-	return "https://" + input
+	return err
 }
 
 // SourceRefs 是入库预览之前给用户选分支用的:一个 Git 类来源的全部分支和 tag。
@@ -344,22 +295,13 @@ type SourceRefs struct {
 // 连不上、没有权限、仓库不存在时按与入库预览相同的错误码返回。
 func (l *Library) ListSourceRefs(ctx context.Context, input string) (refs SourceRefs, err error) {
 	defer func() { err = typedError(err) }()
-	input = withHTTPS(strings.TrimSpace(input))
-	var listed gitcmd.Refs
-	switch {
-	case input == "":
+	input = strings.TrimSpace(input)
+	if input == "" {
 		return SourceRefs{}, argumentError("list source refs", "input", "input is required")
-	case local.Matches(input), download.Hosted(input):
-		return SourceRefs{}, argumentError("list source refs", "input", "branches and tags are only listed for Git repositories")
-	case github.Matches(input):
-		listed, err = github.InputRefs(ctx, input)
-	case git.Matches(input):
-		listed, err = git.InputRefs(ctx, input)
-	default:
-		return SourceRefs{}, argumentError("list source refs", "input", "branches and tags are only listed for inputs recognizable as Git repositories")
 	}
+	listed, err := catalog.Refs(ctx, input)
 	if err != nil {
-		return SourceRefs{}, inputField(err, "input")
+		return SourceRefs{}, inputField(requestError("list source refs", err), "input")
 	}
 	return SourceRefs{Branches: listed.Branches, Tags: listed.Tags, DefaultBranch: listed.DefaultBranch, InputRef: listed.InputRef}, nil
 }
@@ -372,42 +314,6 @@ func gitOnly(req PreviewFetchRequest) error {
 		return argumentError("preview fetch", "subpath", "subpath only applies to Git repositories")
 	}
 	return nil
-}
-
-func webLink(input string) bool {
-	u, err := url.Parse(input)
-	return err == nil && (u.Scheme == "https" || u.Scheme == "http") && u.Host != ""
-}
-
-func (l *Library) probeLink(ctx context.Context, link string, req PreviewFetchRequest) (source.Target, error) {
-	link, _, _ = strings.Cut(link, "#")
-	if u, err := url.Parse(link); err != nil || u.User != nil {
-		return source.Target{}, &source.InputError{Reason: "links with embedded credentials are not supported; configure Git credentials on this machine instead"}
-	}
-	target, ok, err := l.download.Probe(ctx, link)
-	if err != nil {
-		return source.Target{}, err
-	}
-	if !ok {
-		target, ok, err = wellknown.Locate(ctx, link)
-	}
-	scope, scoped := errors.AsType[*wellknown.ScopeError](err)
-	if err != nil && !scoped {
-		return source.Target{}, err
-	}
-	if ok {
-		return target, gitOnly(req)
-	}
-	target, ok, err = git.Probe(ctx, link, req.Ref, req.Subpath)
-	switch {
-	case err != nil:
-		return source.Target{}, err
-	case ok:
-		return target, nil
-	case scoped:
-		return source.Target{}, scope
-	}
-	return source.Target{}, &source.InputError{Reason: "link is neither a skill file or archive, nor a site with a well-known skills index, nor a Git repository"}
 }
 
 func (l *Library) collectionTarget(ctx context.Context, id CollectionID) (source.Target, error) {
@@ -587,7 +493,7 @@ func (l *Library) GetCandidateAudit(ctx context.Context, id FetchPreviewID, name
 	if _, err := selectCandidates(state.candidates, []string{name}); err != nil {
 		return nil, err
 	}
-	owner, repo, ok := github.OwnerRepo(state.source.Type, state.source.Locator)
+	owner, repo, ok := catalog.GitHubRepository(state.source.Type, state.source.Locator)
 	if !ok {
 		return nil, nil
 	}

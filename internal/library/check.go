@@ -11,8 +11,8 @@ import (
 
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 	"github.com/tiaot33/mechbox/internal/library/internal/source"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/catalog"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/local"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
@@ -338,7 +338,7 @@ func haves(states []currentVersion) []source.Have {
 }
 
 func (c currentVersion) followsAuthor() bool {
-	return c.base != 0 && c.source.Type != local.Type
+	return c.base != 0 && !catalog.UserAuthored(c.source.Type)
 }
 
 func keepEdits(checked []checkedSkill, states []currentVersion) {

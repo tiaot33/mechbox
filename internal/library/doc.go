@@ -162,7 +162,7 @@
 // 事务之间由 SQLite 排开,不必挡住别的读。要联网的操作联网期间不持锁:读库、联网、写回各取一次,写回时在事务里核对库没被拉回替换、
 // 技能没换版本。同一次调用里已经取了锁再取时不重复加锁;已经取了共享再要独占是代码写错了,直接 panic,不会悄悄只拿着共享继续。
 //
-// 入库预览按固定顺序识别输入(fetch.go 的 previewTarget):本地路径 → 托管平台的 raw / archive / release 链接 →
+// 入库预览按固定顺序识别输入(source/catalog 的 Locate):本地路径 → 托管平台的 raw / archive / release 链接 →
 // GitHub → GitLab、SSH 与 .git 地址 → 其他 http(s) 链接;其他链接依次试直接下载、well-known 索引与 git ls-remote,
 // 按内容判断。识别结果是来源类型与定位信息,定位信息对 Library 不透明,由各来源自己生成和解释。
 //
