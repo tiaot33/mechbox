@@ -11,6 +11,7 @@
 import {
   InstallPlanStatus,
   PlannedChange,
+  type Candidate,
   type InstallPlan,
   SkillScopeStatus,
   type PlannedUnmanagedSkill,
@@ -188,6 +189,14 @@ export function lostEdits(deleted: SkillScopeInspection[]): SkillScopeInspection
     folders.add(folderKey(p));
     return true;
   });
+}
+
+// ---------- 入库预览 ----------
+
+// defaultCandidates 是入库预览里默认勾上的候选(按名字):还没入库的都勾(从新技能提示进来时只勾新技能);
+// 库里已经有同名技能(别的来源、或没有来源)的不勾：入库后库里会多出一个同名的，用户看到提醒、自己勾上才算知情。
+export function defaultCandidates(candidates: Candidate[], libraryNames: ReadonlySet<string>, onlyNew: boolean): Set<string> {
+  return new Set(candidates.filter((c) => !c.fetched && (!onlyNew || c.new) && !libraryNames.has(c.name)).map((c) => c.name));
 }
 
 // ---------- 整批入库 ----------

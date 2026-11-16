@@ -13,6 +13,7 @@ import {
   type SkillScopeInspection,
   type UpdatePlan,
 } from "@bindings/internal/library";
+import { rememberPlanRisks } from "@/lib/plan-risks";
 import { canInstall, defaultInstallOn, defaultSkills, plannedInstalls } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { changedFiles } from "@/lib/diff";
@@ -53,7 +54,10 @@ function usePlan(collectionID: CollectionID, onLoaded: (plan: UpdatePlan) => voi
         return true;
       },
     }).then((p) => {
-      if (cancelled || !p) return;
+      if (!p) return;
+      // 读到的风险也给更新页用，那一行不用再读一次来源。
+      rememberPlanRisks(p);
+      if (cancelled) return;
       setPlan(p);
       onLoaded(p);
     });

@@ -113,16 +113,49 @@ func TestFetchUnmanagedSymlinkedFolderKeepsTheLink(t *testing.T) {
 	}
 	requireScopeStatus(t, lib, first.Skill.ID, claude, library.SkillScopeCurrent)
 
-	// 链接指向的真实文件夹内容一样:只给同一个技能补记 Codex 这一处。
-	second := fetchUnmanaged(t, lib, codex, "pdf")
-	if !second.Matched || second.Skill.ID != first.Skill.ID {
-		t.Fatalf("FetchUnmanaged(codex) = %#v, want the skill fetched from the link", second)
-	}
+	// 链接指向的真实文件夹在 Codex 的目录里，是同一个文件夹:一起记为 Codex 这一处的安装，不用在 Codex 那里再入库一次。
 	requireScopeStatus(t, lib, first.Skill.ID, codex, library.SkillScopeCurrent)
 	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 1 {
 		t.Fatalf("ListSkills() = %#v, %v, want one skill", skills, err)
 	}
 	requireUnmanagedSkills(t, lib, nil)
+	if _, err := lib.FetchUnmanaged(t.Context(), library.FetchUnmanagedRequest{Scope: codex, Name: "pdf"}); !library.IsCode(err, library.FailedPrecondition) {
+		t.Fatalf("FetchUnmanaged(codex) = %v, want FailedPrecondition: it is already installed there", err)
+	}
+	if after := snapshotTree(t, real); !reflect.DeepEqual(after, before) {
+		t.Fatalf("FetchUnmanaged changed the real folder: before %v, after %v", before, after)
+	}
+}
+
+// 从链接指向的真实文件夹那一处入库也一样：链着它的那一处一起记下。
+func TestFetchUnmanagedRealFolderAlsoRecordsTheLinkToIt(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	lib := openTestLibrary(t)
+	claude := library.GlobalScope(library.AgentClaudeCode)
+	codex := library.GlobalScope(library.AgentCodex)
+	claudeDirectory := scopeDirectory(t, lib, claude)
+	writeUnmanagedSkill(t, scopeDirectory(t, lib, codex), "pdf", "read pdfs")
+	if err := os.MkdirAll(claudeDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("..", "..", ".agents", "skills", "pdf"), filepath.Join(claudeDirectory, "pdf")); err != nil {
+		t.Fatal(err)
+	}
+	// 内容一样、却是另一个文件夹的不算：它可能是用户故意留的一份，不自动交给 app 管。
+	project, err := lib.RegisterProject(t.Context(), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeUnmanagedSkill(t, scopeDirectory(t, lib, library.ProjectScope(library.AgentClaudeCode, project.ID)), "pdf", "read pdfs")
+
+	fetched := fetchUnmanaged(t, lib, codex, "pdf")
+	requireScopeStatus(t, lib, fetched.Skill.ID, codex, library.SkillScopeCurrent)
+	requireScopeStatus(t, lib, fetched.Skill.ID, claude, library.SkillScopeCurrent)
+	left, err := lib.ListUnmanagedSkills(t.Context())
+	if err != nil || len(left) != 1 || left[0].Scope.ProjectID != project.ID || left[0].SkillID != fetched.Skill.ID {
+		t.Fatalf("ListUnmanagedSkills() = %#v, %v, want only the separate copy, recognized as the skill", left, err)
+	}
 }
 
 func TestFetchUnmanagedRecordsAnInstallWhenTheContentMatchesAVersion(t *testing.T) {

@@ -38,8 +38,10 @@ export async function fetchUnmanaged(skill: UnmanagedSkill) {
         .filter((x) => x.name === skill.name)
         .map((x) => t.twin(noSource(x.source) ? messages().model.noSource : sourceLabel(s, x.source), installedWhere(s, x.id)));
   const outside = skill.link_outside && skill.link_target ? outsideLinkNote(shortPath(s, skill.link_target)) : undefined;
+  // 别的作用域里是同一个文件夹(这里链过去，或那里链过来，见 UnmanagedSkill.same_folder)的，库一起记为装在那里：确认时说出来。
+  const companions = (skill.same_folder ?? []).map((sc) => scopeLabel(s, sc));
   const r = await ui.open<FetchUnmanagedResult>((close) => (
-    <FetchUnmanagedDialog place={place} skill={skill} twins={twins} same={same} outside={outside} close={close} />
+    <FetchUnmanagedDialog place={place} skill={skill} twins={twins} same={same} outside={outside} companions={companions} close={close} />
   ));
   if (!r) return;
   // 一句话说清它已在技能库里(提示要一眼读完),给下一步"装到别处…";它那一行换成库里技能的一行，闪一下。
@@ -59,6 +61,7 @@ function FetchUnmanagedDialog({
   twins,
   same,
   outside,
+  companions,
   close,
 }: {
   place: string;
@@ -67,6 +70,7 @@ function FetchUnmanagedDialog({
   same?: string; // 和库里某个技能一模一样时的说明：不问来源
 
   outside?: string; // 指向 Agent 目录以外的符号链接时的说明
+  companions: string[]; // 别的作用域里是同一个文件夹的那几处，一起记为安装
   close: (value?: FetchUnmanagedResult) => void;
 }) {
   const ui = useUI();
@@ -94,19 +98,20 @@ function FetchUnmanagedDialog({
   };
   return (
     <Modal
-      title={t.actions.fetchTitle(skill.name)}
+      title={same ? t.actions.takeOverTitle(skill.name) : t.actions.fetchTitle(skill.name)}
       onClose={() => close()}
       footer={
         <>
           <Button onClick={() => close()}>{t.common.cancel}</Button>
           <Button variant="primary" onClick={() => void submit()} disabled={busy} autoFocus>
-            {t.actions.fetch}
+            {same ? t.actions.takeOver : t.actions.fetch}
           </Button>
         </>
       }
     >
       <Hint>{t.actions.fetchHandOver(place)}</Hint>
       {same && <Hint className="unmanaged-same-as">{same}</Hint>}
+      {companions.length > 0 && <Hint className="unmanaged-same-folder">{t.actions.fetchSameFolder(companions)}</Hint>}
       <Hint>{t.actions.fetchCliCost}</Hint>
       {skill.in_repository && <Notice alert>{t.actions.fetchInRepository}</Notice>}
       {outside && (

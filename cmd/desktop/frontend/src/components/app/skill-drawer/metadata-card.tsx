@@ -10,7 +10,7 @@ import {
   isLocal,
   localChanged,
   noSource,
-  pending,
+  changePending,
   revisionSummary,
   revisionText,
   sameNameInLibrary,
@@ -180,7 +180,8 @@ function checkStatus(status: UpdateCheckStatus): { label: string; tone: Tone } {
 // collectionRelation 说明技能和集合里其他技能的关系：是否在同一个来源版本上，以及其他技能有没有要处理的更新。
 function collectionRelation(skill: Skill, collection: Skill[]): string {
   const others = collection.filter((x) => x.id !== skill.id);
-  const todo = others.filter(pending).length;
+  // 「有变化」只算来源里有新内容、没跳过的(见 changePending),来源里已删除的不算，和集合标题、更新页一致。
+  const todo = others.filter(changePending).length;
   const summary = revisionSummary(collection);
   const t = messages().drawer;
   return [

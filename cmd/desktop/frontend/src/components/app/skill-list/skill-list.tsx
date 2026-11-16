@@ -274,7 +274,7 @@ function ScopePage({ listing: page }: { listing: Extract<PageListing, { kind: "s
   const same = useSameNameCopies(scope);
   return (
     <>
-      <ScopeSummary scope={scope} directory={directory} sees={page.total} global={page.global} />
+      <ScopeSummary scope={scope} directory={directory} here={page.total - page.global} global={page.global} />
       {(l.hereSections.length > 0 || l.notHereSkills.length > 0) && (
         <div className="mt-2.5">
           <ArrangeBar>

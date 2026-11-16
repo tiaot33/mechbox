@@ -31,6 +31,9 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { WSLBadge } from "@/components/app/parts";
 import { Badge } from "@/components/ui/badge";
+import { Notice } from "@/components/ui/notice";
+import { ui } from "@/lib/ui";
+import { ProjectPathDialog } from "@/features/scope/project-path-dialog";
 import { nameIndent } from "./rows";
 
 // 列表顶部的摘要条(作用域摘要、更新列表)共用的外观：不是浮起的卡片，直接排在底板上，和下面的列表之间隔一条线。
@@ -39,11 +42,11 @@ export const barClass = "a-scope-sum flex flex-col gap-1.5 border-b border-row-l
 
 export const barRowClass = "a-sum-row flex min-w-0 items-center gap-2.5";
 
-// ScopeSummary 是作用域页顶部的摘要：这个目录里有几个技能(全局写"全局目录里有",项目写"在项目里能用",含来自全局的;
-// 其中已安装、和库里一样但不是 app 装的、不在技能库里、来自全局各几个，和下面的上一块一致)、
+// ScopeSummary 是作用域页顶部的摘要：这个目录里有几个技能(here:已安装、和库里一样但不是 app 装的、不在技能库里的都算，
+// 来自全局的不算，和右栏这个作用域的数字一样;其中各几个与来自全局的几个写在第二行，和下面的上一块一致)、
 // Agent 目录、健康状态、全部重新安装，每个组的整组开关，
 // 以及照着其他 Agent 装(别的 Agent 装了库里的技能时才有;项目的作用域页上默认只装这个项目)。
-export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeKey; directory: string | undefined; sees: number; global: number }) {
+export function ScopeSummary({ scope, directory, here, global }: { scope: ScopeKey; directory: string | undefined; here: number; global: number }) {
   const s = useSnapshot();
   const t = useT().list;
   const installed = skillScopesIn(s, scope);
@@ -60,12 +63,13 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
   const others = s.skillScopes.some((p) => p.scope.agent !== sc.agent) || s.groupInstalls.some((g) => g.scope.agent !== sc.agent);
   const c = useT().copy;
   const agent = agentNameIn(s, sc.agent, placeOf(sc));
+  const missingProject = sc.project_id ? s.projects.find((p) => p.id === sc.project_id && p.missing) : undefined;
   return (
     <div className={cn(barClass, nameIndent, "pr-3")}>
       {/* 第一行：标题在左，这一页的动作都在右边排成一排。 */}
       <div className="flex min-w-0 items-center gap-1.5">
         <b className="scope-sees min-w-0 grow truncate text-heading">
-          {sc.project_id ? t.scopeSeesProject(agent, projectName(s, sc.project_id), sees) : t.scopeSeesGlobal(agent, sees)}
+          {sc.project_id ? t.scopeSeesProject(agent, projectName(s, sc.project_id), here) : t.scopeSeesGlobal(agent, here)}
         </b>
         {/* 要重新安装的，和被手动改过的(确认里默认不覆盖，勾上才覆盖)都从这里一次处理;只有在 app 外更新到作者新版的不给(该做的是更新)。 */}
         {(issues > 0 || edited > 0) && (
@@ -97,6 +101,7 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
         {issues > 0 && <Stat value={issues} label={t.statStale} level={reinstallLevel(broken)} />}
         {edited > 0 && <Stat value={edited} label={t.statEdited} level="info" title={t.statEditedTitle} />}
       </div>
+      {missingProject && <ProjectMissingNotice project={missingProject} />}
       {s.groups.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5">
           <span className="shrink-0 text-caption text-muted-foreground">{t.groups}</span>
@@ -132,7 +137,7 @@ export function ScopeSummary({ scope, directory, sees, global }: { scope: ScopeK
   );
 }
 
-// ProjectSummary 是项目页顶部的摘要：项目里一共装了几个技能(几个 Agent 都装了的只算一个)与项目目录，
+// ProjectSummary 是项目页顶部的摘要：项目里一共有几个技能(几个 Agent 都装了的只算一个，不是 app 装的也算，和右栏这个项目的数字一样)与项目目录，
 // 其中不是 app 装的、不在技能库里的几个与全部入库(范围和登记项目后弹出的那次一样，是各 Agent 在这个项目里;和库里一样、只是不是 app 装的也算),
 // 以及照着其他项目装(别的已登记项目里装了库里的技能时才有)。
 export function ProjectSummary({ project, total, unmanaged }: { project: RegisteredProject; total: number; unmanaged: number }) {
@@ -171,7 +176,33 @@ export function ProjectSummary({ project, total, unmanaged }: { project: Registe
         {identical > 0 && <Stat value={identical} label={t.statIdentical} />}
         {unmanaged > 0 && <Stat value={unmanaged} label={t.statNotInLibrary} />}
       </div>
+      <ProjectMissingNotice project={project} />
     </div>
+  );
+}
+
+// ProjectMissingNotice 是项目不在这台机器上时项目页、项目里各作用域页顶部的提醒：说清项目目录不存在、装在这里的现在用不上,
+// 旁边就能改项目位置(和右栏项目行上的「改项目位置」是同一个弹窗)。
+export function ProjectMissingNotice({ project }: { project: RegisteredProject }) {
+  const s = useSnapshot();
+  const t = useT().list;
+  if (!project.missing) return null;
+  const where = wslTitle(project.path) ?? shortPath(s, project.path);
+  return (
+    <Notice
+      alert
+      className="project-missing mt-1"
+      action={
+        <Button
+          className="relocate-project shrink-0"
+          onClick={() => void ui.open((close) => <ProjectPathDialog home={s.info.home_dir} project={project} onClose={close} />)}
+        >
+          {t.projectMissingRelocate}
+        </Button>
+      }
+    >
+      {t.projectMissing(where)}
+    </Notice>
   );
 }
 

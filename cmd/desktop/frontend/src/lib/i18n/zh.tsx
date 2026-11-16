@@ -101,6 +101,13 @@ export const zh = {
       `项目「${projects.join("」「")}」里也有 ${name}，${who} 在那里两份都会出现`,
     sameNameProjectUnknown: (projects: string[], name: string) => `项目「${projects.join("」「")}」里也有同名的 ${name}`,
     sameNameProjectFolder: (project: string, folder: string) => `「${project}」的文件夹：${folder}`,
+    // 技能库页一行上的同名说明：同一个 Agent 里的同一对只说一次，写出是哪两处、后果是什么。
+    sameNamePairWins: (who: string, project: string, name: string, global: SameNameKind, here: SameNameKind) =>
+      `${who} 的全局（${kinds([global])}）和项目「${project}」（${kinds([here])}）里都有 ${name}：${who} 在「${project}」里用全局的那个，项目里的不会生效`,
+    sameNamePairBoth: (who: string, project: string, name: string, global: SameNameKind, here: SameNameKind) =>
+      `${who} 的全局（${kinds([global])}）和项目「${project}」（${kinds([here])}）里都有 ${name}：${who} 在「${project}」里两份都会出现`,
+    sameNamePairUnknown: (who: string, project: string, name: string, global: SameNameKind, here: SameNameKind) =>
+      `${who} 的全局（${kinds([global])}）和项目「${project}」（${kinds([here])}）里都有同名的 ${name}`,
     sameNameFetchSourced: (name: string) =>
       `带来源入库时只和这个来源里同名的技能比：内容和它的某个版本一样时只记下装在这里，不一样时不能入库（可以清空来源）；其他来源或没有来源的同名技能不合并，入库后库里会多一个「${name}」，列表里写出各装在哪里。`,
     sameNameFetchUnsourced: (name: string) =>
@@ -337,11 +344,14 @@ export const zh = {
     fetched: (name: string) => `已入库「${name}」，文件夹原样没动`,
     installElsewhere: "装到别处…",
     fetchTitle: (name: string) => `入库「${name}」`,
+    takeOverTitle: (name: string) => `接管「${name}」`,
+    takeOver: "接管",
+    fetchSameFolder: (places: string[]) => `${places.join("、")} 里是同一个文件夹（经符号链接），一起记为装在那里，不用在那里再入库一次。`,
     reinstallSourceLatest: "这里是作者的新版（在 app 外更新的）。覆盖会换回库里的版本；想跟上作者，用「更新」",
     fetchIdenticalOld: (name: string, source: string, place: string) =>
-      `这份和库里「${name}」（${source}）的一个旧版本一模一样：入库只记下它也装在 ${place}，不会多出一个技能。入库后这里显示为旧版本，之后更新、重新安装会换成当前版本。`,
+      `这份和库里「${name}」（${source}）的一个旧版本一模一样：接管只记下它也装在 ${place}，不会多出一个技能。接管后这里显示为旧版本，之后更新、重新安装会换成当前版本。`,
     fetchIdentical: (name: string, source: string, place: string) =>
-      `这份和库里的「${name}」（${source}）一模一样：入库只记下它也装在 ${place}，不会多出一个技能，之后跟着库里的「${name}」更新。`,
+      `这份和库里的「${name}」（${source}）一模一样：接管只记下它也装在 ${place}，不会多出一个技能，之后跟着库里的「${name}」更新。`,
     fetch: "入库",
     fetchHandOver: (place: string) => `入库就是把它交给 app 管。${place} 里的文件夹原样不动，Agent 用到的内容不变。`,
     fetchCliCost: "之后如果还用命令行工具更新它：更新到作者的新版时，app 会认出来，在 app 里点「更新」就能对上；改成别的内容，app 会把它报为被手动改过。",
@@ -495,6 +505,7 @@ export const zh = {
     checkFailed: "检查失败",
     sameRevisionAsOthers: (n: number) => `和其他 ${n} 个技能在同一个来源版本上`,
     changedCount: (n: number) => `${n} 个有变化`,
+    deletedCount: (n: number) => `${n} 个来源里已删除`,
     defaultBranch: "默认分支",
     localDirectory: "本地目录",
     viewOnGitHub: "在 GitHub 查看",
@@ -571,7 +582,7 @@ export const zh = {
     updateFromHere: "用这里的修改更新",
     updateToLatest: "更新",
     updateToLatestHint: "这里已经是作者的新版（在 app 外更新的）。用更新把库里的技能也换成这一版",
-    takeOver: "入库",
+    takeOver: "接管",
     notInstalled: "还没有安装到任何作用域。",
     switchHint: (): ReactNode => (
       <>
@@ -646,6 +657,17 @@ export const zh = {
     notInLibraryTitle:
       "这些在 Agent 的目录里、Agent 照常在用，但不在技能库里：可能是命令行工具装的、手动拷进来的或你自己写的。入库时文件夹原样不动；入库以后才能开关、装到别处、检查更新。",
     notInLibrary: "不在技能库里",
+    cannotFetch: (reason: string) => `不能入库：${reason}`,
+    cannotFetchShort: "不能入库",
+    cannotFetchTitle: (reason: string) => `${reason}。改好 SKILL.md 以后就能入库；现在 Agent 多半也认不出它`,
+    skillFileNoFrontmatter: "SKILL.md 开头没有 frontmatter：第一行要是 ---",
+    skillFileUnclosed: "SKILL.md 的 frontmatter 没有用 --- 结束",
+    skillFileYAML: (line: number) => (line ? `SKILL.md 第 ${line} 行：frontmatter 不是有效的 YAML` : "SKILL.md 的 frontmatter 不是有效的 YAML"),
+    skillFileColon: (line: number) =>
+      `SKILL.md ${line ? `第 ${line} 行` : "的 frontmatter 里"}：值里带「: 」，整个值要加上引号（如 description: "Use when: …"）`,
+    skillFileName: "SKILL.md 的 frontmatter 里没有 name，或 name 是空的、带斜杠或换行",
+    skillFileDescription: "SKILL.md 的 frontmatter 里没有 description",
+    skillFileOther: "SKILL.md 写得不对",
     inRepositoryTitle: "这个文件夹已提交在项目的 git 仓库里，由仓库管理",
     inRepository: "在项目仓库里",
     inLockTitle: "项目的 skills-lock.json 记了它，是团队约定装的，由项目仓库管理",
@@ -668,9 +690,9 @@ export const zh = {
     statInstalled: "已安装",
     statNotInLibrary: "不在技能库里",
     statIdentical: "不是 app 装的",
-    identicalHere: "不是 app 装的",
-    identicalHereTitle: (name: string) => `这里的文件夹和库里的「${name}」一模一样，但不是 app 装的。点「入库」只记下它装在这里、交给 app 管，文件夹原样不动`,
-    takeOver: "入库",
+    identicalHere: "已在库里 · 这一份不是 app 装的",
+    identicalHereTitle: (name: string) => `它已经在技能库里：这里的文件夹和库里的「${name}」一模一样，只是这一份不是 app 装的。点「接管」交给 app 管：只记下它装在这里，文件夹原样不动；不点也照样能用`,
+    takeOver: "接管",
     sameAsLibrary: (name: string) => `和库里的「${name}」一样`,
     sourceLatestOf: (name: string) => `库里「${name}」的新版`,
     sourceLatestOfTitle: (name: string) =>
@@ -719,12 +741,14 @@ export const zh = {
     expandSection: "展开这一节",
     collapseSection: "收起这一节",
     scopeSeesGlobal: (agent: string, n: number) => `${agent} 全局目录里有 ${n} 个技能`,
-    scopeSeesProject: (agent: string, project: string, n: number) => `${agent} 在 ${project} 里能用 ${n} 个技能`,
+    scopeSeesProject: (agent: string, project: string, n: number) => `${agent} 在 ${project} 的目录里有 ${n} 个技能`,
     sectionGlobal: "来自全局",
     sectionGlobalTitle: "Agent 在项目里也看得到全局装的技能；要改请打开全局",
     nothingHere: "这里还没有装技能。展开下面库里没装在这里的技能、打开开关，或把技能、组、集合拖到右栏的这一行。",
-    projectHas: (project: string, n: number) => `${project} 里装了 ${n} 个技能`,
+    projectHas: (project: string, n: number) => `${project} 里有 ${n} 个技能`,
     projectDirectory: "项目目录",
+    projectMissing: (path: string) => `项目不在这台机器上。${path} 在这台机器上不存在，下面装在这个项目里的技能现在都用不上；项目在这台机器的别处时，改项目位置指过去。`,
+    projectMissingRelocate: "改项目位置…",
     projectEmpty: "这个项目里还没有装技能。在右栏展开项目、点一个 Agent,在那里打开技能的开关;或把技能、组、集合拖到那一行。",
     openScope: "打开作用域",
     openScopeTitle: "打开这个作用域：装在这里的与可以装到这里的技能",
@@ -895,7 +919,6 @@ export const zh = {
       `勾上的${names.map((n) => `「${n}」`).join("")}归项目仓库管。之后在 app 里更新${names.length === 1 ? "它" : "它们"}，会改动项目仓库里的文件。`,
     outsideNote: (name: string, note: string) => `勾上的「${name}」：${note}`,
     unusable: (n: number) => `${n} 个不能入库`,
-    unusableReason: (name: string, reason: string) => `${name}：${reason}`,
     sameNameTitle: (name: string, note: string) => `库里已经有叫「${name}」的技能。${note}`,
     sameName: "库里已有同名",
     inLibrary: "已经在技能库里",
@@ -1156,6 +1179,9 @@ export const zh = {
     installTo: "装到…",
     alreadyTitle: "同一来源的同名技能已在库中；要取新内容请在技能详情里点「更新」",
     already: "已入库",
+    sameName: "库里已有同名",
+    sameNameTitle: (name: string, twins: string[]) =>
+      `库里已经有叫「${name}」的技能（${twins.join("；")}）。入库后库里会有两个「${name}」，装到同一个 Agent 时两个同名；默认不勾，确实要就勾上`,
     newTitle: "上次从这个来源入库之后才出现的技能",
     new: "新技能",
     title: "入库预览",

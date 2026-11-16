@@ -15,14 +15,14 @@ import { describeError, unmanagedSourceError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { toLibraryError, useFoundSources, withFoundSource } from "@/lib/library";
 import { fetchPlan, toggleFetchGroup } from "@/lib/consent";
-import { agentNameIn, homePath, outsideLinkNote, placeOf, repoOwned, scopeLabel, scopeOf } from "@/lib/model";
+import { agentNameIn, homePath, outsideLinkNote, placeOf, repoOwned, scopeLabel, scopeOf, skillFileProblemText } from "@/lib/model";
 import { Modal, ui, useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
-import { Diagnostics } from "@/components/app/parts";
+import { Summary } from "@/components/app/parts";
 import { LeftDialog } from "./fetch-unmanaged-left";
 import { markFresh, useView } from "@/lib/view";
 import {
@@ -367,14 +367,26 @@ function FetchUnmanagedDialog({
           {t.outsideNote(p.name, outsideLinkNote(homePath(home, outsideTarget(p))))}
         </Notice>
       ))}
+      {/* 不能入库的写出在哪里、为什么：SKILL.md 写错了的说清哪一行、怎样改;原因折行写全，不截断。 */}
       {unusable.length > 0 && (
-        <Diagnostics
-          summary={t.unusable(unusable.length)}
-          items={unusable.map((p) => ({
-            key: foldersOf(p)[0]?.folder ?? p.name,
-            reason: t.unusableReason(p.name, unmanagedSourceError(p.error!, p.name)),
-          }))}
-        />
+        <details className="fetch-unmanaged-unusable">
+          <Summary className="text-caption text-muted-foreground">{t.unusable(unusable.length)}</Summary>
+          <ListBox className="mt-1.5">
+            {unusable.map((p) => {
+              const folder = foldersOf(p)[0];
+              const reason = folder?.invalid ? skillFileProblemText(folder.invalid) : unmanagedSourceError(p.error!, p.name);
+              return (
+                <ListRow key={folder?.folder ?? p.name} className="flex-col items-start gap-0.5 py-1.5">
+                  <span className="flex min-w-0 items-baseline gap-2">
+                    <b className="font-semibold">{p.name}</b>
+                    {folder && <span className="text-caption text-muted-foreground">{placeName(folder.scope)}</span>}
+                  </span>
+                  <span className="unusable-reason text-caption break-words whitespace-normal text-foreground-secondary">{reason}</span>
+                </ListRow>
+              );
+            })}
+          </ListBox>
+        </details>
       )}
     </Modal>
   );

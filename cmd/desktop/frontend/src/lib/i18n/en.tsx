@@ -104,6 +104,12 @@ export const en = {
       `${projectsHave(projects)} ${name}. There, both will show up in ${who}`,
     sameNameProjectUnknown: (projects: string[], name: string) => `${projectsHave(projects)} a skill named ${name}`,
     sameNameProjectFolder: (project: string, folder: string) => `Folder in “${project}”: ${folder}`,
+    sameNamePairWins: (who: string, project: string, name: string, global: SameNameKind, here: SameNameKind) =>
+      `${who} has ${name} both globally (${kinds([global])}) and in “${project}” (${kinds([here])}). In “${project}”, ${who} uses the global one; the project's won't take effect`,
+    sameNamePairBoth: (who: string, project: string, name: string, global: SameNameKind, here: SameNameKind) =>
+      `${who} has ${name} both globally (${kinds([global])}) and in “${project}” (${kinds([here])}). In “${project}”, both will show up in ${who}`,
+    sameNamePairUnknown: (who: string, project: string, name: string, global: SameNameKind, here: SameNameKind) =>
+      `${who} has a skill named ${name} both globally (${kinds([global])}) and in “${project}” (${kinds([here])})`,
     sameNameFetchSourced: (name: string) =>
       `With a Source, it's compared only with the same-named skill from that Source: if the content matches one of its Versions, it's just recorded as installed here; if not, it can't be fetched (you can clear the Source). Same-named skills from other Sources or with no Source aren't merged—the Library will have another “${name}”, and the list shows where each is installed.`,
     sameNameFetchUnsourced: (name: string) =>
@@ -372,11 +378,14 @@ export const en = {
     fetched: (name: string) => `Fetched “${name}”; the folder is left as it was`,
     installElsewhere: "Install elsewhere…",
     fetchTitle: (name: string) => `Fetch “${name}”`,
+    takeOverTitle: (name: string) => `Manage “${name}”`,
+    takeOver: "Manage",
+    fetchSameFolder: (places: string[]) => `${places.join(", ")} has the same folder (through a symlink); it is recorded as installed there too, so there's no need to fetch it again there.`,
     reinstallSourceLatest: "This place has the author’s newer version (updated outside the app). Overwriting puts back the version in the Library; to follow the author, use “Update”",
     fetchIdenticalOld: (name: string, source: string, place: string) =>
-      `This copy is identical to an older version of “${name}” in the Library (${source}). Fetching it only records that it is also installed in ${place}; no second skill is added. It then shows as an old version here, and updating or reinstalling replaces it with the current version.`,
+      `This copy is identical to an older version of “${name}” in the Library (${source}). Managing it only records that it is also installed in ${place}; no second skill is added. It then shows as an old version here, and updating or reinstalling replaces it with the current version.`,
     fetchIdentical: (name: string, source: string, place: string) =>
-      `This copy is identical to “${name}” in the Library (${source}). Fetching it only records that it is also installed in ${place}; no second skill is added, and it follows “${name}” in the Library from now on.`,
+      `This copy is identical to “${name}” in the Library (${source}). Managing it only records that it is also installed in ${place}; no second skill is added, and it follows “${name}” in the Library from now on.`,
     fetch: "Fetch",
     fetchHandOver: (place: string) => `Fetching hands it over to the app. The folder in ${place} stays exactly as it is, and the Agent sees the same content.`,
     fetchCliCost: "If you keep updating it with a command-line tool afterwards: when it is updated to the author’s newer version, the app recognizes it, and “Update” in the app brings the Library in line; other changes are reported as edited by hand.",
@@ -533,6 +542,7 @@ export const en = {
     checkFailed: "Check failed",
     sameRevisionAsOthers: (n: number) => `At the same Revision as the other ${count(n, "skill")}`,
     changedCount: (n: number) => `${n} changed`,
+    deletedCount: (n: number) => `${n} deleted in the source`,
     defaultBranch: "Default branch",
     localDirectory: "Local directory",
     viewOnGitHub: "View on GitHub",
@@ -610,7 +620,7 @@ export const en = {
     updateFromHere: "Update with these edits",
     updateToLatest: "Update",
     updateToLatestHint: "This place already has the author’s newer version (updated outside the app). Update the skill in the Library to this version too",
-    takeOver: "Fetch",
+    takeOver: "Manage",
     notInstalled: "Not installed in any Scope yet.",
     switchHint: (): ReactNode => (
       <>
@@ -686,6 +696,17 @@ export const en = {
     notInLibraryTitle:
       "These are in the Agent's directory and the Agent uses them as usual, but they aren't in the Library: they may come from a command-line tool, be copied in by hand, or be your own. Fetching leaves the folder as it is; once fetched, you can turn them on or off, install them elsewhere, and check for updates.",
     notInLibrary: "Not in the Library",
+    cannotFetch: (reason: string) => `Can't fetch: ${reason}`,
+    cannotFetchShort: "Can't fetch",
+    cannotFetchTitle: (reason: string) => `${reason}. Fix SKILL.md and it can be fetched; Agents most likely can't read it as it is either`,
+    skillFileNoFrontmatter: "SKILL.md doesn't start with frontmatter: the first line must be ---",
+    skillFileUnclosed: "SKILL.md's frontmatter isn't closed with ---",
+    skillFileYAML: (line: number) => (line ? `SKILL.md line ${line}: the frontmatter isn't valid YAML` : "SKILL.md's frontmatter isn't valid YAML"),
+    skillFileColon: (line: number) =>
+      `SKILL.md ${line ? `line ${line}` : "frontmatter"}: a value contains “: ”, so the whole value needs quotes (e.g. description: "Use when: …")`,
+    skillFileName: "SKILL.md's frontmatter has no name, or the name is empty or has a slash or line break",
+    skillFileDescription: "SKILL.md's frontmatter has no description",
+    skillFileOther: "SKILL.md isn't written correctly",
     inRepositoryTitle: "This folder is committed in the project's git repository and managed by it",
     inRepository: "In project repo",
     inLockTitle: "The project's skills-lock.json lists it: the team agreed to install it, and the project repository manages it",
@@ -709,9 +730,9 @@ export const en = {
     statInstalled: "installed",
     statNotInLibrary: "not in the Library",
     statIdentical: "not installed by the app",
-    identicalHere: "Not installed by the app",
-    identicalHereTitle: (name: string) => `The folder here is identical to “${name}” in the Library, but the app did not install it. Click “Fetch” to only record that it is installed here and let the app manage it; the folder stays as it is`,
-    takeOver: "Fetch",
+    identicalHere: "In the Library · this copy not installed by the app",
+    identicalHereTitle: (name: string) => `It is already in the Library: the folder here is identical to “${name}”, only this copy was not installed by the app. Click “Manage” to let the app manage it: it only records that it is installed here; the folder stays as it is. It works the same if you leave it`,
+    takeOver: "Manage",
     sameAsLibrary: (name: string) => `Same as “${name}” in the Library`,
     sourceLatestOf: (name: string) => `Newer version of “${name}”`,
     sourceLatestOfTitle: (name: string) =>
@@ -763,12 +784,14 @@ export const en = {
     expandSection: "Expand this section",
     collapseSection: "Collapse this section",
     scopeSeesGlobal: (agent: string, n: number) => `${agent}'s global directory has ${count(n, "skill")}`,
-    scopeSeesProject: (agent: string, project: string, n: number) => `${agent} can use ${count(n, "skill")} in ${project}`,
+    scopeSeesProject: (agent: string, project: string, n: number) => `${agent}'s directory in ${project} has ${count(n, "skill")}`,
     sectionGlobal: "From global",
     sectionGlobalTitle: "In a project, the Agent also sees the skills installed globally; open the global Scope to change them",
     nothingHere: "Nothing is installed here yet. Expand the Library's skills not installed here below and turn one on, or drag a skill, Group, or Collection onto this row on the right.",
-    projectHas: (project: string, n: number) => `${count(n, "skill")} installed in ${project}`,
+    projectHas: (project: string, n: number) => `${project} has ${count(n, "skill")}`,
     projectDirectory: "Project directory",
+    projectMissing: (path: string) => `This project isn't on this machine. ${path} doesn't exist here, so the skills installed in this project below can't be used right now. If the project is somewhere else on this machine, change its location to point there.`,
+    projectMissingRelocate: "Change project location…",
     projectEmpty: "Nothing is installed in this project yet. Expand the project on the right, click an Agent, and turn on a skill's switch there; or drag a skill, Group, or Collection onto that row.",
     openScope: "Open Scope",
     openScopeTitle: "Open this Scope: the skills installed here and the ones you can install here",
@@ -947,7 +970,6 @@ export const en = {
       `The checked ${quoted(names)} ${names.length === 1 ? "is" : "are"} managed by the project repository. Updating ${names.length === 1 ? "it" : "them"} in the app later changes files in the project repository.`,
     outsideNote: (name: string, note: string) => `Checked “${name}”: ${note}`,
     unusable: (n: number) => `${n} can't be fetched`,
-    unusableReason: (name: string, reason: string) => `${name}: ${reason}`,
     sameNameTitle: (name: string, note: string) => `The Library already has a skill named “${name}”. ${note}`,
     sameName: "Same name in Library",
     inLibrary: "Already in the Library",
@@ -1225,6 +1247,9 @@ export const en = {
     installTo: "Install to…",
     alreadyTitle: "A skill with the same name from the same Source is already in the Library; to get new content, click “Update” in the skill's details",
     already: "Fetched",
+    sameName: "Same name in Library",
+    sameNameTitle: (name: string, twins: string[]) =>
+      `The Library already has a skill named “${name}” (${twins.join("; ")}). Fetching this one adds a second “${name}”, and installing both for the same Agent gives it two skills with that name. Unchecked by default; check it if you do want it`,
     newTitle: "Appeared after the last Fetch from this Source",
     new: "New",
     title: "Preview",

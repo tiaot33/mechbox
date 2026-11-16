@@ -6,6 +6,7 @@ import {
   PlannedChange,
   ScopeKind,
   SkillScopeStatus,
+  type Candidate,
   type PlannedSkill,
   type PlannedUnmanagedSkill,
   type Scope,
@@ -22,6 +23,7 @@ import {
   copyOverwrites,
   copyPlaceByDefault,
   type CopyPlanned,
+  defaultCandidates,
   defaultInstallOn,
   fetchPlan,
   defaultSkills,
@@ -382,5 +384,19 @@ describe("照着另一个 Agent 装", () => {
       expect(copyable(status)).toBe(false);
       expect(copyByDefault(status)).toBe(false);
     }
+  });
+});
+
+describe("defaultCandidates", () => {
+  const c = (name: string, extra: Partial<Candidate> = {}) => ({ name, description: "", path: name, ...extra }) as Candidate;
+
+  it("库里已有同名技能的候选不默认勾，用户看到提醒自己勾上", () => {
+    const picked = defaultCandidates([c("internal-comms"), c("pdf"), c("docx", { fetched: 3 })], new Set(["internal-comms", "docx"]), false);
+    expect([...picked]).toEqual(["pdf"]);
+  });
+
+  it("从新技能提示进来时只勾新技能，库里同名的照样不勾", () => {
+    const picked = defaultCandidates([c("a", { new: true }), c("b"), c("x", { new: true })], new Set(["x"]), true);
+    expect([...picked]).toEqual(["a"]);
   });
 });

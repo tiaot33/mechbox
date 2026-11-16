@@ -14,7 +14,8 @@ import {
   agentNameIn,
   agentsIn,
   agentsUsedIn,
-  mergeProjectPlaces,
+  projectSkillCount,
+  scopeHereCount,
   editedHere,
   needsRepair,
   reinstallLevel,
@@ -96,7 +97,7 @@ export function ScopePanel() {
           </span>
           {/* 这里有要重新安装或被手动改过的技能：提醒的图标，按最重的那一处的级别。 */}
           {level && <MarkIcon tone={level} title={[issues ? t.issues(issues) : "", edited ? t.edited(edited) : ""].filter(Boolean).join("\n")} />}
-          <NavCount value={installed.length} accent />
+          <NavCount value={scopeHereCount(s, key)} accent />
         </button>
       </li>
     );
@@ -154,7 +155,7 @@ export function ScopePanel() {
       <ul className={listClass}>
         {s.projects.map((p) => {
           const open = expanded.has(p.id) || aimed.has(`p${p.id}`);
-          const count = mergeProjectPlaces(s, s.skillScopes.filter((x) => placeOf(x.scope) === p.id)).length;
+          const count = projectSkillCount(s, p.id);
           const current = !!selected && placeOf(selected) === p.id;
           const active = page.kind === "project" && page.project === p.id;
           const where = wslTitle(p.path) ?? shortPath(s, p.path);

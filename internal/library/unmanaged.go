@@ -59,6 +59,40 @@ type UnmanagedSkill struct {
 	// 把库里的技能换成这一版,之后这一处和库里的当前版本一致,SkillID 就是它。SkillID 不为 0 时为 0。
 	// Windows 本机的目录里,来源的新版加了可执行文件或改了可执行位时认不出(见包说明「实现」一节)。
 	SourceLatestOf SkillID `json:"source_latest_of,omitzero"`
+	// SameFolder 是别的作用域里和这一处解析符号链接后是同一个文件夹的未纳管技能(如 npx skills 的布局:Claude Code 的目录里是链接,
+	// 真实文件夹在 Codex 的目录里),按 Agent、作用域排序;入库这一处时(FetchUnmanaged)一并记为装在那里,确认前界面据此说明。
+	// 共用目录的 Agent 不在这里。没有时为空。
+	SameFolder []Scope `json:"same_folder,omitempty"`
+	// Invalid 不为 nil 时,文件夹根上的 SKILL.md 不是有效的技能描述,给出哪里写错了:这个文件夹不能入库
+	// (FetchUnmanaged 返回 SourceInvalid,整批入库的计划里这一条带 Error),界面在作用域里就据此说明,不给入库的按钮。
+	Invalid *SkillFileProblem `json:"invalid,omitempty"`
+}
+
+// SkillFileProblemKind 是 SKILL.md 不是有效技能描述的原因。值以后可能增加,调用方遇到不认识的值按「SKILL.md 写得不对」处理。
+type SkillFileProblemKind string
+
+const (
+	SkillFileNoFrontmatter       SkillFileProblemKind = "no_frontmatter"       // 开头没有 frontmatter:第一行不是 ---
+	SkillFileUnclosedFrontmatter SkillFileProblemKind = "unclosed_frontmatter" // frontmatter 没有用 --- 结束
+	SkillFileInvalidYAML         SkillFileProblemKind = "invalid_yaml"         // frontmatter 不是有效的 YAML
+	// SkillFileUnquotedColon 是 frontmatter 里一个值中间带「: 」又没加引号(如 description: Use when: ...),YAML 把它读成了又一层键值。
+	SkillFileUnquotedColon SkillFileProblemKind = "unquoted_colon"
+	SkillFileInvalidName   SkillFileProblemKind = "invalid_name"   // 没有 name,或 name 不能用作文件夹名(空、带斜杠或换行)
+	SkillFileNoDescription SkillFileProblemKind = "no_description" // 没有 description,或它不是一段文字
+)
+
+// SkillFileProblem 说明技能文件夹里的 SKILL.md 为什么不是有效的技能描述,界面据此写出哪个文件、哪里写错了。
+type SkillFileProblem struct {
+	Kind SkillFileProblemKind `json:"kind"`
+	Line int                  `json:"line,omitempty"` // 写错的那一行在 SKILL.md 里的行号,从 1 起;说不出时为 0
+}
+
+func skillFileProblem(err error) *SkillFileProblem {
+	problem, ok := errors.AsType[*discovery.SkillMDError](err)
+	if !ok {
+		return &SkillFileProblem{Kind: SkillFileInvalidYAML}
+	}
+	return &SkillFileProblem{Kind: SkillFileProblemKind(problem.Problem), Line: problem.Line}
 }
 
 // ListUnmanagedSkills 列出各作用域(每个 Agent 的全局,以及每个 Agent 在每个已登记项目里)的技能目录里
@@ -120,6 +154,8 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 		entry.LinkOutside = found.Target != "" && !within(found.Target)
 		if candidate, err := discovery.ParseSkillMD(found.SkillMD, found.Name); err == nil {
 			entry.Description = candidate.Description
+		} else {
+			entry.Invalid = skillFileProblem(err)
 		}
 		if record, ok := records.find(target, skillName(found.Folder), found.Name); ok {
 			entry.SourceInput, entry.SourceRef = record.input, record.ref
@@ -139,6 +175,17 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 	slices.SortFunc(entries, func(a, b unmanagedEntry) int {
 		return cmp.Or(cmp.Compare(a.Scope.Agent, b.Scope.Agent), cmp.Compare(a.Scope.ProjectID, b.Scope.ProjectID), cmp.Compare(a.Name, b.Name))
 	})
+	real := make([]string, len(entries))
+	for i, entry := range entries {
+		real[i] = agentdir.Canonical(cmp.Or(entry.LinkTarget, entry.Folder))
+	}
+	for i := range entries {
+		for j, other := range entries {
+			if i != j && real[i] == real[j] && !entries[i].found.target.sharesFolderWith(other.found.target) {
+				entries[i].SameFolder = append(entries[i].SameFolder, other.Scope)
+			}
+		}
+	}
 	return entries, nil
 }
 

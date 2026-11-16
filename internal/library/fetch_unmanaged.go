@@ -40,6 +40,9 @@ type FetchUnmanagedResult struct {
 // FetchUnmanaged 把作用域里一个不是库装的技能入库,交给库管:磁盘上什么都不改(文件夹是符号链接时照样是符号链接),
 // 读出文件夹的内容(文件夹是符号链接时读它指向的内容,受入库的读取上限约束)成为库里的版本,并记为直接安装在这个作用域;
 // 入库后巡检这一处与库里的版本一致。
+// 别的作用域里不是库装的文件夹和这一处解析符号链接后是同一个文件夹时(如 npx skills 的布局:真实文件夹在 Codex 的目录里,
+// Claude Code 的目录里是指过去的链接),一并记为直接安装在那里,同一个文件夹不用在每个 Agent 的作用域里各入库一次;
+// 只是内容一样、却是另一个文件夹的不算,它可能是用户故意留的一份。共用目录的 Agent 本来就算已装,不另记。
 // 文件夹名和技能名不同时,这一处按原来的文件夹名记录(SkillScope.Folder),之后重新安装才换成技能名。
 // 入库之后,用户在库外(如命令行工具)再改这个文件夹,巡检报为 modified;提交在项目仓库里的文件夹也能入库,
 // 之后在 app 里更新、重新安装它会改动仓库里的文件。确认框据此提醒。
@@ -199,7 +202,36 @@ func (l *Library) unmanagedFolder(ctx context.Context, operation string, req Fet
 	return unmanagedFolder{target: target, name: req.Name, path: path, disk: disk, parsed: parsed}, nil
 }
 
+func (l *Library) withSameFolders(ctx context.Context, operation string, folders []unmanagedFolder) ([]unmanagedFolder, error) {
+	found, err := l.scopeFolders(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	result := slices.Clone(folders)
+	for _, other := range found {
+		if other.skillID != 0 {
+			continue
+		}
+		listed := slices.ContainsFunc(result, func(folder unmanagedFolder) bool {
+			return folder.target.scope() == other.target.scope() || folder.target.sharesFolderWith(other.target)
+		})
+		if listed || !slices.ContainsFunc(folders, func(folder unmanagedFolder) bool { return agentdir.SameFolder(folder.path, other.Path) }) {
+			continue
+		}
+		companion, err := l.unmanagedFolder(ctx, operation, FetchUnmanagedRequest{Scope: other.target.scope(), Name: other.Name})
+		if err != nil || companion.parsed.Name != folders[0].parsed.Name {
+			continue
+		}
+		result = append(result, companion)
+	}
+	return result, nil
+}
+
 func (l *Library) fetchWithoutSource(ctx context.Context, folders []unmanagedFolder) (FetchUnmanagedResult, error) {
+	folders, err := l.withSameFolders(ctx, "fetch unmanaged skill", folders)
+	if err != nil {
+		return FetchUnmanagedResult{}, err
+	}
 	folder, disk := folders[0], representative(folders)
 	matched, _, err := matchingSkill(ctx, l.store, disk, folderScopes(folders))
 	if err != nil {
@@ -289,6 +321,10 @@ func sourceField(err error) error {
 }
 
 func (l *Library) fetchWithSource(ctx context.Context, operation string, folders []unmanagedFolder, sourced sourcedSkill, input, ref string) (FetchUnmanagedResult, error) {
+	folders, err := l.withSameFolders(ctx, operation, folders)
+	if err != nil {
+		return FetchUnmanagedResult{}, err
+	}
 	folder, disk := folders[0], representative(folders)
 	reference := skillfile.Digests(sourced.skill.Files)
 	files := disk.as(reference)
@@ -312,7 +348,7 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folders
 	}
 	name := sourced.skill.Name
 	var row store.Skill
-	err := l.store.InTx(ctx, func(tx *store.Tx) error {
+	err = l.store.InTx(ctx, func(tx *store.Tx) error {
 		now := clockNow()
 		sourceID, err := tx.UpsertSource(ctx, sourced.record)
 		if err != nil {
