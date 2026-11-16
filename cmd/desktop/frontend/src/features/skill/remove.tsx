@@ -1,4 +1,5 @@
 // 移除技能，以及来源里已删除的技能选"继续保留"。
+// 选删掉已安装的文件夹会让别的技能找不到它提到的技能时，在这个选项的说明里写出是哪几个;选保留文件夹时不受影响。
 import { LibraryService } from "@bindings/cmd/desktop";
 import { FolderPolicy, type SkillID } from "@bindings/internal/library";
 import { lostEdits } from "@/lib/consent";
@@ -8,16 +9,19 @@ import { mergedScopeKey, mergeProjectPlaces, skillName, skillScopesOf } from "@/
 import { ui } from "@/lib/ui";
 import { Hint } from "@/components/ui/field";
 import { runEach, showResults } from "@/components/app/results";
+import { lostMentionLines, lostMentions } from "@/features/install/install";
+import type { MissingMention } from "@bindings/internal/library";
 
 export async function removeSkill(id: SkillID) {
   const s = currentSnapshot();
   const places = skillScopesOf(s, id);
   const installed = mergeProjectPlaces(s, places).length;
   const t = messages().actions;
+  const unfound = await lostMentions(places);
   const choice = await ui.confirm({
     title: t.removeSkillTitle(skillName(s, id)),
     body: <Hint>{t.removeSkillHint}</Hint>,
-    choices: installed ? folderChoices(t.removeFromScopes(installed, lostEdits(places).length)) : undefined,
+    choices: installed ? folderChoices(t.removeFromScopes(installed, lostEdits(places).length), unfound) : undefined,
     confirm: t.remove,
     danger: true,
   });
@@ -39,10 +43,11 @@ export async function removeSkills(ids: SkillID[]): Promise<boolean> {
   // 几个技能装在同一个作用域只算一个作用域;项目里共用一个目录的几个 Agent 是一个。
   const scopes = new Set(places.map((p) => mergedScopeKey(s, p.scope))).size;
   const t = messages().actions;
+  const unfound = await lostMentions(places);
   const choice = await ui.confirm({
     title: t.removeSkillsTitle(ids.length),
     body: <Hint>{t.removeSkillsHint}</Hint>,
-    choices: scopes ? folderChoices(t.removeFromScopes(scopes, lostEdits(places).length)) : undefined,
+    choices: scopes ? folderChoices(t.removeFromScopes(scopes, lostEdits(places).length), unfound) : undefined,
     confirm: t.remove,
     danger: true,
   });
@@ -54,11 +59,12 @@ export async function removeSkills(ids: SkillID[]): Promise<boolean> {
   return rows.length < ids.length;
 }
 
-// folderChoices 是移除技能时已安装的文件夹删掉还是保留;removeDesc 写出删掉会涉及几处。
-function folderChoices(removeDesc: string) {
+// folderChoices 是移除技能时已安装的文件夹删掉还是保留;removeDesc 写出删掉会涉及几处，lost 是删掉后会找不到它的技能。
+function folderChoices(removeDesc: string, lost: MissingMention[]) {
   const t = messages().actions;
+  const desc = lost.length ? t.removeLostMentions(removeDesc, lostMentionLines(currentSnapshot(), lost)) : removeDesc;
   return [
-    { value: FolderPolicy.Remove, label: t.removeInstalled, desc: removeDesc },
+    { value: FolderPolicy.Remove, label: t.removeInstalled, desc },
     { value: FolderPolicy.Keep, label: t.keepInstalled, desc: t.keepInstalledDesc },
   ];
 }

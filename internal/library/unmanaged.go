@@ -424,6 +424,12 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 		claimed[folder{skillScope.Scope, agentdir.FolderName(skillScope.Folder)}] = skillScope.SkillID
 	}
 	var folders []scopeFolder
+	type rootCheck struct {
+		missing *Error
+		err     error
+	}
+	roots := map[string]rootCheck{}
+	unlisted := map[string]bool{}
 	for _, agent := range agents {
 		rows := []store.Scope{{Agent: agent.Code}}
 		for _, project := range projects {
@@ -440,15 +446,24 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 			if err != nil {
 				return nil, err
 			}
-			missing, err := target.rootMissing("list skill folders")
+			check, checked := roots[target.root]
+			if !checked {
+				check.missing, check.err = target.rootMissing("list skill folders")
+				roots[target.root] = check
+			}
+			missing, err := check.missing, check.err
 			if err != nil && !skipUnreadable {
 				return nil, err
 			}
 			if err != nil || missing != nil {
 				continue
 			}
+			if unlisted[target.directory] {
+				continue
+			}
 			listed, err := agentdir.List(target.directory)
 			if err != nil && skipUnreadable {
+				unlisted[target.directory] = true
 				continue
 			}
 			if err != nil {

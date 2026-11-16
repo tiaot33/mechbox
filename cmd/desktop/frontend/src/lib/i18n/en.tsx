@@ -140,6 +140,16 @@ export const en = {
   },
 
   actions: {
+    installedMissing: (done: string, skills: number, names: string[]) =>
+      `${done}. ${skills > 1 ? `${count(skills, "of them", "of them")} mention` : "It mentions"} ${quoted(names)}, which ${names.length > 1 ? "aren’t" : "isn’t"} there`,
+    missingThere: (skills: number, names: string[]) =>
+      `${skills > 1 ? `${count(skills, "installed skill")} mention` : "The installed skill mentions"} ${quoted(names)}, which ${names.length > 1 ? "aren’t" : "isn’t"} there`,
+    installMentioned: (n: number) => (n > 1 ? `Install ${n} too` : "Install it too"),
+    installMentionedTitle: (n: number) => `Install ${count(n, "mentioned skill")}`,
+    installedMentioned: (n: number) => `Installed ${count(n, "mentioned skill")}`,
+    lostMentionsLead: "After uninstalling, these skills can no longer find skills they mention, and Agents may not be able to use them fully:",
+    removeLostMentions: (desc: string, lines: string[]) => `${desc}. Afterwards these skills can’t find skills they mention: ${lines.join("; ")}`,
+    lostMention: (from: string, where: string, name: string) => `“${from}” · ${where}: “${name}” not found`,
     gotIt: "OK",
     memberInstalled: "Installed",
     memberAlready: "Already installed",
@@ -534,6 +544,30 @@ export const en = {
   },
 
   drawer: {
+    mentions: "Mentions",
+    mentionsNote: (out: number, inn: number) => `Mentions ${out} · Mentioned by ${inn}`,
+    mentionsOut: "Mentions",
+    mentionsIn: "Mentioned by",
+    mentionsNone: "None",
+    mentionAvailable: "Available",
+    mentionAvailableTitle: "Every place this skill is installed can find it",
+    mentionMissing: (wheres: string[]) => `Not found in ${and(wheres)}`,
+    mentionMissingTitle: (wheres: string[]) => `Agents can’t find this skill in ${and(wheres)}; where it’s needed, this skill may not work fully`,
+    mentionMissingEverywhere: "Missing wherever installed",
+    mentionInLibrary: "In Library",
+    mentionNotInLibrary: "Not in Library",
+    mentionNotInLibraryTitle: "This skill isn’t in the Library; it’s only in an Agent directory (an Unmanaged skill)",
+    mentionLinesTitle: (n: number) => `${count(n, "line")} mentioning it`,
+    openMentioned: (name: string) => `Open details of “${name}”`,
+    judge: {
+      judging: (n: number) => `Checking ${count(n, "place")} where a one-word skill name may mean that skill; they’re added when done`,
+      unjudged: (n: number) =>
+        `${count(n, "place")} where a one-word skill name (such as review or spec) appears ${n === 1 ? "isn’t" : "aren’t"} checked yet and ${n === 1 ? "isn’t" : "aren’t"} listed. Set up AI in Settings to check them`,
+      unjudgedShort: (n: number) => `${n} one-word skill ${n === 1 ? "name isn't" : "names aren't"} judged`,
+      judgeNeedsSettings: (n: number) =>
+        `Checking stopped with ${count(n, "place")} left; what was checked is kept. Fix the AI settings and open the skill details again to continue`,
+      judgeSkipped: (names: string[]) => `Couldn’t check the names in ${quoted(names)}; the rest were added. It tries again next time you open the skill details`,
+    },
     checkAvailable: "New Version",
     checkCurrent: "Up to date",
     checkDeleted: "Deleted in Source",
@@ -658,6 +692,8 @@ export const en = {
   },
 
   list: {
+    mentionsMissing: (n: number) => `${count(n, "mentioned skill")} missing`,
+    mentionsMissingTitle: (names: string[]) => `It mentions ${quoted(names)}, which ${names.length > 1 ? "aren’t" : "isn’t"} here; Agents may not be able to use it fully`,
     emptyLibrary: "The Library is empty",
     originalTitle: (text: string) => `Original: ${text}`,
     emptyHint: "Fetch skills from a local directory, GitHub or the skill market.",
@@ -1235,6 +1271,8 @@ export const en = {
   },
 
   review: {
+    mentionsUnpicked: (names: string[]) => `Mentions ${names.join(", ")} · Check too`,
+    mentionsUnpickedTitle: (names: string[]) => `Its SKILL.md mentions ${quoted(names)}, not checked yet; click to check them too`,
     kindGitHub: "GitHub repo",
     kindGit: "Git repo",
     kindURL: "Direct download",

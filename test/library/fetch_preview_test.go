@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -381,5 +382,36 @@ func TestPreviewFetchCollectionListsNewSkills(t *testing.T) {
 	}
 	if _, err := lib.PreviewFetch(ctx, library.PreviewFetchRequest{Collection: 9999}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("missing collection = %v; want NotFound", err)
+	}
+}
+
+// 入库预览的候选写出它的 SKILL.md 提到了同一份预览里的哪些候选:点名写法和几个词连成的名字算,
+// 单个词的名字不交给 AI、不算;其他 Markdown 文件不读;整份预览里超过一半(至少 3 个)候选都有的一行不算。
+func TestPreviewFetchListsCandidatesMentionedInSkillMD(t *testing.T) {
+	shared := "Shared: always run /helper first."
+	root := mentionSource(t, map[string]string{
+		"entry":         "Run /ship, then writing-plans.\nCould you review this?\n" + shared + "\n",
+		"ship":          "# ship\n" + shared + "\n",
+		"writing-plans": "# writing-plans\n" + shared + "\n",
+		"review":        "# review\n",
+		"helper":        "# helper\n",
+	})
+	writeFile(t, filepath.Join(root, "entry", "references", "more.md"), []byte("Also /review.\n"), 0o644)
+	lib := openTestLibrary(t)
+	preview, err := lib.PreviewFetch(t.Context(), localRequest(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string][]string{}
+	for _, candidate := range preview.Candidates {
+		if candidate.Mentions != nil {
+			got[candidate.Name] = candidate.Mentions
+		}
+	}
+	if want := map[string][]string{"entry": {"ship", "writing-plans"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("candidate mentions = %v; want %v", got, want)
+	}
+	if strings.Contains(strings.Join(got["entry"], ","), "helper") {
+		t.Fatal("a line shared by most candidates counts as a mention")
 	}
 }

@@ -55,6 +55,14 @@
 // 结果里给出还没判断的几处;[Library.JudgeMentions] 用 AI 设置判断这组技能里还没判断的,每个技能一个请求,
 // 结论按技能版本存进数据库,之后 ListMentions 直接用:同一个版本只判断一次,技能出了新版本只重判它自己。
 //
+// 技能之间的提到关系(mentions_skill.go):规则同关系图,范围是整个库,被提到的一方也包括各作用域里的未纳管技能(按文件夹名)。
+//   - [Library.GetSkillMentions] 给技能详情:这个技能提到了谁、库里谁提到了它;[Library.JudgeSkillMentions] 判断其中单个词的名字,
+//     结论和关系图共用。
+//   - [Library.ListMissingMentions] 列出装在各作用域的技能提到了、Agent 在那里却找不到的技能(看磁盘上的技能文件夹,
+//     项目作用域连同这个 Agent 的全局目录):作用域页的提醒、装好后的提示用它。
+//   - [Library.ListLostMentions] 在卸载、从库里删除之前给出:要删的那几处不在了以后,哪些装着的技能会因此找不到它们提到的技能。
+//   - 入库预览的候选上带着 [Candidate].Mentions:它的 SKILL.md 提到了同一份预览里的哪些候选,勾选时提示一起勾上。
+//
 // 更新(check.go、plan.go、update.go、history.go):
 //   - [Library.CheckUpdates] 按集合检查更新,结论写在集合里每个技能的 Skill.LastUpdateCheck 上,技能详情页的「有新版本」读它;
 //     只读,可以自动发起。没有按技能、按组检查的入口。侧边栏的更新计数与 Dock 角标都按结论上的 Pending 算;

@@ -9,6 +9,8 @@ import { platform } from "@/lib/platform";
 // firstNames 是折起来的那行里列出的前三个名字。
 const firstNames = (names: string[]) => `${names.slice(0, 3).join("、")}${names.length > 3 ? "…" : ""}`;
 
+// quotedAll 是逐个加引号的名字。
+const quotedAll = (names: string[]) => names.map((n) => `「${n}」`).join("");
 const kinds = (list: SameNameKind[]) => list.map((k) => (k === "managed" ? "库装的" : k === "identical" ? "和库里的一样、不是 app 装的" : "不在技能库里")).join("、");
 
 // where 是"装在 Claude Code · 全局、Codex · proj-a 等 3 处"这类说法，嵌在说明同名技能的句子里。
@@ -138,6 +140,16 @@ export const zh = {
   },
 
   actions: {
+    installedMissing: (done: string, skills: number, names: string[]) =>
+      `${done}。${skills > 1 ? `其中 ${skills} 个技能` : "它"}提到的${quotedAll(names)}在那里找不到`,
+    missingThere: (skills: number, names: string[]) =>
+      `${skills > 1 ? `装上的 ${skills} 个技能` : "装上的技能"}提到的${quotedAll(names)}在那里找不到`,
+    installMentioned: (n: number) => (n > 1 ? `一起装上 ${n} 个` : "一起装上"),
+    installMentionedTitle: (n: number) => `装上提到的 ${n} 个技能`,
+    installedMentioned: (n: number) => `已装上提到的 ${n} 个技能`,
+    lostMentionsLead: "卸载之后，下面的技能会找不到它们提到的技能，Agent 用它们时可能用不全：",
+    removeLostMentions: (desc: string, lines: string[]) => `${desc}。删掉后，这些技能会找不到它们提到的技能：${lines.join("；")}`,
+    lostMention: (from: string, where: string, name: string) => `「${from}」· ${where}：找不到「${name}」`,
     gotIt: "知道了",
     memberInstalled: "已安装",
     memberAlready: "原已安装",
@@ -497,6 +509,29 @@ export const zh = {
   },
 
   drawer: {
+    mentions: "提到关系",
+    mentionsNote: (out: number, inn: number) => `提到了 ${out} 个 · 被 ${inn} 个提到`,
+    mentionsOut: "提到了",
+    mentionsIn: "被提到",
+    mentionsNone: "没有",
+    mentionAvailable: "可用",
+    mentionAvailableTitle: "装着它的地方都找得到这个技能",
+    mentionMissing: (wheres: string[]) => `在 ${wheres.join("、")} 找不到`,
+    mentionMissingTitle: (wheres: string[]) => `Agent 在 ${wheres.join("、")} 找不到这个技能，用到它的地方可能用不全`,
+    mentionMissingEverywhere: "装着的地方都找不到",
+    mentionInLibrary: "库里有",
+    mentionNotInLibrary: "库里没有",
+    mentionNotInLibraryTitle: "这个技能不在库里，只在 Agent 目录里(未纳管技能)",
+    mentionLinesTitle: (n: number) => `提到的 ${n} 行原文`,
+    openMentioned: (name: string) => `打开「${name}」的详情`,
+    // judge 是单个词的技能名的判断状态里和关系图说法不同的几条，其余用关系图的(见 features/graph/judge-line)。
+    judge: {
+      judging: (n: number) => `还在判断 ${n} 处单个词的技能名是不是在指那个技能，判断完补上`,
+      unjudged: (n: number) => `有 ${n} 处单个词的技能名(如 review、spec)没判断是不是在指那个技能，这里没列出;在设置里配好 AI 就能判断`,
+      unjudgedShort: (n: number) => `${n} 处单个词的技能名没判断`,
+      judgeNeedsSettings: (n: number) => `判断停下了，已判断的保留，还有 ${n} 处没判断;改好 AI 设置后再打开技能详情就会接着判断`,
+      judgeSkipped: (names: string[]) => `没能判断 ${names.map((n) => `「${n}」`).join("、")} 里的几处，其余照常补上了;下次打开技能详情再试`,
+    },
     checkAvailable: "有新版本",
     checkCurrent: "已是最新",
     checkDeleted: "来源里已删除",
@@ -619,6 +654,8 @@ export const zh = {
   },
 
   list: {
+    mentionsMissing: (n: number) => `提到的 ${n} 个找不到`,
+    mentionsMissingTitle: (names: string[]) => `它提到的「${names.join("」「")}」在这里找不到，Agent 用它时可能用不全`,
     emptyLibrary: "技能库还是空的",
     originalTitle: (text: string) => `原文：${text}`,
     emptyHint: "从本地目录、GitHub 或技能市场把技能入库。",
@@ -1167,6 +1204,8 @@ export const zh = {
   },
 
   review: {
+    mentionsUnpicked: (names: string[]) => `提到 ${names.join("、")} · 一起勾上`,
+    mentionsUnpickedTitle: (names: string[]) => `它的 SKILL.md 提到了「${names.join("」「")}」，这几个还没勾;点一下一起勾上`,
     kindGitHub: "GitHub 仓库",
     kindGit: "Git 仓库",
     kindURL: "直接下载",

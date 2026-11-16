@@ -4,6 +4,9 @@
 // - 组安装逐条返回结果，被跳过的成员列出原因。
 // - 卸载会删掉别处链接指着的文件夹时，库先给那几处换上独立的一份，确认前说出来。
 // - 卸载会删掉被手动改过的文件夹时，确认前列出是哪几处，修改会跟着丢掉;是否改过先现查磁盘，不按快照。
+// - 提到关系：装好后，装上的技能提到的技能在那里找不到时，提示里写出来，库里有的能一起装上(直接安装，组安装时也不加进组);
+//   卸载、卸载整组会删掉文件夹、让别的技能因此找不到它时，确认里写出是哪几个(平时不弹确认的卸载这时也弹)。
+//   都只用规则和已存下的 AI 判断结论，不等 AI;读不出提到关系时照常安装、卸载，不拦着。
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
   ErrorCode,
@@ -12,6 +15,8 @@ import {
   type CollectionID,
   type GroupID,
   type InstallPlan,
+  type MissingMention,
+  type SkillInScope,
   type Scope,
   type Skill,
   type SkillID,
@@ -20,8 +25,9 @@ import {
 } from "@bindings/internal/library";
 import { detachedBy, lostEdits } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
-import { messages } from "@/lib/i18n";
-import { currentSnapshot, toLibraryError, type Snapshot } from "@/lib/library";
+import { messages, useT } from "@/lib/i18n";
+import { currentSnapshot, toLibraryError, useSnapshot, type Snapshot } from "@/lib/library";
+import { installable, mergeMissing, missingAt, missingNames } from "@/lib/mentions";
 import {
   agentName,
   agentNameIn,
@@ -69,9 +75,87 @@ export async function installSkill(id: SkillID, scope: Scope) {
       break;
     }
   }
-  await ui.run(() => LibraryService.Install(id, scope, { overwrite }), {
-    success: t.installed(plan.name, where),
+  const done = await ui.run(() => LibraryService.Install(id, scope, { overwrite }).then(() => true));
+  if (done) await toastInstalled([{ skill_id: id, scope }], t.installed(plan.name, where));
+}
+
+// toastInstalled 是装好之后的提示：装上的这几处提到的技能在那里找不到时写出名字，库里有、那里还没有安装记录的给一个按钮一起装上
+// (有记录、文件夹不在了的要重新安装，不在这里装);都找得到时只提示 done。done 为空(已经列出了结果)时只在有找不到的时候提示。
+// 「照着另一个 Agent 装」、加进已安装的组也用它。
+export async function toastInstalled(placed: SkillInScope[], done?: string) {
+  const t = messages().actions;
+  let missing: MissingMention[] = [];
+  if (placed.length) {
+    try {
+      missing = missingAt(currentSnapshot(), (await LibraryService.ListMissingMentions()) ?? [], placed);
+    } catch {
+      // 读不出提到关系时只说装好了。
+    }
+  }
+  if (!missing.length) {
+    if (done) ui.toast(done);
+    return;
+  }
+  const s = currentSnapshot();
+  const skills = new Set(missing.map((m) => m.skill_id)).size;
+  const names = missingNames(missing);
+  const targets = installable(missing).filter((p) => !skillScopeIn(s, p.skill_id, scopeKey(p.scope)));
+  const count = new Set(targets.map((p) => p.skill_id)).size;
+  ui.toast(
+    done ? t.installedMissing(done, skills, names) : t.missingThere(skills, names),
+    "ok",
+    targets.length ? { label: t.installMentioned(count), onClick: () => void installMentioned(targets) } : undefined,
+  );
+}
+
+// installMentioned 把提到的、库里有的技能装到提到它的技能所在的作用域：逐处直接安装，和"安装到…"一样处理同名文件夹。
+async function installMentioned(targets: SkillInScope[]) {
+  const s = currentSnapshot();
+  const t = messages().actions;
+  const items = targets.flatMap((p) => {
+    const skill = s.skills.find((x) => x.id === p.skill_id);
+    return skill ? [{ skill, scope: p.scope }] : [];
   });
+  const n = new Set(items.map((x) => x.skill.id)).size;
+  await installEach(items, t.installMentionedTitle(n), t.installedMentioned(n));
+}
+
+// lostMentions 是卸掉这几处的文件夹之后才会找不到被提到技能的地方(技能库一次算出);读不出来时当作没有，不拦着卸载。
+// 项目里共用目录的几个 Agent 的同一条只留一条。
+export async function lostMentions(gone: SkillInScope[]): Promise<MissingMention[]> {
+  if (!gone.length) return [];
+  try {
+    const lost = await LibraryService.ListLostMentions(gone.map((p) => ({ skill_id: p.skill_id, scope: p.scope })));
+    return mergeMissing(currentSnapshot(), lost ?? []);
+  } catch {
+    return [];
+  }
+}
+
+// lostMentionLines 是 lost 逐条的说法：哪个技能、在哪、找不到谁。
+export function lostMentionLines(s: Snapshot, lost: MissingMention[]): string[] {
+  const t = messages().actions;
+  return lost.map((m) => t.lostMention(skillName(s, m.skill_id), scopeLabel(s, m.scope), m.name));
+}
+
+// LostMentions 是卸载确认里的一段：哪些装着的技能会因此找不到它们提到的技能。prefix 是限定语(如移出组时「选一并卸载时」)。
+export function LostMentions({ lost, prefix }: { lost: MissingMention[]; prefix?: string }) {
+  const s = useSnapshot();
+  const t = useT().actions;
+  if (!lost.length) return null;
+  return (
+    <Notice alert className="lost-mentions">
+      <span className="font-semibold text-foreground">
+        {prefix}
+        {t.lostMentionsLead}
+      </span>
+      <ul className="mt-1">
+        {lostMentionLines(s, lost).map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+    </Notice>
+  );
 }
 
 // occupiedReason 说明为什么装不上：同名的另一个技能(或这个技能的另一个作用域)已装在那个文件夹;用来源区分是哪一个。
@@ -192,6 +276,7 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
     overwrite = choice === "overwrite";
   }
   let installed = 0;
+  const placed: SkillInScope[] = [];
   let failed = planned.length < items.length;
   await ui.run(async () => {
     for (const { skill, scope, plan } of planned) {
@@ -208,6 +293,7 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
       try {
         await LibraryService.Install(skill.id, scope, { overwrite: isUntracked });
         rows.push({ label: row, outcome: t.memberInstalled, tone: "plain" });
+        placed.push({ skill_id: skill.id, scope });
         installed++;
       } catch (e) {
         rows.push({ label: row, outcome: t.failed, tone: "critical", reason: describeError(toLibraryError(e)) });
@@ -218,8 +304,9 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
   if (installed < rows.length) {
     const rest = rows.length - installed;
     await showResults(title, rows, several ? t.installedPlaces(installed, rest) : t.installedSummary(installed, rest));
+    await toastInstalled(placed);
   } else {
-    ui.toast(done);
+    await toastInstalled(placed, done);
   }
   return installed > 0;
 }
@@ -245,7 +332,8 @@ export async function uninstallSkill(id: SkillID, scope: Scope) {
   const deleted = place?.direct && !place.groups?.length ? folderPlaces(s, [place]) : [];
   const detached = detachedBy(deleted);
   const lost = lostEdits(deleted);
-  if (place && (shared.length || detached.length || lost.length)) {
+  const unfound = await lostMentions(deleted);
+  if (place && (shared.length || detached.length || lost.length || unfound.length)) {
     const ok = await ui.confirm({
       title: t.uninstallTitle(skillName(s, id)),
       body: (
@@ -260,6 +348,7 @@ export async function uninstallSkill(id: SkillID, scope: Scope) {
             </Notice>
           )}
           <DeleteNotes deleted={deleted} />
+          <LostMentions lost={unfound} />
         </>
       ),
       confirm: t.uninstall,
@@ -297,6 +386,7 @@ export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: st
   // 全局共用的文件夹：只说会被删掉的那些(没有组安装留着);还有组安装留着的文件夹不删，各 Agent 照样算已装。
   const shared = direct.filter((p) => sharedWithNote(p).length && !p.groups?.length);
   const title = t.uninstallPickedTitle(new Set(direct.map((p) => p.skill_id)).size, where);
+  const unfound = await lostMentions(deleted);
   const ok = await ui.confirm({
     title,
     body: (
@@ -309,6 +399,7 @@ export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: st
           </>
         )}
         <DeleteNotes deleted={deleted} />
+        <LostMentions lost={unfound} />
       </>
     ),
     confirm: t.uninstall,
@@ -376,10 +467,12 @@ export async function installGroup(groupID: GroupID, scope: Scope) {
   const results = await ui.run(() => LibraryService.InstallGroup(groupID, scope, { overwrite }));
   if (!results) return;
   const skipped = results.filter((r) => r.outcome === GroupMemberOutcome.MemberSkipped);
+  const placed = results.filter((r) => r.outcome !== GroupMemberOutcome.MemberSkipped);
   if (skipped.length || blocked.length) {
     await showResults(t.groupInstallResults(groupName(s, groupID)), memberRows(s, results), summarizeMembers(results));
+    await toastInstalled(placed);
   } else {
-    ui.toast(t.groupInstalled(groupName(s, groupID), scopeLabel(s, scope), summarizeMembers(results)));
+    await toastInstalled(placed, t.groupInstalled(groupName(s, groupID), scopeLabel(s, scope), summarizeMembers(results)));
   }
 }
 
@@ -407,6 +500,7 @@ export async function uninstallGroup(groupID: GroupID, scope: Scope) {
   const removed = gone.filter((p) => sharedWithNote(p).length);
   // 要删的文件夹被别处的符号链接指着、被手动改过时，确认里一并列出(DeleteNotes)。
   const deleted = folderPlaces(s, gone);
+  const unfound = await lostMentions(deleted);
   const ok = await ui.confirm({
     title: t.groupUninstallTitle(groupName(s, groupID), scopeLabel(s, scope)),
     body: (
@@ -419,6 +513,7 @@ export async function uninstallGroup(groupID: GroupID, scope: Scope) {
           </>
         )}
         <DeleteNotes deleted={deleted} />
+        <LostMentions lost={unfound} />
       </>
     ),
     confirm: t.uninstall,

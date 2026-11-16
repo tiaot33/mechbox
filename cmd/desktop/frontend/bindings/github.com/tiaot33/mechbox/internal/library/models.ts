@@ -244,6 +244,13 @@ export interface Candidate {
      * 相对来源根目录
      */
     "path": string;
+
+    /**
+     * Mentions 是它的 SKILL.md 提到的同一份入库预览里其他候选的名字,按第一次出现的先后;没提到时为空。
+     * 判断规则同 [Library.ListMentions],只有三点不同:只读 SKILL.md(入库预览只读过它;well-known 索引的候选没读过,总为空),
+     * 公共段落按整份入库预览算,单个词的名字不交给 AI、不算提到(候选还没有版本,存不了结论)。界面用它在勾选时提示一起勾上。
+     */
+    "mentions"?: string[] | null;
 }
 
 /**
@@ -1063,6 +1070,28 @@ export enum MigrationOutcome {
 };
 
 /**
+ * MissingMention 是装在某个作用域的技能提到了一个技能,而 Agent 在这个作用域里找不到它。
+ */
+export interface MissingMention {
+    /**
+     * 装着的、提到对方的技能
+     */
+    "skill_id": SkillID;
+    "scope": Scope;
+
+    /**
+     * 找不到的技能名
+     */
+    "name": string;
+
+    /**
+     * MentionedSkillID 是库里叫这个名字的技能,可以装到 Scope;有几个同名时先取和 SkillID 同一个集合的,再取 ID 最小的。
+     * 为 0 表示库里没有,只是别处 Agent 目录里的未纳管技能。
+     */
+    "mentioned_skill_id"?: SkillID;
+}
+
+/**
  * PlanFetchUnmanagedRequest 指定整批入库要看哪些作用域。
  */
 export interface PlanFetchUnmanagedRequest {
@@ -1747,6 +1776,54 @@ export enum SkillFileProblemKind {
  * SkillID 是库里技能的数据库主键。各实体的 ID 定义为不同类型,以免互相传错。
  */
 export type SkillID = number;
+
+/**
+ * SkillInScope 是装在某个作用域的一个技能,[Library.ListLostMentions] 用它指出要卸掉的那几处。
+ */
+export interface SkillInScope {
+    "skill_id": SkillID;
+    "scope": Scope;
+}
+
+/**
+ * SkillMention 是提到关系的另一头。
+ */
+export interface SkillMention {
+    "name": string;
+
+    /**
+     * SkillID 是库里的这个技能。在 Mentions 里为 0 表示库里没有这个名字,是 Agent 目录里的未纳管技能;
+     * 库里有几个同名技能时,先取和提到它的技能同一个集合的,再取 ID 最小的。
+     */
+    "skill_id"?: SkillID;
+
+    /**
+     * Lines 是提到的那几行原文:在 Mentions 里出自这个技能,在 MentionedBy 里出自对方。
+     * 规则认出的按文件路径、行的先后,同一个文件里相同的一行只列一次;AI 判断为提到的是交给 AI 的那几行(最多 3 行)。
+     */
+    "lines": MentionLine[] | null;
+}
+
+/**
+ * SkillMentions 是技能详情里一个技能和其他技能之间的提到关系。
+ */
+export interface SkillMentions {
+    /**
+     * Mentions 是它提到的技能,按名字排。
+     */
+    "mentions": SkillMention[] | null;
+
+    /**
+     * MentionedBy 是库里提到它的技能,按名字、ID 排。
+     */
+    "mentioned_by": SkillMention[] | null;
+
+    /**
+     * Unjudged 是两栏里还要交给 AI 判断的几处:它的正文里单个词的技能名,以及别的技能正文里它的名字(单个词时),
+     * 没用点名写法、也还没有判断结论。一个技能里同一个名字算一处。用 [Library.JudgeSkillMentions] 判断。
+     */
+    "unjudged": number;
+}
 
 /**
  * SkillScope 是某个技能装在某个 Scope:只要还有直接安装或组安装留着它就存在,最后一个撤掉时移除。

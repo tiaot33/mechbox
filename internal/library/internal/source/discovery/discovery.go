@@ -31,6 +31,7 @@ type Candidate struct {
 	Description string
 	Path        string
 	PluginName  string
+	SkillMD     []byte
 }
 
 type Diagnostic struct {
@@ -173,6 +174,7 @@ func Scan(ctx context.Context, view View, root string, load func(candidate Candi
 				continue
 			}
 			candidate.PluginName = groups[s.dir]
+			candidate.SkillMD = contents[i]
 			if err := load(candidate, s.file, contents[i]); err != nil {
 				if aborts(ctx, err) {
 					return err
