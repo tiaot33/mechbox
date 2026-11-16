@@ -327,7 +327,7 @@ func (l *Library) applyUpdate(ctx context.Context, read *collectionRead, ids []S
 			} else if err := tx.ConfirmVersion(ctx, id, string(latest.State), revision); err != nil {
 				return err
 			}
-			conclusion := store.UpdateCheck{At: now, Status: string(UpdateCurrent), Revision: read.revision, Found: true}
+			conclusion := store.UpdateCheck{At: now, Status: string(UpdateCurrent), Revision: read.revision, Content: skillfile.Sum(latest.Files), Found: true}
 			if selected >= 0 {
 				err = tx.SaveUpdateCheck(ctx, id, conclusion)
 			} else {

@@ -191,7 +191,8 @@ type RollbackResult struct {
 // 装回的地方是符号链接时(见 SkillScopeInspection.LinkTarget),写成独立的文件夹,不写进链接指向的地方;链接读到的已是旧版本时也一样。
 // 别处的链接指着装回的地方、而那一处不在那次更新里时,先给它换上独立的一份,保持它现在读到的内容。
 // 回滚掉的改动自动记为跳过:不再计入角标,想要时在更新计划里照样能勾上再更新;换回了名字时,跳过的是改成那个名字的改名推测。
-// 跳过的是回滚前已知的来源里的那一份:检查更新已看到来源里有更新的一份,或之后那次更新、改名已跟上了来源时,它也带着回滚掉的改动,
+// 跳过的是回滚前已知的来源里的那一份:检查更新已看到来源里有更新的一份、已推测出改名(跳过的是这个改名推测,回滚完成时结论就是它),
+// 来源已追上了用目录里的修改更新进来的那份修改,或之后那次更新、改名已跟上了来源时,它也带着回滚掉的改动,
 // 跳过的是这一份;来源没再变,之后检查更新照样不计入,来源再变了才重新计入。回滚前最近一次检查更新失败(没读成来源)时,
 // 按之前读成来源的那一次算,结果和检查成功时一样。
 // 用目录里的修改更新(UpdateRecord.FromScope)不是来源里的改动,回滚它不记跳过、不动检查更新的结论;取内容的那一处那次没有重新安装,
@@ -311,6 +312,9 @@ func (l *Library) Rollback(ctx context.Context, id UpdateRecordID) (result Rollb
 				}
 				if seen.Content != "" {
 					conclusion.Revision, conclusion.Content = seen.Revision, seen.Content
+					if seen.Renamed != "" {
+						conclusion.Status, conclusion.Renamed, conclusion.Found = string(UpdateDeleted), seen.Renamed, false
+					}
 				}
 				rollback.Skipped = append(rollback.Skipped, store.SkippedChange{SkillID: skill.SkillID, Content: conclusion.Content})
 				if err := tx.SaveUpdateCheck(ctx, skill.SkillID, conclusion); err != nil {
@@ -334,24 +338,21 @@ func seenInSource(ctx context.Context, tx *store.Tx, row store.Skill) (store.Upd
 	if err != nil {
 		return store.UpdateCheck{}, err
 	}
-	switch UpdateCheckStatus(stored.Status) {
-	case UpdateAvailable:
+	if stored.Content != "" || UpdateCheckStatus(stored.Status) != UpdateCurrent {
 		return stored, nil
-	case UpdateCurrent:
-		files, err := tx.VersionFiles(ctx, row.VersionID)
+	}
+	files, err := tx.VersionFiles(ctx, row.VersionID)
+	if err != nil {
+		return store.UpdateCheck{}, err
+	}
+	if !catalog.UserAuthored(row.Source.Type) {
+		origin, err := tx.Origin(ctx, row.VersionID)
 		if err != nil {
 			return store.UpdateCheck{}, err
 		}
-		if !catalog.UserAuthored(row.Source.Type) {
-			origin, err := tx.Origin(ctx, row.VersionID)
-			if err != nil {
-				return store.UpdateCheck{}, err
-			}
-			files = origin.Files
-		}
-		return store.UpdateCheck{Revision: stored.Revision, Content: skillfile.Sum(files)}, nil
+		files = origin.Files
 	}
-	return store.UpdateCheck{}, nil
+	return store.UpdateCheck{Revision: stored.Revision, Content: skillfile.Sum(files)}, nil
 }
 
 type placeKey struct {

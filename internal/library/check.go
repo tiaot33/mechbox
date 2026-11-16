@@ -187,7 +187,7 @@ func (r *collectionRead) conclusions() ([]store.UpdateCheck, *Error) {
 		case checked.err == nil && checked.changed:
 			conclusions[i] = store.UpdateCheck{Status: string(UpdateAvailable), Revision: r.revision, Content: skillfile.Sum(checked.latest.Files), Found: true}
 		case checked.err == nil:
-			conclusions[i] = store.UpdateCheck{Status: string(UpdateCurrent), Revision: r.revision, Found: true}
+			conclusions[i] = store.UpdateCheck{Status: string(UpdateCurrent), Revision: r.revision, Content: skillfile.Sum(checked.latest.Files), Found: true}
 		case missingSkill(checked.err):
 			conclusions[i] = store.UpdateCheck{Status: string(UpdateDeleted), Revision: r.revision, Renamed: r.renames[i].latest.Name, Content: r.renames[i].content}
 		default:

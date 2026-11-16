@@ -201,3 +201,52 @@ func TestRenameWithdrawnBySourceClearsTheRememberedName(t *testing.T) {
 		t.Fatalf("check after rolling back the first rename = %#v; want pdf-kit, skipped", check)
 	}
 }
+
+// 更新之后作者把技能改了名,检查更新已推测出改名;回滚那次更新,来源没再变时推测出的改名也带着回滚掉的改动,
+// 回滚完成时和之后检查更新、更新计划都一致地不计入角标;来源再变了才重新计入。
+func TestRollbackAlsoSkipsTheRenameGuessedBefore(t *testing.T) {
+	ctx := t.Context()
+	fx := newRenameFixture(t)
+	v2 := renamedBody + "Number every page.\n"
+	fx.server.serve(zipArchive(t, map[string]string{
+		"pdf-tools/SKILL.md":       skillDocument("pdf-tools", v2),
+		"pdf-tools/scripts/run.sh": "#!/bin/sh\necho render\n",
+		"notes/SKILL.md":           skillDocument("notes", "v1"),
+	}), "")
+	updated, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed := func(body string) {
+		fx.server.serve(zipArchive(t, map[string]string{
+			"pdf-kit/SKILL.md":       skillDocument("pdf-kit", body),
+			"pdf-kit/scripts/run.sh": "#!/bin/sh\necho render\n",
+			"notes/SKILL.md":         skillDocument("notes", "v1"),
+		}), "")
+	}
+	renamed(v2)
+	if check := checkedSkill(t, fx.lib, fx.skill.ID); check.RenamedTo != "pdf-kit" || !check.Pending {
+		t.Fatalf("check before rollback = %#v; want renamed to pdf-kit, pending", check)
+	}
+	if _, err := fx.lib.Rollback(ctx, updated.Record); err != nil {
+		t.Fatal(err)
+	}
+	got, err := fx.lib.GetSkill(ctx, fx.skill.ID)
+	if err != nil || got.VersionID != fx.skill.VersionID || got.LastUpdateCheck.RenamedTo != "pdf-kit" || got.LastUpdateCheck.Pending || !got.LastUpdateCheck.Skipped {
+		t.Fatalf("after rollback = %#v, %v; want v1 with the rename skipped", got.LastUpdateCheck, err)
+	}
+	if check := checkedSkill(t, fx.lib, fx.skill.ID); check.RenamedTo != "pdf-kit" || check.Pending || !check.Skipped {
+		t.Fatalf("rechecked after rollback = %#v; want the rename still skipped", check)
+	}
+	plan, err := fx.lib.PlanUpdate(ctx, fx.skill.CollectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if planned := plannedSkill(t, plan, fx.skill.ID); planned.RenamedTo != "pdf-kit" || !planned.Skipped {
+		t.Fatalf("plan after rollback = %#v; want the rename offered as skipped", planned)
+	}
+	renamed(v2 + "Keep the margins.\n")
+	if check := checkedSkill(t, fx.lib, fx.skill.ID); check.RenamedTo != "pdf-kit" || !check.Pending || check.Skipped {
+		t.Fatalf("checked after the source moved again = %#v; want pending", check)
+	}
+}
