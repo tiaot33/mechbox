@@ -5,7 +5,7 @@ import type { FetchUnmanagedResult, UnmanagedSkill } from "@bindings/internal/li
 import { unmanagedSourceError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, foundSource, useFoundSources, type LibraryError } from "@/lib/library";
-import { noSource, outsideLinkNote, sameNameFetchNote, sameNameInLibrary, scopeKey, scopeLabel, shortPath, sourceLabel, twinNote } from "@/lib/model";
+import { outsideLinkNote, sameNameFetchNote, sameNameInLibrary, scopeKey, scopeLabel, shortPath, skillSourceLabel, twinNote } from "@/lib/model";
 import { Modal, ui, useUI } from "@/lib/ui";
 import { flashSkill } from "@/lib/view";
 import { chooseAndInstall } from "@/features/install/install-to";
@@ -24,7 +24,7 @@ export async function fetchUnmanaged(skill: UnmanagedSkill) {
   const t = messages().actions;
   const place = scopeLabel(s, skill.scope);
   const library = s.skills.find((x) => x.id === skill.skill_id);
-  const from = library && (noSource(library.source) ? messages().model.noSource : sourceLabel(s, library.source));
+  const from = library && skillSourceLabel(s, library);
   // 和库里的旧版本一样时说清入库后是旧版本，之后更新、重新安装会换成当前版本。
   const same = library
     ? skill.version_id === library.version_id

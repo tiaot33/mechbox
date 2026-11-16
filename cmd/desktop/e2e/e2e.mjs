@@ -2553,9 +2553,10 @@ await step("Git 来源与 npx skills 记录：来源名字与来源版本、来�
   }
 });
 
-// 库里已有一个没有来源的 review,在另一个作用域入库同名、内容不一样的 review:确认时说出来，入库后两个 review 写出各装在哪里。
+// 库里已有一个没有来源的 review,在另一个作用域入库同名、内容不一样的 review:确认时说出来，入库后两个 review 写出各装在哪里;
+// 从行上的菜单、详情里的同名技能打开另一个，在详情里移除不要的那个并在它装着的地方装上留下的这个。
 group("duplicates", ["install"]);
-await step("库里同名的技能：入库确认时说出来，卡片和详情写出各装在哪里", async () => {
+await step("库里同名的技能：入库确认时说出来，写出各装在哪里，能打开另一个、移除不要的那个", async () => {
   const claude = path.join(HOME, ".claude", "skills", "review");
   const codex = path.join(HOME, ".agents", "skills", "review");
   for (const [dir, body] of [[claude, "review in claude"], [codex, "review in codex"]]) {
@@ -2593,10 +2594,54 @@ await step("库里同名的技能：入库确认时说出来，卡片和详情�
     const notes = (await cards.locator('.dup-name-note [data-slot="badge-tip"]').allTextContents()).sort();
     assert.deepStrictEqual(notes, ["库里有 2 个「review」；这个装在 Claude Code · 全局", "库里有 2 个「review」；这个装在 Codex · 全局"], `卡片写出各装在哪里:${notes}`);
     await page.screenshot({ path: path.join(SHOTS, "same-name-in-library-cards.png") });
-    await cards.first().click();
+    // 行上的「库里有同名的」点开是另外那个的菜单，选它打开它的详情。它不是排在最前的那条提醒时也一样：
+    // Claude Code 里那一份改过以后，这一行最前面是改过的提醒。
+    fs.appendFileSync(path.join(claude, "SKILL.md"), "edited\n");
+    await refocus();
+    await settle();
+    const ids = await Promise.all([0, 1].map((i) => cards.nth(i).getAttribute("data-skill-id")));
+    const byWhere = async (agent) => {
+      for (const i of [0, 1]) if ((await cards.nth(i).locator(".dup-name-note").textContent()).includes(`这个装在 ${agent} · 全局`)) return ids[i];
+    };
+    const [inClaude, inCodex] = [await byWhere("Claude Code"), await byWhere("Codex")];
+    const twinIn = () => drawer().locator(".same-name-twin").getAttribute("data-skill-id");
+    const status = page.locator(`.skill-row[data-skill-id="${inClaude}"] [data-slot="alert-dot"].skill-status`);
+    assert(!(await status.textContent()).startsWith("库里有同名的"), `最前面的不是同名提醒:${await status.textContent()}`);
+    await status.click();
+    assert.equal(await page.locator(".alert-menu .alert-menu-title").textContent(), "库里有同名的", "菜单写明下面是库里同名的");
+    const entries = page.locator('.alert-menu [role="menuitem"]');
+    assert.deepStrictEqual(await entries.allTextContents(), ["没有来源，装在 Codex · 全局"], "菜单里只有另外那个，写出来源和装在哪");
+    await entries.first().click();
     await drawer().waitFor();
-    const meta = await drawer().locator(".meta").textContent();
-    assert(meta.includes("库里还有 1 个「review」") && /装在 (Claude Code|Codex) · 全局/.test(meta), `详情写出另一个装在哪里:${meta}`);
+    assert.equal(await twinIn(), inClaude, "打开的是 Codex 里那个，它的同名技能是 Claude Code 里那个");
+
+    // 详情里点同名技能的名字，换成那一个。
+    const twin = drawer().locator(".same-name-twin");
+    assert((await twin.textContent()).includes("没有来源，装在 Claude Code · 全局"), "写出另一个的来源和装在哪");
+    await twin.locator(".twin-name").click();
+    await page.waitForFunction((id) => document.querySelector(".same-name-twin")?.dataset.skillId === id, inCodex);
+
+    // 留下 Claude Code 里那个，在它的详情里移除 Codex 里那个，并在 Codex 全局装上留下的这个。
+    // 窗口一直开着时 Codex 里那一份在后台被改了：移除前现查磁盘，确认里写出改动会丢掉。
+    fs.appendFileSync(path.join(codex, "SKILL.md"), "edited in background\n");
+    await btn(twin, "移除").click();
+    const confirm = await modal().textContent();
+    assert(confirm.includes("从 Codex · 全局 删除文件夹，这几处不再有这个「review」；其中 1 处被改过，改动会丢掉"), `确认里写出装在哪、移除后那里不再有它、改动会丢掉:${confirm}`);
+    const swap = modal().locator(".replace-twin input[type=checkbox]");
+    assert(!(await swap.isChecked()), "在这几处装上留下的这个，默认不勾");
+    assert((await modal().locator(".replace-twin").textContent()).includes("装到 Codex · 全局"), "写出装到哪几处");
+    // 选保留文件夹时文件夹还在，装不上，不给这个选项。
+    await modal().locator('[data-slot="choice"]', { hasText: "保留已安装的文件夹" }).click();
+    assert.equal(await modal().locator(".replace-twin").count(), 0, "保留文件夹时没有这个选项");
+    await modal().locator('[data-slot="choice"]', { hasText: "同时删除已安装的文件夹" }).click();
+    await swap.check();
+    await page.screenshot({ path: path.join(SHOTS, "same-name-remove-twin.png") });
+    await btn(modal(), "移除").click();
+    await toast("已移除，并在原来的几处装上「review」");
+    await settle();
+    assert.equal(await cards.count(), 1, "库里只剩一个 review");
+    assert.equal(await drawer().locator(".same-name-twin").count(), 0, "详情里不再有同名技能");
+    assert(fs.readFileSync(path.join(codex, "SKILL.md"), "utf8").includes("review in claude"), "Codex 全局装上的是留下的那个");
     await closeDrawer();
   } finally {
     for (let i = 0; i < 3; i++) await page.keyboard.press("Escape");
@@ -3596,6 +3641,35 @@ await step("占用冲突：同名技能已在该作用域，安装被拦下并�
   await settle();
   await cards.nth(1).locator('[role="switch"]').click();
   await toast("来自 ~/code/my-skills 的同名技能已装在", "error");
+  // toast 上能点开占着文件夹的那个 gamma;toast 还在时切到了设置页，点它也回到主界面打开详情。
+  await closeDrawer();
+  await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+  await page.locator(".settings").waitFor();
+  await btn(page.locator('[data-slot="toast"][data-state="open"]'), "打开占用的技能").click();
+  await drawer().waitFor();
+  assert.equal(await page.locator(".settings").count(), 0, "离开了设置页");
+  const occupierOpened = async () =>
+    assert((await drawer().locator(".same-name-twin").textContent()).includes("~/code/other"), "打开的是来自 ~/code/my-skills 的那个，它的同名技能来自 ~/code/other");
+  await occupierOpened();
+  await closeDrawer();
+  await clearScope();
+
+  // 两个 gamma 一起装到 proj-b 的 Codex(那里还空着):计划里都能装，先装的那个占上以后，后一个装不上，结果里照样能点开占着的那个。
+  const bar = page.locator(".pick-bar");
+  for (const i of [0, 1]) await cards.nth(i).locator(".pick-box").click();
+  await btn(bar, "安装到…").click();
+  await modal().locator(".install-picked select").nth(0).selectOption({ label: "proj-b" });
+  await pickAgents(modal(), ["codex"]);
+  await btn(modal(), "安装").click();
+  await modal().getByText("装上 1 个，1 个没装上").waitFor();
+  await btn(modal(), "打开占用的技能").click();
+  await drawer().waitFor();
+  await occupierOpened();
+  await closeDrawer();
+  await selectScope("Codex", "proj-b");
+  await card("gamma").locator('[role="switch"][aria-checked="true"]').click();
+  await toast("已卸载「gamma」");
+  await settle();
   await clearScope();
 });
 

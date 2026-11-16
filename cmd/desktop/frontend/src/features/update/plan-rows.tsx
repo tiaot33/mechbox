@@ -123,6 +123,7 @@ export function DeletedRow({ p, source, locked, onRemoved }: { p: PlannedSkill; 
           <>
             <Button
               size="sm"
+              danger
               disabled={locked}
               onClick={async () => {
                 if (await removeSkill(p.skill.id)) onRemoved();

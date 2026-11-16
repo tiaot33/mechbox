@@ -11,6 +11,7 @@ import {
   type CollectionID,
   type Group,
   type GroupID,
+  ErrorCode,
   type PlannedUnmanagedSkill,
   type ProjectID,
   SkillFileProblemKind,
@@ -413,10 +414,35 @@ export function sameNameInLibrary(s: Snapshot, skill: Pick<Skill, "id" | "name">
   return s.skills.filter((x) => x.name === skill.name && x.id !== skill.id);
 }
 
+// twinReplaceScopes 是移除同名技能 id 时，能在它装着的几处换上留下的 keep 的那几处：项目不在这台机器上的装不上;
+// 项目里那一处的 Agent 在全局装着 keep 的也不算：Agent 在项目里本来就用得到全局的那个，再装一份反而又多出一处同名。
+// keep 不会和 id 装在同一处(同名就是同一个文件夹)。
+export function twinReplaceScopes(s: Snapshot, id: SkillID, keep: SkillID): Scope[] {
+  return skillScopesOf(s, id)
+    .filter((p) => canInstall(p) && !globalScopesSeenFrom(s, scopeKey(p.scope)).some((key) => skillScopeIn(s, keep, key)))
+    .map((p) => p.scope);
+}
+
+// occupierOf 是装不上时占着文件夹的另一个同名技能，界面上能点开它:candidate 是安装计划的 occupier_skill_id,
+// 或安装失败时错误里的 details.skill_id(见 errorOccupier)。是这个技能自己(它的另一个作用域算出同一个目录)、不在快照里时没有。
+export function occupierOf(s: Snapshot, id: SkillID, candidate: SkillID | undefined): SkillID | undefined {
+  return candidate && candidate !== id && s.skills.some((x) => x.id === candidate) ? candidate : undefined;
+}
+
+// errorOccupier 是安装失败的错误里占着安装目标的技能(FailedPrecondition 的 details.skill_id),见 occupierOf。
+// 安装计划算的时候还没被占、执行时才被同一批里先装的同名技能占上的，只能从这里知道。
+export function errorOccupier(s: Snapshot, id: SkillID, err: { code: ErrorCode; details?: { skill_id?: SkillID } } | null | undefined): SkillID | undefined {
+  return err?.code === ErrorCode.FailedPrecondition ? occupierOf(s, id, err.details?.skill_id) : undefined;
+}
+
+// skillSourceLabel 是技能来自哪个来源的说法：没有来源的写「没有来源」。
+export function skillSourceLabel(s: Snapshot, skill: Skill): string {
+  return noSource(skill.source) ? messages().model.noSource : sourceLabel(s, skill.source);
+}
+
 // twinNote 是库里一个同名技能哪来的、装在哪，供各处的同名提示分辨是哪一个。
 export function twinNote(s: Snapshot, skill: Skill): string {
-  const m = messages();
-  return m.actions.twin(noSource(skill.source) ? m.model.noSource : sourceLabel(s, skill.source), installedWhere(s, skill.id));
+  return messages().actions.twin(skillSourceLabel(s, skill), installedWhere(s, skill.id));
 }
 
 // sameNameFetchNote 说明入库一个和库里技能同名的技能会怎样：不带来源时和库里所有技能比，带来源时只和这个来源里同名的比。

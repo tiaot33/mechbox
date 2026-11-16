@@ -35,6 +35,9 @@ import {
   folderKey,
   folderPlaces,
   mergeProjectPlaces,
+  noSource,
+  errorOccupier,
+  occupierOf,
   groupName,
   placeOf,
   projectName,
@@ -47,6 +50,7 @@ import {
   sourceLabel,
 } from "@/lib/model";
 import { ui } from "@/lib/ui";
+import { openDrawer } from "@/lib/view";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { DeleteNotes, SharedFolders } from "@/components/app/link-notes";
@@ -60,9 +64,12 @@ export async function installSkill(id: SkillID, scope: Scope) {
   const where = scopeLabel(s, scope);
   let overwrite = false;
   switch (plan.status) {
-    case InstallPlanStatus.InstallOccupied:
-      ui.toast(occupiedReason(s, id, plan), "error");
+    case InstallPlanStatus.InstallOccupied: {
+      // 占着的是同名的另一个技能时，toast 上能点开它。
+      const { reason, occupier } = occupied(s, id, plan);
+      ui.toast(reason, "error", occupier ? { label: t.openOccupier, onClick: () => openDrawer(occupier) } : undefined);
       return;
+    }
     case InstallPlanStatus.InstallUntracked: {
       const ok = await ui.confirm({
         title: t.untrackedTitle,
@@ -158,16 +165,16 @@ export function LostMentions({ lost, prefix }: { lost: MissingMention[]; prefix?
   );
 }
 
-// occupiedReason 说明为什么装不上：同名的另一个技能(或这个技能的另一个作用域)已装在那个文件夹;用来源区分是哪一个。
-export function occupiedReason(s: Snapshot, id: SkillID, plan: InstallPlan): string {
+// occupied 是被占用、装不上的一处:reason 说明原因，同名的另一个技能(或这个技能的另一个作用域)已装在那个文件夹，用来源区分是哪一个;
+// occupier 是占着的另一个技能，界面上能点开它(见 occupierOf)。
+export function occupied(s: Snapshot, id: SkillID, plan: InstallPlan): { reason: string; occupier?: SkillID } {
   const t = messages().actions;
-  const occupier = s.skills.find((x) => x.id === plan.occupier_skill_id);
   const folder = shortPath(s, plan.folder);
-  return occupier?.id === id
-    ? t.occupiedSelf(folder)
-    : occupier
-      ? t.occupiedSource(sourceLabel(s, occupier.source), folder)
-      : t.occupiedOther(folder);
+  if (plan.occupier_skill_id === id) return { reason: t.occupiedSelf(folder) };
+  const occupier = occupierOf(s, id, plan.occupier_skill_id);
+  const skill = s.skills.find((x) => x.id === occupier);
+  const reason = !skill ? t.occupiedOther(folder) : noSource(skill.source) ? t.occupiedNoSource(folder) : t.occupiedSource(sourceLabel(s, skill.source), folder);
+  return { reason, occupier };
 }
 
 // installCollection 是把集合拖到作用域：集合里还没直接安装在这里的技能逐个直接安装。一次性的，不像组安装那样记下来，
@@ -201,6 +208,19 @@ export async function installSkillTo(id: SkillID, scopes: Scope[]) {
     scopes.map((scope) => ({ skill, scope })),
     t.skillInstallTitle(skill.name, where),
     t.installed(skill.name, where),
+  );
+}
+
+// installReplacing 是移除同名的另一个技能后，在它原来装着的几处装上留下的这个(见 removeTwin):逐处直接安装，和"安装到…"一样处理。
+export async function installReplacing(id: SkillID, scopes: Scope[]) {
+  const s = currentSnapshot();
+  const t = messages().actions;
+  const skill = s.skills.find((x) => x.id === id);
+  if (!skill || !scopes.length) return false;
+  return installEach(
+    scopes.map((scope) => ({ skill, scope })),
+    t.replaceInstallTitle(skill.name),
+    t.replaceInstalled(skill.name),
   );
 }
 
@@ -283,7 +303,7 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
       const isUntracked = plan.status === InstallPlanStatus.InstallUntracked;
       const row = label(skill, scope);
       if (plan.status === InstallPlanStatus.InstallOccupied) {
-        rows.push({ label: row, outcome: t.memberSkipped, tone: "warn", reason: occupiedReason(s, skill.id, plan) });
+        rows.push({ label: row, outcome: t.memberSkipped, tone: "warn", ...occupied(s, skill.id, plan) });
         continue;
       }
       if (isUntracked && !overwrite) {
@@ -296,7 +316,9 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
         placed.push({ skill_id: skill.id, scope });
         installed++;
       } catch (e) {
-        rows.push({ label: row, outcome: t.failed, tone: "critical", reason: describeError(toLibraryError(e)) });
+        // 计划算的时候还没被占、这时被同一批里先装的同名技能占上了：错误里有占着的那个，照样能点开。
+        const err = toLibraryError(e);
+        rows.push({ label: row, outcome: t.failed, tone: "critical", reason: describeError(err), occupier: errorOccupier(s, skill.id, err) });
         failed = true;
       }
     }

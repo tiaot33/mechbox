@@ -41,12 +41,13 @@ import {
   sourceLabel,
   sourceShort,
   translatedDescription,
+  twinNote,
   updateAvailable,
   type ScopeKey,
 } from "@/lib/model";
 import { ui } from "@/lib/ui";
 import { cn } from "@/lib/utils";
-import { doneFlash, doneFresh, toggleDrawer, useView } from "@/lib/view";
+import { doneFlash, doneFresh, openDrawer, toggleDrawer, useView } from "@/lib/view";
 import { fetchUnmanaged } from "@/features/fetch/fetch-unmanaged";
 import { installSkill, uninstallSkill } from "@/features/install/install";
 import { missingAt, missingNames } from "@/lib/mentions";
@@ -57,6 +58,7 @@ import type { Mark } from "@/lib/level";
 import { Button } from "@/components/ui/button";
 import { Switch, SwitchMark } from "@/components/ui/switch";
 import { useDnD } from "@/components/app/dnd";
+import { DropdownMenuEntries } from "@/components/app/menus";
 import { Icon } from "@/components/ui/icon";
 import { Truncated } from "@/components/app/parts";
 import { PickBox } from "./pick";
@@ -153,8 +155,14 @@ export function SkillRow(props: {
     ...updateAlerts(t, skill, plan),
     // 当前版本里有用户的修改(用目录里的修改更新过，或入库时说不清):不论有没有新版本都标出来。
     skill.edited && { tone: "info" as const, label: t.list.hasEdits, tip: t.list.hasEditsTitle, className: "has-edits" },
-    // 库里同名的几个技能(内容不同，不合并):写出各装在哪里，免得只能靠描述分辨。
-    twins.length > 0 && { tone: "info" as const, label: t.list.twinsShort, tip: t.list.twins(twins.length + 1, skill.name, installedWhere(s, skill.id)), className: "dup-name-note" },
+    // 库里同名的几个技能(内容不同，不合并):写出各装在哪里，免得只能靠描述分辨;点它弹出另外几个(来源、装在哪),选一个打开它的详情。
+    twins.length > 0 && {
+      tone: "info" as const,
+      label: t.list.twinsShort,
+      tip: t.list.twins(twins.length + 1, skill.name, installedWhere(s, skill.id)),
+      className: "dup-name-note",
+      menu: <DropdownMenuEntries entries={twins.map((x) => ({ label: twinNote(s, x), title: t.drawer.openTwin(x.name), className: "twin-entry", onSelect: () => openDrawer(x.id) }))} />,
+    },
     // 本地目录来源：目录里的这个技能改过了(读目录时比出来的),在详情里或集合的「…」里重新读取。
     localChanged(skill) && { tone: "update" as const, label: t.list.localChanged, tip: t.list.localChangedTitle, className: "local-changed" },
     unfoundAlert(t.list, unfound),

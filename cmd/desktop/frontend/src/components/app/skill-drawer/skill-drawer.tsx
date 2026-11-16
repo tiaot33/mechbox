@@ -150,7 +150,7 @@ function DrawerSheet({
 
             {/* 移除放在最底下，和常用的更新、重新安装分开。 */}
             <div className="flex justify-end px-2 pt-2">
-              <Button variant="ghost" onClick={async () => (await removeSkill(id)) && onClose()}>
+              <Button variant="ghost" danger onClick={async () => (await removeSkill(id)) && onClose()}>
                 {d.removeSkill}
               </Button>
             </div>
@@ -285,7 +285,7 @@ function Notices({ skill, onClose }: { skill: Skill; onClose: () => void }) {
           className="mx-2 mb-2.5"
           action={
             <>
-              <Button onClick={async () => (await removeSkill(id)) && onClose()}>{d.remove}</Button>
+              <Button danger onClick={async () => (await removeSkill(id)) && onClose()}>{d.remove}</Button>
               <Button onClick={() => keepDeleted(id)}>{d.keep}</Button>
             </>
           }

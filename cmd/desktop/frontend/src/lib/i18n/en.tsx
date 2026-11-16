@@ -160,6 +160,8 @@ export const en = {
     occupiedSource: (source: string, folder: string) =>
       `Can't install: a skill with the same name from ${source} is already installed at\n${folder}\nUninstall it first, then install`,
     occupiedOther: (folder: string) => `Can't install: another skill with the same name is already installed at\n${folder}\nUninstall it first, then install`,
+    occupiedNoSource: (folder: string) => `Can't install: a skill with the same name and no Source is already installed at\n${folder}\nUninstall it first, then install`,
+    openOccupier: "Open the skill using it",
     untrackedTitle: "A folder with the same name is already there",
     untrackedBody: (folder: string, name: string) => `${folder} exists but wasn't installed by the Library. Overwriting replaces it with “${name}”.`,
     overwriteInstall: "Overwrite and install",
@@ -309,6 +311,14 @@ export const en = {
     removeSkillTitle: (name: string) => `Remove “${name}”`,
     removeLabel: (name: string) => `Removing “${name}”`,
     removeSkillHint: "Deletes it and all its past Versions from the Library, and takes it out of every Group.",
+    removeTwinTitle: (name: string, source: string) => `Remove “${name}” (${source})`,
+    removeTwinFolders: (wheres: string[], name: string, edited: number) =>
+      `Delete the folders in ${wheres.join(", ")}; those places will no longer have this “${name}”${edited ? `; ${edited} of them ${edited === 1 ? "was" : "were"} edited and the edits will be lost` : ""}`,
+    replaceTwin: "Install the one you keep in those places",
+    replaceTwinDesc: (name: string, source: string, wheres: string[]) =>
+      `Installs “${name}” (${source}) in ${wheres.join(", ")}, so the Agents there use this one from now on`,
+    replaceInstallTitle: (name: string) => `Install “${name}” where the removed one was`,
+    replaceInstalled: (name: string) => `Removed, and installed “${name}” where it was`,
     pickedAllThere: (where: string) => `The selected skills are all installed directly in ${where}`,
     pickedInstallTitle: (n: number, where: string) => `Install ${count(n, "skill")} in ${where}`,
     pickedInstalled: (n: number, where: string) => `Installed ${count(n, "skill")} in ${where}`,
@@ -627,8 +637,9 @@ export const en = {
     sameSource: "Same Source",
     revision: "Revision",
     sameName: "Same name",
-    sameNameList: (n: number, name: string, twins: string[]) =>
-      `The Library has ${n} other “${name}” ${n === 1 ? "skill" : "skills"}: ${twins.join("; ")}`,
+    openTwin: (name: string) => `Open details of this “${name}”`,
+    removeTwin: "Remove",
+    removeTwinTitle: (name: string) => `Remove this “${name}” from the Library`,
     fetchedAt: "Fetched",
     currentVersion: "Version",
     versionCount: (date: string, n: number) => `${date} · ${count(n, "Version")} in total`,
