@@ -1,22 +1,25 @@
 // 写操作的结果列表：组安装、加入组、重新安装等逐条返回结果时，列出每一条的结论，被跳过或失败的写明原因。
-import { GroupMemberOutcome, type GroupMemberResult, type ReinstallResult } from "@bindings/internal/library";
+import { GroupMemberOutcome, type GroupMemberResult, type InstallPlan, type ReinstallResult, type SkillID } from "@bindings/internal/library";
 import { describeError } from "@/lib/errors";
 import { toLibraryError } from "@/lib/library";
 import { messages } from "@/lib/i18n";
 import type { Snapshot } from "@/lib/library";
-import { scopeLabel, skillName } from "@/lib/model";
+import { occupierOf, scopeLabel, skillName } from "@/lib/model";
 import { Modal, ui } from "@/lib/ui";
+import { openDrawer } from "@/lib/view";
 import { Badge } from "@/components/ui/badge";
 import type { Tone } from "@/lib/level";
 import { Button } from "@/components/ui/button";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 
+// ResultRow 是一条结果;occupier 是安装时占着文件夹的另一个同名技能，这一行能点开它(先关掉结果)。
 export interface ResultRow {
   label: string;
   outcome: string;
   tone: Tone;
   reason?: string;
+  occupier?: SkillID;
 }
 
 export function showResults(title: string, rows: ResultRow[], note?: string) {
@@ -38,6 +41,19 @@ export function showResults(title: string, rows: ResultRow[], note?: string) {
             <div className="min-w-0 grow">
               <div>{r.label}</div>
               {r.reason && <div className="text-body whitespace-pre-line text-muted-foreground">{r.reason}</div>}
+              {r.occupier && (
+                <Button
+                  variant="link"
+                  size="inline"
+                  className="open-occupier"
+                  onClick={() => {
+                    close();
+                    openDrawer(r.occupier!);
+                  }}
+                >
+                  {t.openOccupier}
+                </Button>
+              )}
             </div>
             <Badge tone={r.tone}>{r.outcome}</Badge>
           </ListRow>
@@ -56,13 +72,18 @@ function memberOutcome(outcome: string): { text: string; tone: ResultRow["tone"]
   }[outcome];
 }
 
-export function memberRows(s: Snapshot, results: GroupMemberResult[]): ResultRow[] {
-  return results.map((r) => ({
-    label: `${skillName(s, r.skill_id)} → ${scopeLabel(s, r.scope)}`,
-    outcome: memberOutcome(r.outcome)?.text ?? r.outcome,
-    tone: memberOutcome(r.outcome)?.tone ?? "info",
-    reason: r.error ? describeError(r.error) : undefined,
-  }));
+// memberRows 是组安装的逐个结果;plans 是组安装计划里的成员，被同名的另一个技能占用而跳过的能点开占用的那个。
+export function memberRows(s: Snapshot, results: GroupMemberResult[], plans: InstallPlan[] = []): ResultRow[] {
+  return results.map((r) => {
+    const plan = r.outcome === GroupMemberOutcome.MemberSkipped ? plans.find((p) => p.skill_id === r.skill_id) : undefined;
+    return {
+      label: `${skillName(s, r.skill_id)} → ${scopeLabel(s, r.scope)}`,
+      outcome: memberOutcome(r.outcome)?.text ?? r.outcome,
+      tone: memberOutcome(r.outcome)?.tone ?? "info",
+      reason: r.error ? describeError(r.error) : undefined,
+      occupier: plan && occupierOf(r.skill_id, plan),
+    };
+  });
 }
 
 export function summarizeMembers(results: GroupMemberResult[]): string {

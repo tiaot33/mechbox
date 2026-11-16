@@ -20,13 +20,15 @@ import {
   wslTitle,
 } from "@/lib/model";
 import { addSkillToGroup, createGroup, removeSkillFromGroup } from "@/features/group/group";
+import { removeTwin } from "@/features/skill/remove";
+import { openDrawer } from "@/lib/view";
 import { Badge } from "@/components/ui/badge";
 import type { Tone } from "@/lib/level";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { NativeSelect } from "@/components/ui/native-select";
 import { SourceIcon } from "@/components/app/icons";
-import { Chip, WSLBadge } from "@/components/app/parts";
+import { Chip, Truncated, WSLBadge } from "@/components/app/parts";
 
 // MetadataCard 是技能的元数据：来源、和同一来源其他技能的关系、来源版本、库里的同名技能、入库时间、当前版本、检查更新的结论与组。
 export function MetadataCard({ skill, versions }: { skill: Skill; versions: SkillVersion[] }) {
@@ -83,13 +85,9 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
         )}
         {sameName.length > 0 && (
           <>
-            <dt>{d.sameName}</dt>
-            <dd className="same-name-in-library">
-              {d.sameNameList(
-                sameName.length,
-                skill.name,
-                sameName.map((x) => twinNote(s, x)),
-              )}
+            <dt className="self-start">{d.sameName}</dt>
+            <dd className="same-name-in-library min-w-0">
+              <SameNameList skill={skill} twins={sameName} />
             </dd>
           </>
         )}
@@ -162,6 +160,30 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
         </dd>
       </dl>
     </Card>
+  );
+}
+
+// SameNameList 是库里同名的另外几个技能，一个一行：点名字打开它的详情;来源和装在哪是分辨它们的依据;
+// 「移除」把那一个从技能库移除，确认里可以在它装着的几处装上这一个(见 removeTwin)。
+function SameNameList({ skill, twins }: { skill: Skill; twins: Skill[] }) {
+  const s = useSnapshot();
+  const d = useT().drawer;
+  return (
+    <ul className="flex min-w-0 flex-col gap-1">
+      {twins.map((x) => (
+        <li key={x.id} className="same-name-twin flex min-w-0 items-center gap-2" data-skill-id={x.id}>
+          <Button variant="ghost" size="inline" className="twin-name shrink-0 font-semibold" aria-label={d.openTwin(x.name)} onClick={() => openDrawer(x.id)}>
+            {x.name}
+          </Button>
+          <Truncated tip={twinNote(s, x)}>
+            <span className="twin-note min-w-0 grow truncate text-caption text-muted-foreground">{twinNote(s, x)}</span>
+          </Truncated>
+          <Button size="sm" variant="ghost" className="remove-twin shrink-0" title={d.removeTwinTitle(x.name)} onClick={() => void removeTwin(x.id, skill.id)}>
+            {d.removeTwin}
+          </Button>
+        </li>
+      ))}
+    </ul>
   );
 }
 

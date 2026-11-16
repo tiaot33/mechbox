@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AgentCode,
+  InstallPlanStatus,
   SameNameRule,
   ScopeKind,
   SkillFileProblemKind,
@@ -63,6 +64,8 @@ import {
   foldCollections,
   uncopiedProjectUnmanaged,
   uncopiedUnmanaged,
+  occupierOf,
+  twinReplaceScopes,
 } from "./model";
 
 const collection = (id: number, label: string, skills: number[] = []) => ({ id, skills, source: { type: SourceType.SourceGitHub, label } }) as Collection;
@@ -744,6 +747,36 @@ describe("skillSameNameNote", () => {
     expect(note?.text).toBe("Codex 的全局（库装的）和项目「web-app」（库装的）里都有 docs：Codex 在「web-app」里两份都会出现");
     expect(note?.title).toBe(note?.text);
     expect(skillSameNameNote(s, 5)).toBeUndefined();
+  });
+});
+
+describe("库里同名的技能", () => {
+  // 两个 tdd:1 装在 Claude Code 全局、项目 7(在这台机器上)和项目 8(不在这台机器上);2 装在 Codex 全局和项目 7。
+  const s = snapshot({
+    skills: [skill(1, "tdd", "a/skills"), skill(2, "tdd", "b/skills")],
+    skillScopes: [
+      installed(1, "claude-code"),
+      installed(1, "claude-code", 7),
+      { ...installed(1, "claude-code", 8), status: SkillScopeStatus.SkillScopeRootMissing },
+      installed(2, "codex"),
+      installed(2, "claude-code", 7),
+    ],
+  });
+
+  it("移除一个时，能换上留下的那个的是它装着、留下的那个还没装、项目在这台机器上的几处", () => {
+    expect(twinReplaceScopes(s, 1, 2)).toEqual([where("claude-code")]);
+    expect(twinReplaceScopes(s, 2, 1)).toEqual([where("codex")]);
+  });
+
+  it("没装在任何地方时没有要换的", () => {
+    expect(twinReplaceScopes(snapshot({ skills: s.skills }), 1, 2)).toEqual([]);
+  });
+
+  it("安装被占用时，占着的是同名的另一个技能才能点开它", () => {
+    expect(occupierOf(1, { status: InstallPlanStatus.InstallOccupied, occupier_skill_id: 2 })).toBe(2);
+    // 占着的是这个技能自己的另一个作用域：没有另一个技能可打开。
+    expect(occupierOf(1, { status: InstallPlanStatus.InstallOccupied, occupier_skill_id: 1 })).toBeUndefined();
+    expect(occupierOf(1, { status: InstallPlanStatus.InstallReady })).toBeUndefined();
   });
 });
 

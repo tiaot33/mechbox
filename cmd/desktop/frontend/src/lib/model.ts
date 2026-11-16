@@ -11,6 +11,8 @@ import {
   type CollectionID,
   type Group,
   type GroupID,
+  InstallPlanStatus,
+  type InstallPlan,
   type PlannedUnmanagedSkill,
   type ProjectID,
   SkillFileProblemKind,
@@ -405,6 +407,20 @@ export function sameNameCopies(plan: PlannedUnmanagedSkill[], key: ScopeKey): Ma
 // sameNameInLibrary 是库里和它同名的其他技能(同名但内容不同的不合并，见入库)。
 export function sameNameInLibrary(s: Snapshot, skill: Pick<Skill, "id" | "name">): Skill[] {
   return s.skills.filter((x) => x.name === skill.name && x.id !== skill.id);
+}
+
+// twinReplaceScopes 是移除同名技能 id 时，能在它装着的几处换上留下的 keep 的那几处：项目不在这台机器上的装不上，
+// keep 已经装着的不用再装。
+export function twinReplaceScopes(s: Snapshot, id: SkillID, keep: SkillID): Scope[] {
+  return skillScopesOf(s, id)
+    .filter((p) => canInstall(p) && !skillScopeIn(s, keep, scopeKey(p.scope)))
+    .map((p) => p.scope);
+}
+
+// occupierOf 是安装计划里占着文件夹的另一个同名技能，界面上能点开它;没被占用、或占着的是这个技能自己的另一个作用域时没有。
+export function occupierOf(id: SkillID, plan: Pick<InstallPlan, "status" | "occupier_skill_id">): SkillID | undefined {
+  const other = plan.occupier_skill_id;
+  return plan.status === InstallPlanStatus.InstallOccupied && other && other !== id ? other : undefined;
 }
 
 // twinNote 是库里一个同名技能哪来的、装在哪，供各处的同名提示分辨是哪一个。

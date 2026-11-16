@@ -149,6 +149,8 @@ export const closeSettings = () => set({ settings: false });
 // toggleDrawer 打开技能详情;点的是当前打开的那个技能时关上。
 export const toggleDrawer = (id: SkillID) => set((v) => ({ drawer: v.drawer === id ? null : id }));
 export const closeDrawer = () => set({ drawer: null });
+// openDrawer 打开技能详情;已经开着它时不关(从同名技能、占用者那里点过来的)。
+export const openDrawer = (id: SkillID) => set({ drawer: id });
 
 // openPage 换到技能库或更新页;左栏上次要跳到的那一节作废，回到技能库页时不再滚过去。
 export const openPage = (page: Page) => goTo(page);

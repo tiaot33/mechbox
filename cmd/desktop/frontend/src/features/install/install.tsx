@@ -35,6 +35,7 @@ import {
   folderKey,
   folderPlaces,
   mergeProjectPlaces,
+  occupierOf,
   groupName,
   placeOf,
   projectName,
@@ -47,6 +48,7 @@ import {
   sourceLabel,
 } from "@/lib/model";
 import { ui } from "@/lib/ui";
+import { openDrawer } from "@/lib/view";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { DeleteNotes, SharedFolders } from "@/components/app/link-notes";
@@ -60,9 +62,12 @@ export async function installSkill(id: SkillID, scope: Scope) {
   const where = scopeLabel(s, scope);
   let overwrite = false;
   switch (plan.status) {
-    case InstallPlanStatus.InstallOccupied:
-      ui.toast(occupiedReason(s, id, plan), "error");
+    case InstallPlanStatus.InstallOccupied: {
+      // 占着的是同名的另一个技能时，toast 上能点开它。
+      const occupier = occupierOf(id, plan);
+      ui.toast(occupiedReason(s, id, plan), "error", occupier ? { label: t.openOccupier, onClick: () => openDrawer(occupier) } : undefined);
       return;
+    }
     case InstallPlanStatus.InstallUntracked: {
       const ok = await ui.confirm({
         title: t.untrackedTitle,
@@ -204,6 +209,19 @@ export async function installSkillTo(id: SkillID, scopes: Scope[]) {
   );
 }
 
+// installReplacing 是移除同名的另一个技能后，在它原来装着的几处装上留下的这个(见 removeTwin):逐处直接安装，和"安装到…"一样处理。
+export async function installReplacing(id: SkillID, scopes: Scope[]) {
+  const s = currentSnapshot();
+  const t = messages().actions;
+  const skill = s.skills.find((x) => x.id === id);
+  if (!skill || !scopes.length) return false;
+  return installEach(
+    scopes.map((scope) => ({ skill, scope })),
+    t.replaceInstallTitle(skill.name),
+    t.replaceInstalled(skill.name),
+  );
+}
+
 // installSkills 把勾选的技能装到 scopes(底部操作栏的"安装到…"可以勾选几个 Agent;拖勾选着的几行到作用域是一处):
 // 和集合一样逐个直接安装，已经直接安装在那里的不再装;都已装在那里时只提示。scopes 在同一个地方(全局或同一个项目)。
 // 返回是否至少装上了一处：取消了、都已装在那里、一处都没装上时是 false。
@@ -283,7 +301,7 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
       const isUntracked = plan.status === InstallPlanStatus.InstallUntracked;
       const row = label(skill, scope);
       if (plan.status === InstallPlanStatus.InstallOccupied) {
-        rows.push({ label: row, outcome: t.memberSkipped, tone: "warn", reason: occupiedReason(s, skill.id, plan) });
+        rows.push({ label: row, outcome: t.memberSkipped, tone: "warn", reason: occupiedReason(s, skill.id, plan), occupier: occupierOf(skill.id, plan) });
         continue;
       }
       if (isUntracked && !overwrite) {
@@ -469,7 +487,7 @@ export async function installGroup(groupID: GroupID, scope: Scope) {
   const skipped = results.filter((r) => r.outcome === GroupMemberOutcome.MemberSkipped);
   const placed = results.filter((r) => r.outcome !== GroupMemberOutcome.MemberSkipped);
   if (skipped.length || blocked.length) {
-    await showResults(t.groupInstallResults(groupName(s, groupID)), memberRows(s, results), summarizeMembers(results));
+    await showResults(t.groupInstallResults(groupName(s, groupID)), memberRows(s, results, members), summarizeMembers(results));
     await toastInstalled(placed);
   } else {
     await toastInstalled(placed, t.groupInstalled(groupName(s, groupID), scopeLabel(s, scope), summarizeMembers(results)));
