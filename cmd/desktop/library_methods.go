@@ -75,6 +75,18 @@ func (s *LibraryService) JudgeMentions(ctx context.Context, filter library.Menti
 	return settle(s.lib.JudgeMentions(ctx, filter))(ctx)
 }
 
+func (s *LibraryService) GetSkillMentions(ctx context.Context, id library.SkillID) (library.SkillMentions, error) {
+	return settle(s.lib.GetSkillMentions(ctx, id))(ctx)
+}
+
+func (s *LibraryService) JudgeSkillMentions(ctx context.Context, id library.SkillID) (library.JudgeMentionsResult, error) {
+	return settle(s.lib.JudgeSkillMentions(ctx, id))(ctx)
+}
+
+func (s *LibraryService) ListMissingMentions(ctx context.Context, req library.MissingMentionsRequest) ([]library.MissingMention, error) {
+	return settle(s.lib.ListMissingMentions(ctx, req))(ctx)
+}
+
 func (s *LibraryService) RemoveSkill(ctx context.Context, id library.SkillID, opts library.RemoveSkillOptions) error {
 	return settleErr(ctx, s.lib.RemoveSkill(ctx, id, opts))
 }

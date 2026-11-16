@@ -94,6 +94,10 @@ export function GetSkillAudit(id: library$0.SkillID): $CancellablePromise<librar
     return $Call.ByID(3835043506, id);
 }
 
+export function GetSkillMentions(id: library$0.SkillID): $CancellablePromise<library$0.SkillMentions> {
+    return $Call.ByID(3533225928, id);
+}
+
 export function GetUpdatePlanFile(plan: library$0.UpdatePlanID, skill: library$0.SkillID, path: string): $CancellablePromise<library$0.File> {
     return $Call.ByID(369638650, plan, skill, path);
 }
@@ -137,6 +141,10 @@ export function JudgeMentions(filter: library$0.MentionsFilter): $CancellablePro
     return $Call.ByID(2255590542, filter);
 }
 
+export function JudgeSkillMentions(id: library$0.SkillID): $CancellablePromise<library$0.JudgeMentionsResult> {
+    return $Call.ByID(693993717, id);
+}
+
 export function KeepDeletedSkill(id: library$0.SkillID): $CancellablePromise<library$0.Skill> {
     return $Call.ByID(2236391569, id);
 }
@@ -159,6 +167,10 @@ export function ListGroups(): $CancellablePromise<library$0.Group[] | null> {
 
 export function ListMentions(filter: library$0.MentionsFilter): $CancellablePromise<library$0.Mentions> {
     return $Call.ByID(3136146389, filter);
+}
+
+export function ListMissingMentions(req: library$0.MissingMentionsRequest): $CancellablePromise<library$0.MissingMention[] | null> {
+    return $Call.ByID(3794824745, req);
 }
 
 export function ListRegisteredProjects(): $CancellablePromise<library$0.RegisteredProject[] | null> {

@@ -110,6 +110,10 @@ type Candidate struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Path        string `json:"path"` // 相对来源根目录
+	// Mentions 是它的 SKILL.md 提到的同一份入库预览里其他候选的名字,按第一次出现的先后;没提到时为空。
+	// 判断规则同 [Library.ListMentions],只有三点不同:只读 SKILL.md(入库预览只读过它;well-known 索引的候选没读过,总为空),
+	// 公共段落按整份入库预览算,单个词的名字不交给 AI、不算提到(候选还没有版本,存不了结论)。界面用它在勾选时提示一起勾上。
+	Mentions []string `json:"mentions,omitempty"`
 }
 
 // PreviewDiagnostic 说明一个路径为何未成为候选。
@@ -439,10 +443,11 @@ func (l *Library) listCandidates(ctx context.Context, state *previewState) ([]Ca
 		return nil, err
 	}
 	candidates := make([]Candidate, len(state.candidates))
+	mentions := candidateMentions(state.candidates)
 	for i, c := range state.candidates {
 		fetched := known.Fetched[c.Name]
 		isNew := len(known.Fetched) > 0 && fetched == 0 && !known.Seen[c.Name]
-		candidates[i] = Candidate{Fetched: SkillID(fetched), New: isNew, PluginName: c.PluginName, Name: c.Name, Description: c.Description, Path: c.Path}
+		candidates[i] = Candidate{Fetched: SkillID(fetched), New: isNew, PluginName: c.PluginName, Name: c.Name, Description: c.Description, Path: c.Path, Mentions: mentions[i]}
 	}
 	return candidates, nil
 }

@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/ai"
+	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
@@ -83,9 +84,9 @@ func (l *Library) ListMentions(ctx context.Context, filter MentionsFilter) (resu
 			if !mentioned {
 				continue
 			}
-			key := [2]int64{from.ID, candidate.target.ID}
+			key := [2]int64{from.ID, candidate.to}
 			if found[key] == nil {
-				found[key] = &Mention{From: SkillID(from.ID), To: SkillID(candidate.target.ID), Lines: []MentionLine{}}
+				found[key] = &Mention{From: SkillID(from.ID), To: SkillID(candidate.to), Lines: []MentionLine{}}
 			}
 			found[key].Lines = append(found[key].Lines, candidate.lines...)
 		}
@@ -128,9 +129,28 @@ type MentionJudgmentFailure struct {
 // 没有要判断的时不联网,也不看 AI 设置。参数错误同 [Library.ListMentions];AI 设置里没填模型返回 NotConfigured,
 // 服务的回答按 [Library.TestAISettings] 的规则归类。每个请求连续 2 分钟没有新内容才算超时。
 func (l *Library) JudgeMentions(ctx context.Context, filter MentionsFilter) (result JudgeMentionsResult, err error) {
+	return l.runJudgments(ctx, func(ctx context.Context) ([]judgeTask, error) {
+		scan, err := l.scanMentions(ctx, "judge mentions", filter)
+		if err != nil {
+			return nil, err
+		}
+		tasks := make([]judgeTask, len(scan.rows))
+		for i, from := range scan.rows {
+			tasks[i] = judgeTask{from: from, candidates: scan.candidates[from.ID]}
+		}
+		return tasks, nil
+	})
+}
+
+type judgeTask struct {
+	from       store.Skill
+	candidates []mentionCandidate
+}
+
+func (l *Library) runJudgments(ctx context.Context, collect func(context.Context) ([]judgeTask, error)) (result JudgeMentionsResult, err error) {
 	defer func() { err = typedError(err) }()
 	read, unlock := l.sharedOperation(ctx)
-	scan, err := l.scanMentions(read, "judge mentions", filter)
+	tasks, err := collect(read)
 	var judgments map[int64]map[string]bool
 	var replica string
 	if err == nil {
@@ -144,10 +164,10 @@ func (l *Library) JudgeMentions(ctx context.Context, filter MentionsFilter) (res
 		return result, err
 	}
 	var waiting []mentionJudgmentKey
-	for _, from := range scan.rows {
-		for _, candidate := range scan.candidates[from.ID] {
-			if _, judged := judgments[from.VersionID][candidate.name]; !judged {
-				waiting = append(waiting, mentionJudgmentKey{from.VersionID, candidate.name})
+	for _, task := range tasks {
+		for _, candidate := range task.candidates {
+			if _, judged := judgments[task.from.VersionID][candidate.name]; !judged {
+				waiting = append(waiting, mentionJudgmentKey{task.from.VersionID, candidate.name})
 			}
 		}
 	}
@@ -167,21 +187,17 @@ func (l *Library) JudgeMentions(ctx context.Context, filter MentionsFilter) (res
 	if err != nil {
 		return result, err
 	}
-	type task struct {
-		from       store.Skill
-		candidates []mentionCandidate
-	}
-	var todo []task
-	for _, from := range scan.rows {
+	var todo []judgeTask
+	for _, task := range tasks {
 		var mine []mentionCandidate
-		for _, candidate := range scan.candidates[from.ID] {
-			key := mentionJudgmentKey{from.VersionID, candidate.name}
-			if _, judged := judgments[from.VersionID][candidate.name]; claimed[key] != nil && !judged {
+		for _, candidate := range task.candidates {
+			key := mentionJudgmentKey{task.from.VersionID, candidate.name}
+			if _, judged := judgments[task.from.VersionID][candidate.name]; claimed[key] != nil && !judged {
 				mine = append(mine, candidate)
 			}
 		}
 		if len(mine) > 0 {
-			todo = append(todo, task{from: from, candidates: mine})
+			todo = append(todo, judgeTask{from: task.from, candidates: mine})
 		}
 	}
 	if len(todo) == 0 {
@@ -193,7 +209,7 @@ func (l *Library) JudgeMentions(ctx context.Context, filter MentionsFilter) (res
 	if err != nil {
 		return result, err
 	}
-	judged, failed, err := runPerSkill(ctx, todo, func(job task) int64 { return job.from.ID }, func(ctx context.Context, job task) error {
+	judged, failed, err := runPerSkill(ctx, todo, func(job judgeTask) int64 { return job.from.ID }, func(ctx context.Context, job judgeTask) error {
 		return l.judge(ctx, settings, replica, job.from, job.candidates)
 	})
 	for _, job := range judged {
@@ -256,7 +272,7 @@ func (l *Library) judge(ctx context.Context, settings ai.Settings, replica strin
 		for j, line := range candidate.lines {
 			lines[j] = line.Text
 		}
-		asked[i] = ai.MentionCandidate{Name: candidate.name, Description: candidate.target.Description, Lines: lines}
+		asked[i] = ai.MentionCandidate{Name: candidate.name, Description: candidate.description, Lines: lines}
 	}
 	answers, err := ai.JudgeMentions(ctx, settings, asked)
 	if err != nil {
@@ -279,9 +295,10 @@ func (l *Library) judge(ctx context.Context, settings ai.Settings, replica strin
 const candidateLines = 3
 
 type mentionCandidate struct {
-	name   string
-	target store.Skill
-	lines  []MentionLine
+	name        string
+	to          int64
+	description string
+	lines       []MentionLine
 }
 
 type mentionScan struct {
@@ -327,22 +344,9 @@ func (l *Library) scanMentions(ctx context.Context, operation string, filter Men
 			collections[row.Source.ID] = true
 		}
 	}
-	lines := map[int64][]mentionSourceLine{}
-	for _, row := range rows {
-		if !inSet[row.ID] && !collections[row.Source.ID] {
-			continue
-		}
-		files, err := l.store.MarkdownFiles(ctx, row.VersionID)
-		if err != nil {
-			return mentionScan{}, err
-		}
-		for _, file := range files {
-			for line := range strings.SplitSeq(string(file.Content), "\n") {
-				if text := strings.TrimSpace(line); text != "" {
-					lines[row.ID] = append(lines[row.ID], mentionSourceLine{path: file.Path, text: text})
-				}
-			}
-		}
+	lines, err := l.skillLines(ctx, rows, func(row store.Skill) bool { return inSet[row.ID] || collections[row.Source.ID] })
+	if err != nil {
+		return mentionScan{}, err
 	}
 	common := commonLines(rows, collections, lines)
 
@@ -356,52 +360,95 @@ func (l *Library) scanMentions(ctx context.Context, operation string, filter Men
 			continue
 		}
 		scan.rows = append(scan.rows, from)
-		seen := map[[2]int64]map[MentionLine]bool{}
-		ruled := map[string]bool{}
-		asked := map[string][]MentionLine{}
-		var names []string
-		for _, line := range lines[from.ID] {
-			if common[from.Source.ID][line.text] {
-				continue
-			}
-			for start, end := range nameRuns(line.text) {
-				name := line.text[start:end]
-				if name == from.Name || byName[name] == nil {
-					continue
-				}
-				entry := MentionLine{Path: line.path, Text: line.text}
-				switch mentionAt(line.text, start, end, name) {
-				case mentionRule:
-					ruled[name] = true
-					to := mentionTarget(byName[name], from, inSet)
-					key := [2]int64{from.ID, to.ID}
-					if scan.found[key] == nil {
-						scan.found[key] = &Mention{From: SkillID(from.ID), To: SkillID(to.ID), Lines: []MentionLine{}}
-						seen[key] = map[MentionLine]bool{}
-					}
-					if !seen[key][entry] {
-						seen[key][entry] = true
-						scan.found[key].Lines = append(scan.found[key].Lines, entry)
-					}
-				case mentionAsk:
-					if asked[name] == nil {
-						names = append(names, name)
-					}
-					if len(asked[name]) < candidateLines && !slices.Contains(asked[name], entry) {
-						asked[name] = append(asked[name], entry)
-					}
-				}
-			}
+		doc := scanDoc(from.Name, lines[from.ID], common[from.Source.ID], func(name string) bool { return byName[name] != nil })
+		for _, name := range doc.ruled {
+			to := mentionTarget(byName[name], from, inSet)
+			scan.found[[2]int64{from.ID, to.ID}] = &Mention{From: SkillID(from.ID), To: SkillID(to.ID), Lines: doc.lines[name]}
 		}
-		for _, name := range names {
-			if !ruled[name] {
-				scan.candidates[from.ID] = append(scan.candidates[from.ID], mentionCandidate{
-					name: name, target: mentionTarget(byName[name], from, inSet), lines: asked[name],
-				})
-			}
+		for _, name := range doc.asked {
+			to := mentionTarget(byName[name], from, inSet)
+			scan.candidates[from.ID] = append(scan.candidates[from.ID], mentionCandidate{
+				name: name, to: to.ID, description: to.Description, lines: doc.lines[name],
+			})
 		}
 	}
 	return scan, nil
+}
+
+func (l *Library) skillLines(ctx context.Context, rows []store.Skill, read func(store.Skill) bool) (map[int64][]mentionSourceLine, error) {
+	lines := map[int64][]mentionSourceLine{}
+	for _, row := range rows {
+		if !read(row) {
+			continue
+		}
+		files, err := l.store.MarkdownFiles(ctx, row.VersionID)
+		if err != nil {
+			return nil, err
+		}
+		for _, file := range files {
+			lines[row.ID] = append(lines[row.ID], splitLines(file.Path, file.Content)...)
+		}
+	}
+	return lines, nil
+}
+
+func splitLines(path string, content []byte) []mentionSourceLine {
+	var lines []mentionSourceLine
+	for line := range strings.SplitSeq(string(content), "\n") {
+		if text := strings.TrimSpace(line); text != "" {
+			lines = append(lines, mentionSourceLine{path: path, text: text})
+		}
+	}
+	return lines
+}
+
+type docMentions struct {
+	ruled []string
+	asked []string
+	lines map[string][]MentionLine
+}
+
+func scanDoc(self string, lines []mentionSourceLine, common map[string]bool, known func(string) bool) docMentions {
+	doc := docMentions{lines: map[string][]MentionLine{}}
+	ruled := map[string]bool{}
+	asked := map[string][]MentionLine{}
+	var askedOrder []string
+	for _, line := range lines {
+		if common[line.text] {
+			continue
+		}
+		for start, end := range nameRuns(line.text) {
+			name := line.text[start:end]
+			if name == self || !known(name) {
+				continue
+			}
+			entry := MentionLine{Path: line.path, Text: line.text}
+			switch mentionAt(line.text, start, end, name) {
+			case mentionRule:
+				if !ruled[name] {
+					ruled[name] = true
+					doc.ruled = append(doc.ruled, name)
+				}
+				if !slices.Contains(doc.lines[name], entry) {
+					doc.lines[name] = append(doc.lines[name], entry)
+				}
+			case mentionAsk:
+				if asked[name] == nil {
+					askedOrder = append(askedOrder, name)
+				}
+				if len(asked[name]) < candidateLines && !slices.Contains(asked[name], entry) {
+					asked[name] = append(asked[name], entry)
+				}
+			}
+		}
+	}
+	for _, name := range askedOrder {
+		if !ruled[name] {
+			doc.asked = append(doc.asked, name)
+			doc.lines[name] = asked[name]
+		}
+	}
+	return doc
 }
 
 type mentionSourceLine struct {
@@ -409,34 +456,52 @@ type mentionSourceLine struct {
 }
 
 func commonLines(rows []store.Skill, collections map[int64]bool, lines map[int64][]mentionSourceLine) map[int64]map[string]bool {
-	counts := map[int64]map[string]int{}
-	sizes := map[int64]int{}
+	docs := map[int64][][]mentionSourceLine{}
 	for _, row := range rows {
-		if !collections[row.Source.ID] {
-			continue
-		}
-		sizes[row.Source.ID]++
-		if counts[row.Source.ID] == nil {
-			counts[row.Source.ID] = map[string]int{}
-		}
-		distinct := map[string]bool{}
-		for _, line := range lines[row.ID] {
-			if !distinct[line.text] {
-				distinct[line.text] = true
-				counts[row.Source.ID][line.text]++
-			}
+		if collections[row.Source.ID] {
+			docs[row.Source.ID] = append(docs[row.Source.ID], lines[row.ID])
 		}
 	}
 	common := map[int64]map[string]bool{}
-	for collection, texts := range counts {
-		common[collection] = map[string]bool{}
-		for text, n := range texts {
-			if n >= 3 && n*2 > sizes[collection] {
-				common[collection][text] = true
+	for collection, set := range docs {
+		common[collection] = sharedLines(set)
+	}
+	return common
+}
+
+func sharedLines(docs [][]mentionSourceLine) map[string]bool {
+	counts := map[string]int{}
+	for _, lines := range docs {
+		distinct := map[string]bool{}
+		for _, line := range lines {
+			if !distinct[line.text] {
+				distinct[line.text] = true
+				counts[line.text]++
 			}
 		}
 	}
-	return common
+	shared := map[string]bool{}
+	for text, n := range counts {
+		if n >= 3 && n*2 > len(docs) {
+			shared[text] = true
+		}
+	}
+	return shared
+}
+
+func candidateMentions(candidates []discovery.Candidate) [][]string {
+	names := map[string]bool{}
+	docs := make([][]mentionSourceLine, len(candidates))
+	for i, c := range candidates {
+		names[c.Name] = true
+		docs[i] = splitLines("SKILL.md", c.SkillMD)
+	}
+	common := sharedLines(docs)
+	mentions := make([][]string, len(candidates))
+	for i, c := range candidates {
+		mentions[i] = scanDoc(c.Name, docs[i], common, func(name string) bool { return names[name] }).ruled
+	}
+	return mentions
 }
 
 func nameRuns(line string) func(yield func(int, int) bool) {

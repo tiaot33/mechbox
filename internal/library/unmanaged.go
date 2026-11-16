@@ -394,25 +394,27 @@ type scopeFolder struct {
 }
 
 func (l *Library) scopeFolders(ctx context.Context, only map[Scope]bool) ([]scopeFolder, error) {
-	return l.listScopeFolders(ctx, only, false)
+	folders, _, err := l.listScopeFolders(ctx, only, false)
+	return folders, err
 }
 
 func (l *Library) readableScopeFolders(ctx context.Context) ([]scopeFolder, error) {
-	return l.listScopeFolders(ctx, nil, true)
+	folders, _, err := l.listScopeFolders(ctx, nil, true)
+	return folders, err
 }
 
-func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, skipUnreadable bool) ([]scopeFolder, error) {
+func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, skipUnreadable bool) ([]scopeFolder, map[Scope]bool, error) {
 	agents, err := l.store.ListAgents(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	projects, err := l.store.ListProjects(ctx)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	installed, err := l.listSkillScopes(ctx, 0, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	type folder struct {
 		scope Scope
@@ -423,6 +425,7 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 		claimed[folder{skillScope.Scope, agentdir.FolderName(skillScope.Folder)}] = skillScope.SkillID
 	}
 	var folders []scopeFolder
+	readable := map[Scope]bool{}
 	for _, agent := range agents {
 		rows := []scopeRow{{agent: AgentCode(agent.Code)}}
 		for _, project := range projects {
@@ -437,11 +440,11 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 				continue
 			}
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			missing, err := target.rootMissing("list skill folders")
 			if err != nil && !skipUnreadable {
-				return nil, err
+				return nil, nil, err
 			}
 			if err != nil || missing != nil {
 				continue
@@ -451,14 +454,15 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 				continue
 			}
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
+			readable[row.scope()] = true
 			for _, found := range listed {
 				folders = append(folders, scopeFolder{Folder: found, target: target, skillID: claimed[folder{row.scope(), found.Name}]})
 			}
 		}
 	}
-	return folders, nil
+	return folders, readable, nil
 }
 
 func validFolderName(name string) bool {
