@@ -457,6 +457,7 @@ func TestJudgeMentionsDropsAnswersAfterSyncPull(t *testing.T) {
 // 两张包含同一技能的关系图同时判断(如先开集合、没判断完又开组):同一版本的同一个名字只请求一次,
 // 后开的那张等先开的判断完再返回,两边都看到这一处已判断。
 func TestJudgeMentionsSharesJudgmentsInProgress(t *testing.T) {
+	t.Parallel()
 	lib, stub := judgingLibrary(t)
 	entry := fetchSkillWithBody(t, lib, "entry", "Use the review skill.\n")
 	fetchSkillWithBody(t, lib, "review", "# review\n")

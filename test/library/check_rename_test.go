@@ -8,6 +8,7 @@ import (
 )
 
 func TestRenameIsGuessedAndCountsTowardTheBadge(t *testing.T) {
+	t.Parallel()
 	fx := newRenameFixture(t)
 	check := checkedSkill(t, fx.lib, fx.skill.ID)
 	if check.Status != library.UpdateDeleted || check.RenamedTo != "pdf-kit" || !check.Pending {

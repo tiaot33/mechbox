@@ -178,6 +178,7 @@ func TestErrorOfPlainErrorIsInternal(t *testing.T) {
 
 // 补充各行为规格尚未覆盖的错误分类;已有业务用例覆盖的场景不在这里重复搭建。
 func TestFacadeFailureCodes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		want library.ErrorCode
@@ -239,6 +240,7 @@ func TestFacadeFailureCodes(t *testing.T) {
 }
 
 func TestCanceledOperationsStillMatchContext(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	skill := fetchNamedSkill(t, lib, "cancel")
 	ctx, cancel := context.WithCancel(t.Context())

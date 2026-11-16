@@ -154,6 +154,7 @@ func TestExecutableOnlyChangeShowsInDiff(t *testing.T) {
 }
 
 func TestUpdateChangesDescriptionOnNewVersionAndKeepsFetchedAt(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "timed")
 	writeFile(t, filepath.Join(source, "SKILL.md"), []byte("---\nname: timed\ndescription: first edition\n---\nfirst\n"), 0o644)

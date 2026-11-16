@@ -41,6 +41,7 @@ func redirectRemote(t *testing.T, config, repository, remote string) {
 }
 
 func TestGitLabTreeLinkSplitsBranchAndSubpath(t *testing.T) {
+	t.Parallel()
 	config := isolateGit(t)
 	repository := skillRepository(t)
 	redirectRemote(t, config, repository, "https://gitlab.com/group/subgroup/repo.git")
@@ -70,13 +71,14 @@ func TestGitLabTreeLinkSplitsBranchAndSubpath(t *testing.T) {
 }
 
 func TestPrivateGitLabRepositoryUsesConfiguredSSHKey(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	repository := skillRepository(t)
 	wrapper := filepath.Join(t.TempDir(), "ssh")
 	writeFile(t, wrapper, []byte("#!/bin/sh\ncase \" $* \" in *' -oBatchMode=yes '*) ;; *) exit 9 ;; esac\ncase \" $* \" in *' git@gitlab.com '*) ;; *) exit 11 ;; esac\nexec git-upload-pack \"$TEST_SSH_REPOSITORY\"\n"), 0o755)
-	t.Setenv("GIT_SSH_COMMAND", "'"+wrapper+"'")
-	t.Setenv("GIT_SSH_VARIANT", "ssh")
-	t.Setenv("TEST_SSH_REPOSITORY", repository)
+	setTestEnv(t, "GIT_SSH_COMMAND", "'"+wrapper+"'")
+	setTestEnv(t, "GIT_SSH_VARIANT", "ssh")
+	setTestEnv(t, "TEST_SSH_REPOSITORY", repository)
 	lib := openTestLibrary(t)
 	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "git@gitlab.com:group/private.git", Subpath: "skills"})
 	if err != nil {
@@ -93,6 +95,7 @@ func TestPrivateGitLabRepositoryUsesConfiguredSSHKey(t *testing.T) {
 }
 
 func TestGitHostLinkWithoutDotGitIsRecognizedAsGitRepository(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	root := t.TempDir()
 	runGit(t, root, "clone", "--quiet", "--bare", skillRepository(t), filepath.Join(root, "org", "repo"))
@@ -132,6 +135,7 @@ func TestGitHostLinkWithoutDotGitIsRecognizedAsGitRepository(t *testing.T) {
 }
 
 func TestGitRepositoryCheckUsesLsRemoteAndPlanListsCommits(t *testing.T) {
+	t.Parallel()
 	config := isolateGit(t)
 	repository := skillRepository(t)
 	runGit(t, repository, "rm", "--quiet", "SKILL.md")
@@ -180,6 +184,7 @@ func TestGitRepositoryCheckUsesLsRemoteAndPlanListsCommits(t *testing.T) {
 }
 
 func TestGitSkillWithBrokenSkillFileIsUnreadableNotDeleted(t *testing.T) {
+	t.Parallel()
 	config := isolateGit(t)
 	repository := skillRepository(t)
 	runGit(t, repository, "rm", "--quiet", "SKILL.md")
@@ -205,6 +210,7 @@ func TestGitSkillWithBrokenSkillFileIsUnreadableNotDeleted(t *testing.T) {
 }
 
 func TestDownloadedSkillWithBrokenSkillFileIsUnreadableNotDeleted(t *testing.T) {
+	t.Parallel()
 	server := newArchiveServer(t, zipArchive(t, map[string]string{"alpha/SKILL.md": skillDocument("alpha", "a"), "beta/SKILL.md": skillDocument("beta", "b")}), "")
 	lib := openTestLibrary(t)
 	preview, err := lib.PreviewFetch(t.Context(), server.request())
@@ -221,6 +227,7 @@ func TestDownloadedSkillWithBrokenSkillFileIsUnreadableNotDeleted(t *testing.T) 
 }
 
 func TestAnnotatedTagWithoutNewCommitDoesNotClone(t *testing.T) {
+	t.Parallel()
 	config := isolateGit(t)
 	repository := skillRepository(t)
 	runGit(t, repository, "-c", "user.name=Test", "-c", "user.email=test@example.com", "tag", "-a", "v1", "-m", "release v1")
@@ -239,7 +246,7 @@ func TestAnnotatedTagWithoutNewCommitDoesNotClone(t *testing.T) {
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "cloned")
 	writeFile(t, filepath.Join(dir, "git"), []byte("#!/bin/sh\ncase \" $* \" in *' clone '*) touch '"+marker+"' ;; esac\nexec '"+real+"' \"$@\"\n"), 0o755)
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	setTestEnv(t, "PATH", dir+string(os.PathListSeparator)+testEnv(t, "PATH"))
 	if status, err := checkSkillUpdate(t, lib, t.Context(), fetched[0].ID); err != nil || status != library.UpdateCurrent {
 		t.Fatalf("check on unchanged annotated tag = %s, %v", status, err)
 	}
@@ -258,6 +265,7 @@ func hangingGitServer(t *testing.T) string {
 }
 
 func TestFetchesRegularSkillWhenRepositoryDeclaresLFSWithoutGitLFS(t *testing.T) {
+	t.Parallel()
 	repository := t.TempDir()
 	runGit(t, repository, "init", "-b", "main")
 	writeFile(t, filepath.Join(repository, "demo", "SKILL.md"), []byte(skillDocument("demo", "plain skill")), 0o644)
@@ -270,8 +278,8 @@ func TestFetchesRegularSkillWhenRepositoryDeclaresLFSWithoutGitLFS(t *testing.T)
 	marker := filepath.Join(t.TempDir(), "lfs-invoked")
 	bin := t.TempDir()
 	writeFile(t, filepath.Join(bin, "git-lfs"), []byte("#!/bin/sh\necho invoked > \"$GIT_LFS_MARKER\"\nexit 1\n"), 0o755)
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("GIT_LFS_MARKER", marker)
+	setTestEnv(t, "PATH", bin+string(os.PathListSeparator)+testEnv(t, "PATH"))
+	setTestEnv(t, "GIT_LFS_MARKER", marker)
 
 	lib := openTestLibrary(t)
 	preview, err := lib.PreviewFetch(t.Context(), gitHubCloneRequest(t, repository))
@@ -291,10 +299,11 @@ func TestFetchesRegularSkillWhenRepositoryDeclaresLFSWithoutGitLFS(t *testing.T)
 }
 
 func TestPreviewRejectsExtGitProtocol(t *testing.T) {
+	t.Parallel()
 	sentinel := filepath.Join(t.TempDir(), "pwned")
 	// 公开输入只接受 github.com;用户 git 配置仍可把它改写成 ext 协议,Library 必须拒绝执行。
 	serveGitHubRemoteOnly(t, "ext::touch "+sentinel)
-	runGit(t, t.TempDir(), "config", "--file", os.Getenv("GIT_CONFIG_GLOBAL"), "protocol.ext.allow", "always")
+	runGit(t, t.TempDir(), "config", "--file", testEnv(t, "GIT_CONFIG_GLOBAL"), "protocol.ext.allow", "always")
 
 	lib := openTestLibrary(t)
 	_, err := lib.PreviewFetch(t.Context(), gitHubRequest())
@@ -307,7 +316,8 @@ func TestPreviewRejectsExtGitProtocol(t *testing.T) {
 }
 
 func TestPreviewGitTimesOutWithoutCallerDeadline(t *testing.T) {
-	t.Setenv("SKILLS_GIT_TIMEOUT", "1s")
+	t.Parallel()
+	setTestEnv(t, "SKILLS_GIT_TIMEOUT", "1s")
 	lib := openTestLibrary(t)
 	start := time.Now()
 	serveGitHubRemoteOnly(t, hangingGitServer(t))
@@ -325,8 +335,9 @@ func TestPreviewGitTimesOutWithoutCallerDeadline(t *testing.T) {
 }
 
 func TestCheckUpdatesAndUpdateGitTimeOutWithoutCallerDeadline(t *testing.T) {
+	t.Parallel()
 	repository, _ := githubRemote(t)
-	t.Setenv("SKILLS_GIT_TIMEOUT", "1s")
+	setTestEnv(t, "SKILLS_GIT_TIMEOUT", "1s")
 	lib := openTestLibrary(t)
 	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "owner/repo"})
 	if err != nil {
@@ -337,7 +348,7 @@ func TestCheckUpdatesAndUpdateGitTimeOutWithoutCallerDeadline(t *testing.T) {
 		t.Fatal(err)
 	}
 	remote := hangingGitServer(t)
-	config := os.Getenv("GIT_CONFIG_GLOBAL")
+	config := testEnv(t, "GIT_CONFIG_GLOBAL")
 	runGit(t, repository, "config", "--file", config, "--unset-all", "url.file://"+repository+".insteadOf")
 	runGit(t, repository, "config", "--file", config, "url."+remote+"/.insteadOf", "https://github.com/")
 	runGit(t, repository, "config", "--file", config, "--add", "url."+remote+"/.insteadOf", "git@github.com:")
@@ -366,6 +377,7 @@ func TestCheckUpdatesAndUpdateGitTimeOutWithoutCallerDeadline(t *testing.T) {
 }
 
 func TestPreviewGitCancelStopsImmediately(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -386,6 +398,7 @@ func TestPreviewGitCancelStopsImmediately(t *testing.T) {
 }
 
 func TestPreviewGitDistinguishesFailureReasonsWithoutExposingCredentials(t *testing.T) {
+	t.Parallel()
 	repository, _ := githubRemote(t)
 	lib := openTestLibrary(t)
 	secret := "secret-token-value"
@@ -443,6 +456,7 @@ func TestPreviewGitDistinguishesFailureReasonsWithoutExposingCredentials(t *test
 
 // 技能只占大仓库的一小部分时，入库只下载技能的文件：服务端把和技能无关的大文件删掉了，整库克隆会失败，入库仍要成功。
 func TestGitSourceDownloadsOnlySkillFiles(t *testing.T) {
+	t.Parallel()
 	config := isolateGit(t)
 	repository := t.TempDir()
 	runGit(t, repository, "init", "-b", "main")
@@ -493,6 +507,7 @@ func TestGitSourceDownloadsOnlySkillFiles(t *testing.T) {
 
 // 服务器支持只拉目录结构、但不让按 SHA 取单个文件时(老的协议 v0 服务器),退回完整克隆，入库照样成功。
 func TestGitSourceFallsBackWhenServerRefusesBlobRequests(t *testing.T) {
+	t.Parallel()
 	config := isolateGit(t)
 	runGit(t, t.TempDir(), "config", "--file", config, "protocol.version", "0")
 	repository := t.TempDir()
@@ -516,6 +531,7 @@ func TestGitSourceFallsBackWhenServerRefusesBlobRequests(t *testing.T) {
 
 // Git 树里有名为 . 的目录项时，入库预览报错，不会在技能目录里无限递归。
 func TestGitSourceRejectsDotEntryInTree(t *testing.T) {
+	t.Parallel()
 	config := isolateGit(t)
 	repository := t.TempDir()
 	runGit(t, repository, "init", "-b", "main")

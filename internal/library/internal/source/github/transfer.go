@@ -11,8 +11,6 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
-	"os"
-	"os/exec"
 	"slices"
 	"strconv"
 	"strings"
@@ -324,8 +322,8 @@ func (c *githubClient) graphqlBlobs(ctx context.Context, owner, repo string, blo
 func githubCLIOutput(ctx context.Context, dest io.Writer, args ...string) error {
 	commandCtx, cancel := context.WithTimeout(ctx, sourceTimeout)
 	defer cancel()
-	command := exec.CommandContext(commandCtx, "gh", args...)
-	command.Env = append(os.Environ(), "GITHUB_TOKEN=", "GH_TOKEN=", "GH_PROMPT_DISABLED=1")
+	command := process.Command(commandCtx, "gh", args...)
+	command.Env = append(command.Env, "GITHUB_TOKEN=", "GH_TOKEN=", "GH_PROMPT_DISABLED=1")
 	command.WaitDelay = time.Second
 	process.Hide(command)
 	process.KillTreeOnCancel(command)

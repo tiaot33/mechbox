@@ -23,7 +23,7 @@ func TestMain(m *testing.M) {
 	if shell == "" {
 		shell = "sh"
 	}
-	os.Setenv("MECHBOX_TEST_WSL_SHELL", shell)
+	wsl.Emulate(shell)
 	os.Exit(m.Run())
 }
 

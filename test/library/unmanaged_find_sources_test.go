@@ -85,6 +85,7 @@ func findUnmanagedSources(t *testing.T, lib *library.Library, folders ...library
 }
 
 func TestFindUnmanagedSourcesRecognizesSkillsWithoutSourceRecords(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newSourcedSkillFixture(t)
 	redirectGitHubClone(t, f.repo)
@@ -157,6 +158,7 @@ func TestFindUnmanagedSourcesRecognizesSkillsWithoutSourceRecords(t *testing.T) 
 }
 
 func TestFindUnmanagedSourcesTakesTheMostSimilarSourceAboveTheThreshold(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	home := t.TempDir()
 	setTestHome(t, home)
@@ -209,6 +211,7 @@ func TestFindUnmanagedSourcesTakesTheMostSimilarSourceAboveTheThreshold(t *testi
 }
 
 func TestFindUnmanagedSourcesRunsAtMostFourRequestsAndOpensEachSourceOnce(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	home := t.TempDir()
 	setTestHome(t, home)
@@ -296,6 +299,7 @@ func (r *sourceReads) roundTrip(next func(*http.Request) (*http.Response, error)
 }
 
 func TestFindUnmanagedSourcesReadsAtMostTwoSourcesAtATime(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	home := t.TempDir()
 	setTestHome(t, home)

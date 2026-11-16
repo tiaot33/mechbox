@@ -65,8 +65,7 @@ func requireMissingMentions(t *testing.T, got, want []library.MissingMention) {
 // 技能详情的两栏:提到了谁、被谁提到,规则同关系图;被提到的一方也包括 Agent 目录里的未纳管技能(SkillID 为 0),
 // 不在库里、也不在任何 Agent 目录里的名字认不出。单个词的名字没判断时只计入 Unjudged,两个方向都算。
 func TestGetSkillMentionsListsBothDirectionsAndUnmanagedNames(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	t.Parallel()
 	root := mentionSource(t, map[string]string{
 		"entry":         "Run /ship, then writing-plans.\nAlso try /local-tool and /nowhere.\nCould you review this?\n",
 		"ship":          "# ship\n",
@@ -106,6 +105,7 @@ func TestGetSkillMentionsListsBothDirectionsAndUnmanagedNames(t *testing.T) {
 // 详情里的判断只判断和这个技能有关的几处:它正文里单个词的名字,以及别的技能正文里它的名字;判断完两栏补上,
 // 再判断不再请求。别的技能里和它无关的单个词名字不判断。
 func TestJudgeSkillMentionsJudgesBothDirectionsOfOneSkill(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeJudgeSkill(t, filepath.Join(root, "entry"), "Entry", "Use the review skill here.\nAsk spec for nothing.\n")
 	writeJudgeSkill(t, filepath.Join(root, "other"), "Other", "Hand it to review skill.\nWrite a spec skill.\n")
@@ -145,9 +145,8 @@ func TestJudgeSkillMentionsJudgesBothDirectionsOfOneSkill(t *testing.T) {
 // 项目作用域还看同一个 Agent 的全局目录,全局作用域不看项目。库里有的给出库里的技能,能装过去;
 // 库里没有、只在别的 Agent 目录里的未纳管技能没有库里的技能。
 func TestListMissingMentionsLooksInTheScopeAndTheAgentsGlobalDirectory(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
 	root := mentionSource(t, map[string]string{
 		"entry":  "Run /ship, /helper and /local-tool.\n",
 		"ship":   "# ship\n",
@@ -191,9 +190,8 @@ func TestListMissingMentionsLooksInTheScopeAndTheAgentsGlobalDirectory(t *testin
 // 卸载、从库里删除之前看会有哪些技能因此找不到它:当那几处的文件夹已经不在,靠全局目录找到它的项目里的技能也算;
 // 卸掉的技能自己不再列出;卸掉之前就已经找不到的不算。作用域不合法返回 InvalidArgument。
 func TestListLostMentionsCountsOnlyWhatTheRemovalBreaks(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	home := t.TempDir()
-	t.Setenv("HOME", home)
 	root := mentionSource(t, map[string]string{"entry": "Run /ship and /helper.\n", "ship": "# ship\n", "helper": "# helper\n"})
 	lib := openTestLibrary(t)
 	skills := fetchMentionSource(t, lib, root)
@@ -229,8 +227,7 @@ func TestListLostMentionsCountsOnlyWhatTheRemovalBreaks(t *testing.T) {
 
 // 装着的技能自己的文件夹被删掉了时,它已经不在那里,不再提示它找不到别的技能。
 func TestListMissingMentionsSkipsSkillsWhoseFolderIsGone(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	t.Parallel()
 	root := mentionSource(t, map[string]string{"entry": "Run /ship.\n", "ship": "# ship\n"})
 	lib := openTestLibrary(t)
 	skills := fetchMentionSource(t, lib, root)

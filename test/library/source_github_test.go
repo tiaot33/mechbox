@@ -45,6 +45,7 @@ var gitHubModes = []struct {
 }
 
 func TestGitHubPreviewAndFetch(t *testing.T) {
+	t.Parallel()
 	for _, mode := range gitHubModes {
 		t.Run(mode.name, func(t *testing.T) {
 			repo := writeGitHubRepo(t, map[string]repoFile{
@@ -98,6 +99,7 @@ func TestGitHubPreviewAndFetch(t *testing.T) {
 }
 
 func TestGitHubFetchKeepsPreviewedContentAfterHeadAdvances(t *testing.T) {
+	t.Parallel()
 	for _, mode := range gitHubModes {
 		t.Run(mode.name, func(t *testing.T) {
 			repo := writeGitHubRepo(t, map[string]repoFile{
@@ -128,6 +130,7 @@ func TestGitHubFetchKeepsPreviewedContentAfterHeadAdvances(t *testing.T) {
 }
 
 func TestGitHubPreviewSelectsBySubpathNameAndRoot(t *testing.T) {
+	t.Parallel()
 	for _, mode := range gitHubModes {
 		t.Run(mode.name+"/subpath and name", func(t *testing.T) {
 			repo := writeGitHubRepo(t, map[string]repoFile{
@@ -175,6 +178,7 @@ func TestGitHubPreviewSelectsBySubpathNameAndRoot(t *testing.T) {
 }
 
 func TestGitHubCheckUpdatesAndUpdate(t *testing.T) {
+	t.Parallel()
 	for _, mode := range gitHubModes {
 		t.Run(mode.name, func(t *testing.T) {
 			repo := writeGitHubRepo(t, map[string]repoFile{
@@ -237,6 +241,7 @@ func TestGitHubCheckUpdatesAndUpdate(t *testing.T) {
 // GitHub 来源入库时要的文件多就先取整包 tar.gz,其余从 raw.githubusercontent.com 逐个取;两处的内容都按 git blob SHA 核对,
 // 核对不上或取不到时才用 API 的 blob 接口。
 func TestGitHubDownloadsVerifiedContentBeforeUsingBlobAPI(t *testing.T) {
+	t.Parallel()
 	many := map[string]repoFile{}
 	var skillFilesOfMany []string
 	for i := range 10 {
@@ -297,6 +302,7 @@ func TestGitHubDownloadsVerifiedContentBeforeUsingBlobAPI(t *testing.T) {
 }
 
 func TestGitHubFallsBackToCloneWhenAPIIsIncomplete(t *testing.T) {
+	t.Parallel()
 	files := map[string]repoFile{
 		"good/SKILL.md":    {content: []byte(skillDocument("good", "body")), mode: 0o644},
 		"good/scripts/run": {content: []byte{9, 8, 7}, mode: 0o755},
@@ -346,6 +352,7 @@ func TestGitHubFallsBackToCloneWhenAPIIsIncomplete(t *testing.T) {
 }
 
 func TestGitHubSkillWithUnsupportedObjectIsReportedAsDiagnostic(t *testing.T) {
+	t.Parallel()
 	for _, mode := range gitHubModes {
 		t.Run(mode.name, func(t *testing.T) {
 			repo := writeGitHubRepo(t, map[string]repoFile{
@@ -369,6 +376,7 @@ func TestGitHubSkillWithUnsupportedObjectIsReportedAsDiagnostic(t *testing.T) {
 }
 
 func TestGitHubFetchFailureLeavesLibraryUnchangedAndKeepsHandle(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		fail func(api *gitHubAPIMock)
@@ -405,6 +413,7 @@ func TestGitHubFetchFailureLeavesLibraryUnchangedAndKeepsHandle(t *testing.T) {
 }
 
 func TestGitHubPrivateRepositoryUsesAvailableCredentials(t *testing.T) {
+	t.Parallel()
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md":    {content: []byte(skillDocument("demo", "body")), mode: 0o644},
 		"demo/scripts/run": {content: []byte{0, 255, 1}, mode: 0o755},
@@ -475,6 +484,7 @@ func TestGitHubStoredTokenIsUsedAfterAnonymous(t *testing.T) {
 
 // 设置的令牌存在数据库里:重新打开同一个数据库,读到的仍是它,访问 GitHub 时也用它。
 func TestGitHubTokenIsKeptInDatabase(t *testing.T) {
+	t.Parallel()
 	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
 	}))
@@ -503,6 +513,7 @@ func TestGitHubTokenIsKeptInDatabase(t *testing.T) {
 // 在同一个 Library 上改令牌,下一次访问 GitHub 就用新值:先前没有令牌、靠 gh 读到的私有仓库,传入令牌后
 // 重新按匿名 → 令牌 → gh 的顺序访问;换成另一个令牌后用新令牌;清空后回到匿名 → gh。
 func TestGitHubTokenChangeTakesEffectOnNextRequest(t *testing.T) {
+	t.Parallel()
 	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
 	}))
@@ -552,6 +563,7 @@ func TestGitHubTokenChangeTakesEffectOnNextRequest(t *testing.T) {
 
 // 先靠 gh 做了入库预览,再传入令牌:对这个预览入库时也按匿名 → 令牌 → gh 重新访问,用上新令牌,不再直接走 gh。
 func TestGitHubTokenChangeAppliesToExistingPreview(t *testing.T) {
+	t.Parallel()
 	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
 		"demo/notes.md": {content: []byte("notes"), mode: 0o644},
@@ -585,6 +597,7 @@ func TestGitHubTokenChangeAppliesToExistingPreview(t *testing.T) {
 // 换令牌前发出、换令牌后才结束的请求,不会把它自己的访问结论(旧令牌被拒、改用 gh)带到新令牌上:
 // 之后的新入库预览仍按匿名 → 新令牌访问。
 func TestGitHubRequestFinishingAfterTokenChangeDoesNotBypassNewToken(t *testing.T) {
+	t.Parallel()
 	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
 	}))
@@ -627,6 +640,7 @@ func TestGitHubRequestFinishingAfterTokenChangeDoesNotBypassNewToken(t *testing.
 }
 
 func TestGitHubErrorsDoNotExposeCredentials(t *testing.T) {
+	t.Parallel()
 	const secret = "private-token-and-cli-output"
 	serveGitHubAPI(t, inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
 		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
@@ -666,13 +680,14 @@ func TestGitHubErrorsDoNotExposeCredentials(t *testing.T) {
 }
 
 func TestGitHubCancellationStopsChildProcesses(t *testing.T) {
+	t.Parallel()
 	api := serveGitHubAPI(t, gitHubFixture{})
 	api.anonymousStatus = http.StatusTooManyRequests
 	blockGitHubClone(t)
 	ready := filepath.Join(t.TempDir(), "ready")
 	escaped := filepath.Join(t.TempDir(), "escaped")
-	t.Setenv("GH_TEST_READY", ready)
-	t.Setenv("GH_TEST_ESCAPED", escaped)
+	setTestEnv(t, "GH_TEST_READY", ready)
+	setTestEnv(t, "GH_TEST_ESCAPED", escaped)
 	stubGitHubCLI(t, `sh -c 'echo ready > "$GH_TEST_READY"; sleep 1; echo escaped > "$GH_TEST_ESCAPED"' &
 wait
 `)
@@ -822,8 +837,8 @@ func redirectGitHubRemote(t *testing.T, remote string) {
 	t.Helper()
 	stubGitHubCLI(t, "exit 1\n")
 	config := filepath.Join(t.TempDir(), "gitconfig")
-	t.Setenv("GIT_CONFIG_GLOBAL", config)
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	setTestEnv(t, "GIT_CONFIG_GLOBAL", config)
+	setTestEnv(t, "GIT_CONFIG_NOSYSTEM", "1")
 	runGit(t, t.TempDir(), "config", "--file", config, "url."+remote+".insteadOf", "https://github.com/owner/repo.git")
 	runGit(t, t.TempDir(), "config", "--file", config, "--add", "url."+remote+".insteadOf", "git@github.com:owner/repo.git")
 }
@@ -885,8 +900,8 @@ func (m *gitHubAPIMock) takeAuthorizations() []string {
 func serveGitHubAPI(t *testing.T, fx gitHubFixture) *gitHubAPIMock {
 	t.Helper()
 	stubGitHubCLI(t, "exit 1\n")
-	t.Setenv("GITHUB_TOKEN", "")
-	t.Setenv("GH_TOKEN", "")
+	setTestEnv(t, "GITHUB_TOKEN", "")
+	setTestEnv(t, "GH_TOKEN", "")
 	mock := &gitHubAPIMock{fx: cloneGitHubFixture(fx)}
 	stubHTTP(t, mock.roundTrip)
 	return mock
@@ -1136,6 +1151,7 @@ case "$2" in
 }
 
 func TestGitHubUpdateUsesDiscoveredCandidates(t *testing.T) {
+	t.Parallel()
 	for _, source := range []string{"github", "clone"} {
 		t.Run(source, func(t *testing.T) {
 			repo := writeGitHubRepo(t, map[string]repoFile{
@@ -1198,6 +1214,7 @@ func TestGitHubUpdateUsesDiscoveredCandidates(t *testing.T) {
 }
 
 func TestUpdatePlanReadsEveryPageOfCommits(t *testing.T) {
+	t.Parallel()
 	repo := writeGitHubRepo(t, map[string]repoFile{"a/SKILL.md": {content: []byte(skillDocument("a", "v1")), mode: 0o644}})
 	fx := inspectGitHubRepo(t, repo)
 	api := serveGitHubAPI(t, fx)

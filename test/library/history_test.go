@@ -84,6 +84,7 @@ func TestRetriedPlaceIsRolledBackWithTheUpdate(t *testing.T) {
 }
 
 func TestRollbackRestoresLibraryAndCheckedPlacesAndSkipsTheChange(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
@@ -167,6 +168,7 @@ func TestRollbackRestoresLibraryAndCheckedPlacesAndSkipsTheChange(t *testing.T) 
 // 来源在那次更新之后又往前走了(更新页上已经报着新版本),回滚之后来源没再变:来源里现在的那份也带着回滚掉的改动,
 // 回滚完成时和之后检查更新、更新计划都一致地不计入角标;来源再变了才重新计入。
 func TestRollbackAlsoSkipsTheNewerRevisionAlreadySeen(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	server := newArchiveServer(t, zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v1")}), "")
@@ -202,6 +204,7 @@ func TestRollbackAlsoSkipsTheNewerRevisionAlreadySeen(t *testing.T) {
 // 回滚前最近一次检查更新失败了(断网、来源一时读不到):回滚照样按之前读成来源的那一次,跳过来源里现在的那份。
 // 来源恢复后检查更新不把回滚掉的改动算回待办,来源再变了才重新计入。
 func TestRollbackAfterAFailedCheckStillSkipsTheNewerRevisionSeenBefore(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	server := newArchiveServer(t, zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v1")}), "")
@@ -242,6 +245,7 @@ func TestRollbackAfterAFailedCheckStillSkipsTheNewerRevisionSeenBefore(t *testin
 
 // 回滚较早的一次更新:之后那次更新已经跟上了来源,来源里现在的那份同样带着回滚掉的改动,一并跳过。
 func TestRollingBackAnEarlierUpdateSkipsWhatTheSourceHasNow(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	server := newArchiveServer(t, zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v1")}), "")
@@ -267,6 +271,7 @@ func TestRollingBackAnEarlierUpdateSkipsWhatTheSourceHasNow(t *testing.T) {
 }
 
 func TestRollbackOfAnEarlierUpdateAndOfARemovedSkill(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	server := newArchiveServer(t, zipArchive(t, map[string]string{"a/SKILL.md": skillDocument("a", "v1"), "b/SKILL.md": skillDocument("b", "v1")}), "")
@@ -301,6 +306,7 @@ func TestRollbackOfAnEarlierUpdateAndOfARemovedSkill(t *testing.T) {
 }
 
 func TestUpdateHistoryByTheSkillShowsCommitMessages(t *testing.T) {
+	t.Parallel()
 	for _, mode := range gitHubModes {
 		t.Run(mode.name, func(t *testing.T) {
 			ctx := t.Context()
@@ -470,6 +476,7 @@ func TestRollbackLeavesAProjectRegisteredAfterTheUpdate(t *testing.T) {
 // 更新之后用目录里的修改更新了库里的技能,作者又发布了和这份修改完全相同的内容(检查更新为已是最新);
 // 回滚那次更新,来源没再变时来源里现在的那份(就是这份修改)也带着回滚掉的改动,一并跳过;来源再变了才重新计入。
 func TestRollbackSkipsTheSourceThatCaughtUpWithTheEdits(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
@@ -513,6 +520,7 @@ func TestRollbackSkipsTheSourceThatCaughtUpWithTheEdits(t *testing.T) {
 // 更新之后用目录里的修改更新了库里的技能,来源一直没变(检查更新为已是最新);回滚那次更新,
 // 跳过的是来源里的那份,不是这份修改,之后检查更新照样不计入。
 func TestRollbackSkipsTheSourceNotTheEditsWhileTheSourceStaysPut(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)

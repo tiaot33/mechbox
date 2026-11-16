@@ -205,6 +205,7 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 }
 
 func TestGroupRollbackPreservesConcurrentInstall(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)

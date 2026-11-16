@@ -20,6 +20,7 @@ import (
 // 更新
 
 func TestUpdateCarriesSelectedSkillsToOneSourceRevision(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	server := newArchiveServer(t, zipArchive(t, map[string]string{
@@ -122,6 +123,7 @@ func TestUpdateIsAllOrNothing(t *testing.T) {
 
 // 事务里已写下前一个技能、后一个技能才发现读取期间被改过或被移除时,整批回滚:前一个技能的版本和结论都不变。
 func TestUpdateRollsBackEarlierSkillsWhenALaterOneChangedDuringSourceRead(t *testing.T) {
+	t.Parallel()
 	for _, race := range []string{"update", "remove"} {
 		t.Run(race, func(t *testing.T) {
 			ctx := t.Context()
@@ -193,6 +195,7 @@ func TestUpdateRollsBackEarlierSkillsWhenALaterOneChangedDuringSourceRead(t *tes
 // 同一 URL 集合里的技能记着不同的 validator:按第一个技能的 validator 得到 304 后,来源在补读整包前又发布了新内容。
 // 检查与更新都按补读到的那一份判断,不把 304 的结论套在第一个技能上,也不给旧内容记上新的来源版本。
 func TestURLCollectionIsJudgedAgainstOneArchiveWhenValidatorsDiffer(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	server := newArchiveServer(t, zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "v1"), "second/SKILL.md": skillDocument("second", "v1")}), `"v1"`)
@@ -400,6 +403,7 @@ func TestUpdatePutsBackMissingFolderOnlyWithConsent(t *testing.T) {
 }
 
 func TestUpdateBringsTheWholeCollectionToOneRevision(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	server := newArchiveServer(t, zipArchive(t, map[string]string{"a/SKILL.md": skillDocument("a", "v1"), "b/SKILL.md": skillDocument("b", "v1"), "c/SKILL.md": skillDocument("c", "v1")}), "")
@@ -425,6 +429,7 @@ func TestUpdateBringsTheWholeCollectionToOneRevision(t *testing.T) {
 }
 
 func TestUpdateConflictsOnlyWhenACheckedSkillChangedAgain(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	server := newArchiveServer(t, zipArchive(t, map[string]string{"a/SKILL.md": skillDocument("a", "v1"), "b/SKILL.md": skillDocument("b", "v1")}), "")
@@ -477,6 +482,7 @@ func TestUpdateRefusesToWriteIntoAPulledLibrary(t *testing.T) {
 // 继续保留
 
 func TestKeptDeletedSkillStopsCountingAndSurvivesRestart(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "library.db")
 	lib, err := library.Open(path, testOptions(t)...)

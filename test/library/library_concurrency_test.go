@@ -43,6 +43,7 @@ func mustFinishBeforeRelease(t *testing.T, gate *networkGate, what string, run f
 }
 
 func TestUpdateNetworkPhaseDoesNotBlockInstallOrListing(t *testing.T) {
+	t.Parallel()
 	setTestHome(t, t.TempDir())
 	gate := newNetworkGate()
 	var archive atomic.Pointer[[]byte]
@@ -82,6 +83,7 @@ func TestUpdateNetworkPhaseDoesNotBlockInstallOrListing(t *testing.T) {
 }
 
 func TestUpdateFailsWithNotFoundWhenSkillRemovedDuringSourceRead(t *testing.T) {
+	t.Parallel()
 	for _, remoteChanged := range []bool{true, false} {
 		name := "unchanged remote"
 		if remoteChanged {
@@ -127,6 +129,7 @@ func TestUpdateFailsWithNotFoundWhenSkillRemovedDuringSourceRead(t *testing.T) {
 // 另一个 Library 实例(等价于另一个进程)在 Update 读取来源期间移除了 skill:
 // 提交前的复核把它报成带 SkillID 的 NotFound,而不是撞外键后的兜底映射。
 func TestUpdateReportsSkillRemovedByAnotherInstanceAsNotFound(t *testing.T) {
+	t.Parallel()
 	gate := newNetworkGate()
 	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")})
 	server := serveGatedArchive(t, gate, func() []byte { return archive })
@@ -158,6 +161,7 @@ func TestUpdateReportsSkillRemovedByAnotherInstanceAsNotFound(t *testing.T) {
 }
 
 func TestUpdateFailsWithConflictWhenAnotherUpdateCommitsFirst(t *testing.T) {
+	t.Parallel()
 	gate := newNetworkGate()
 	var archive atomic.Pointer[[]byte]
 	old := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")})
@@ -202,6 +206,7 @@ func TestUpdateFailsWithConflictWhenAnotherUpdateCommitsFirst(t *testing.T) {
 }
 
 func TestCheckUpdatesNetworkPhaseDoesNotBlockInstall(t *testing.T) {
+	t.Parallel()
 	setTestHome(t, t.TempDir())
 	gate := newNetworkGate()
 	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")})
@@ -229,6 +234,7 @@ func TestCheckUpdatesNetworkPhaseDoesNotBlockInstall(t *testing.T) {
 }
 
 func TestFetchMaterializationDoesNotBlockOtherPreviewsOrInstall(t *testing.T) {
+	t.Parallel()
 	setTestHome(t, t.TempDir())
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"first/SKILL.md":  {content: []byte(skillDocument("first", "first body")), mode: 0o644},
@@ -291,6 +297,7 @@ func TestFetchMaterializationDoesNotBlockOtherPreviewsOrInstall(t *testing.T) {
 }
 
 func TestCloseDoesNotWaitForFetchMaterialization(t *testing.T) {
+	t.Parallel()
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"first/SKILL.md": {content: []byte(skillDocument("first", "first body")), mode: 0o644},
 		"first/notes.md": {content: []byte("first notes"), mode: 0o644},
@@ -323,6 +330,7 @@ func TestCloseDoesNotWaitForFetchMaterialization(t *testing.T) {
 }
 
 func TestSyncPushAndPullPlanNetworkPhasesDoNotBlockLibrary(t *testing.T) {
+	t.Parallel()
 	setTestHome(t, t.TempDir())
 	stub := newS3Stub(t)
 	lib := stub.open(t)
@@ -416,6 +424,7 @@ func requireNoMissingWhile(t *testing.T, lib *library.Library, what string, run 
 }
 
 func TestRemoveSkillAndUnregisterProjectAreAtomicToInspection(t *testing.T) {
+	t.Parallel()
 	const rounds, projects = 20, 8
 	t.Run("RemoveSkill", func(t *testing.T) {
 		lib := openTestLibrary(t)

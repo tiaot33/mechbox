@@ -48,6 +48,7 @@ func legacyIndex(t *testing.T, s *site, base string, skills map[string]map[strin
 }
 
 func TestWellKnownSiteLinkPreviewsIndexedSkills(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	s := serveSite(t)
 	s.put("https://docs.example/", []byte("<html>home</html>"))
@@ -78,6 +79,7 @@ func TestWellKnownSiteLinkPreviewsIndexedSkills(t *testing.T) {
 }
 
 func TestWellKnownLinkWithPathOnlyCollectsSkillsUnderThatPath(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	s := serveSite(t)
 	legacyIndex(t, s, "https://docs.example", map[string]map[string]string{"root-skill": {"SKILL.md": describedSkill("root-skill", "Root", "r")}})
@@ -98,6 +100,7 @@ func TestWellKnownLinkWithPathOnlyCollectsSkillsUnderThatPath(t *testing.T) {
 }
 
 func TestLegacyWellKnownMissingFileFailsFetchAndCheck(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	s := serveSite(t)
 	legacyIndex(t, s, "https://docs.example", map[string]map[string]string{
@@ -154,6 +157,7 @@ func artifactIndex(t *testing.T, s *site, base string, artifacts []artifact) {
 }
 
 func TestWellKnownDigestMismatchFailsFetchNamingTheSkill(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	s := serveSite(t)
 	artifactIndex(t, s, "https://docs.example", []artifact{
@@ -176,6 +180,7 @@ func TestWellKnownDigestMismatchFailsFetchNamingTheSkill(t *testing.T) {
 }
 
 func TestWellKnownUnchangedDigestSkipsDownloadOnCheck(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	s := serveSite(t)
 	archive := tarGz(t, map[string]string{"SKILL.md": describedSkill("packed", "Packed", "p"), "assets/data.txt": "data"}, true)
@@ -214,6 +219,7 @@ func TestWellKnownUnchangedDigestSkipsDownloadOnCheck(t *testing.T) {
 }
 
 func TestSearchResultFromWellKnownSiteCanBePreviewed(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	s := serveSite(t)
 	s.put("https://skills.sh/api/search?limit=20&q=docs", []byte(`{"skills":[{"id":"docs.example/alpha","name":"alpha","source":"docs.example"},{"id":"owner/repo/beta","name":"beta","source":"owner/repo"}]}`))
@@ -239,6 +245,7 @@ func TestSearchResultFromWellKnownSiteCanBePreviewed(t *testing.T) {
 }
 
 func TestWellKnownIndexFailureIsNotTreatedAsMissingIndex(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	s := serveSite(t)
 	legacyIndex(t, s, "https://docs.example", map[string]map[string]string{"root-skill": {"SKILL.md": describedSkill("root-skill", "Root", "r")}})
@@ -250,6 +257,7 @@ func TestWellKnownIndexFailureIsNotTreatedAsMissingIndex(t *testing.T) {
 }
 
 func TestWellKnownBrokenIndexEntryIsUnreadableNotDeleted(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	s := serveSite(t)
 	legacyIndex(t, s, "https://docs.example", map[string]map[string]string{
@@ -276,6 +284,7 @@ func TestWellKnownBrokenIndexEntryIsUnreadableNotDeleted(t *testing.T) {
 }
 
 func TestWellKnownArchivesShareOneExtractionBudget(t *testing.T) {
+	t.Parallel()
 	isolateGit(t)
 	s := serveSite(t)
 	many := func(name string) []byte {

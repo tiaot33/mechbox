@@ -98,6 +98,7 @@ func requireOwnFolder(t *testing.T, folder, body string) {
 }
 
 func TestInspectSkillScopesTellsWhereALinkedFolderPoints(t *testing.T) {
+	t.Parallel()
 	f := newLinkedFixture(t)
 	inspections := f.inspections(t)
 	requireLinkInfo(t, inspections, f)
@@ -125,6 +126,7 @@ func TestInspectSkillScopesTellsWhereALinkedFolderPoints(t *testing.T) {
 }
 
 func TestUpdateWritesALinkedPlaceAsAFolderOfItsOwn(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newLinkedFixture(t)
 	f.server.serve(zipArchive(t, map[string]string{"tdd/SKILL.md": skillDocument("tdd", "v2")}), "")
@@ -167,6 +169,7 @@ func TestUpdateWritesALinkedPlaceAsAFolderOfItsOwn(t *testing.T) {
 }
 
 func TestReinstallWritesALinkedPlaceWithoutTouchingTheLinkedFolder(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newLinkedFixture(t)
 	writeFile(t, filepath.Join(f.codexFolder, "SKILL.md"), []byte(skillDocument("tdd", "edited in codex")), 0o644)
@@ -189,6 +192,7 @@ func TestReinstallWritesALinkedPlaceWithoutTouchingTheLinkedFolder(t *testing.T)
 }
 
 func TestUninstallGivesLinkedPlacesAFolderOfTheirOwnFirst(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newLinkedFixture(t)
 	writeFile(t, filepath.Join(f.codexFolder, "SKILL.md"), []byte(skillDocument("tdd", "edited in codex")), 0o644)
@@ -207,6 +211,7 @@ func TestUninstallGivesLinkedPlacesAFolderOfTheirOwnFirst(t *testing.T) {
 }
 
 func TestUninstallTheLinkLeavesTheLinkedFolder(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newLinkedFixture(t)
 	if err := f.lib.Uninstall(ctx, f.skill.ID, f.claude); err != nil {
@@ -219,6 +224,7 @@ func TestUninstallTheLinkLeavesTheLinkedFolder(t *testing.T) {
 }
 
 func TestRemoveSkillRemovesLinkedPlacesWithTheirFolder(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newLinkedFixture(t)
 	if err := f.lib.RemoveSkill(ctx, f.skill.ID, library.RemoveSkillOptions{}); err != nil {
@@ -232,6 +238,7 @@ func TestRemoveSkillRemovesLinkedPlacesWithTheirFolder(t *testing.T) {
 }
 
 func TestDeleteAgentGivesLinkedPlacesAFolderOfTheirOwnFirst(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newLinkedFixture(t)
 	agent, err := f.lib.AddAgent(ctx, library.CustomAgent{Name: "Mine", GlobalDirectory: "~/.mine/skills", ProjectDirectory: ".mine/skills"})
@@ -335,6 +342,7 @@ func TestUnmanagedLinksOutsideAgentDirectoriesAreMarkedAndNotSelected(t *testing
 // 没选的、链着被覆盖的文件夹的那一处:先换成独立的一份,保持现在的内容,不跟着变。
 
 func TestUpdateGivesAnUncheckedLinkedPlaceItsOwnFolderWithItsContent(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newLinkedFixture(t)
 	f.server.serve(zipArchive(t, map[string]string{"tdd/SKILL.md": skillDocument("tdd", "v2")}), "")
@@ -369,6 +377,7 @@ func TestUpdateGivesAnUncheckedLinkedPlaceItsOwnFolderWithItsContent(t *testing.
 }
 
 func TestReinstallTheLinkedFolderLeavesAnUnselectedLinkWithWhatItShowed(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newLinkedFixture(t)
 	writeFile(t, filepath.Join(f.codexFolder, "SKILL.md"), []byte(skillDocument("tdd", "edited in codex")), 0o644)
@@ -386,6 +395,7 @@ func TestReinstallTheLinkedFolderLeavesAnUnselectedLinkWithWhatItShowed(t *testi
 // 多级链:Claude Code → Mine → Codex 的真实文件夹。删掉中间那个链接前,下游的那一处先换成独立的一份。
 
 func TestUninstallTheMiddleLinkGivesTheDownstreamPlaceItsOwnFolder(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newLinkedFixture(t)
 	agent, err := f.lib.AddAgent(ctx, library.CustomAgent{Name: "Mine", GlobalDirectory: "~/.mine/skills", ProjectDirectory: ".mine/skills"})
@@ -429,6 +439,7 @@ func TestUninstallTheMiddleLinkGivesTheDownstreamPlaceItsOwnFolder(t *testing.T)
 }
 
 func TestUninstallGroupGivesLinkedPlacesAFolderOfTheirOwnFirst(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newLinkedFixture(t)
 	group, err := f.lib.CreateGroup(ctx, "tests")
@@ -455,6 +466,7 @@ func TestUninstallGroupGivesLinkedPlacesAFolderOfTheirOwnFirst(t *testing.T) {
 }
 
 func TestEditAgentMigrationGivesLinkedPlacesAFolderOfTheirOwn(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newLinkedFixture(t)
 	agent, err := f.lib.AddAgent(ctx, library.CustomAgent{Name: "Mine", GlobalDirectory: "~/.mine/skills", ProjectDirectory: ".mine/skills"})
@@ -485,6 +497,7 @@ func TestEditAgentMigrationGivesLinkedPlacesAFolderOfTheirOwn(t *testing.T) {
 
 // 迁移的那一处本身是符号链接:新目录里是它指向的内容的独立一份,链接指向的文件夹不动。
 func TestEditAgentMigratesALinkedPlaceAsAFolderOfItsOwn(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newLinkedFixture(t)
 	agent, err := f.lib.AddAgent(ctx, library.CustomAgent{Name: "Mine", GlobalDirectory: "~/.mine/skills", ProjectDirectory: ".mine/skills"})
@@ -514,6 +527,7 @@ func TestEditAgentMigratesALinkedPlaceAsAFolderOfItsOwn(t *testing.T) {
 
 // 删不掉被链着的文件夹时整次撤销:链接还是原来的链接,文件夹和安装记录都不变。
 func TestUninstallFailureKeepsTheLinkAndTheLinkedFolder(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newLinkedFixture(t)
 	makeScopeReadOnly(t, filepath.Dir(f.codexFolder))

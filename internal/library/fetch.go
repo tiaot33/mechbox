@@ -302,7 +302,7 @@ func (l *Library) ListSourceRefs(ctx context.Context, input string) (refs Source
 	if input == "" {
 		return SourceRefs{}, argumentError("list source refs", "input", "input is required")
 	}
-	listed, err := catalog.Refs(ctx, input)
+	listed, err := l.sources.Refs(ctx, input)
 	if err != nil {
 		return SourceRefs{}, inputField(err, "input")
 	}

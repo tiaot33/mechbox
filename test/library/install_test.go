@@ -339,6 +339,7 @@ func TestInstallAndUninstallGlobalSkill(t *testing.T) {
 }
 
 func TestInstallRecordsFirstInstallTimeAndIgnoresInstallingAgain(t *testing.T) {
+	t.Parallel()
 	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	ctx := t.Context()

@@ -21,6 +21,7 @@ import (
 // 检查更新
 
 func TestCheckUpdatesIsReadOnlyAndUpdateIsLibraryOnly(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	repository := t.TempDir()
 	runGit(t, repository, "init", "-b", "main")
@@ -183,6 +184,7 @@ func TestLocalCheckUpdatesDetectsContentAndMode(t *testing.T) {
 }
 
 func TestCheckUpdatesReadsEachCollectionOnceAndKeepsCollectionsIndependent(t *testing.T) {
+	t.Parallel()
 	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	archive := zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "old"), "second/SKILL.md": skillDocument("second", "old")})
@@ -290,6 +292,7 @@ func TestCheckUpdatesReadsEachCollectionOnceAndKeepsCollectionsIndependent(t *te
 }
 
 func TestCheckUpdatesSeparatesRefsAndDetectsOnlyExecutableChanges(t *testing.T) {
+	t.Parallel()
 	repository, _ := githubRemote(t)
 	runGit(t, repository, "tag", "fixed")
 	lib := openTestLibrary(t)
@@ -335,6 +338,7 @@ func TestCheckUpdatesSeparatesRefsAndDetectsOnlyExecutableChanges(t *testing.T) 
 }
 
 func TestCheckUpdatesCancellationReturnsOnlyCompletedCollections(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	archive := zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "old"), "second/SKILL.md": skillDocument("second", "old")})
 	spec := serveArchive(t, archive)
@@ -484,6 +488,7 @@ func TestUpdateCheckSurvivesReopen(t *testing.T) {
 }
 
 func TestCheckDuringUpdateGivesTheUpdatedConclusion(t *testing.T) {
+	t.Parallel()
 	for _, name := range []string{"changed", "unchanged"} {
 		changed := name == "changed"
 		t.Run(name, func(t *testing.T) {
@@ -532,6 +537,7 @@ func TestCheckDuringUpdateGivesTheUpdatedConclusion(t *testing.T) {
 }
 
 func TestOverlappingCheckSuccessReplacesConcurrentFailure(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	gate := newNetworkGate()
 	var failing atomic.Bool
@@ -570,6 +576,7 @@ func TestOverlappingCheckSuccessReplacesConcurrentFailure(t *testing.T) {
 }
 
 func TestLateCheckDoesNotWriteToTheSameSkillFetchedAgain(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	gate := newNetworkGate()
@@ -605,6 +612,7 @@ func TestLateCheckDoesNotWriteToTheSameSkillFetchedAgain(t *testing.T) {
 
 // 来源里技能目录的 tree 变了、但变的只是不进库的文件(如 .DS_Store)时,检查更新与更新计划都按文件比较,算没变化。
 func TestCheckUpdatesIgnoresTreeChangesOutsideSkillFiles(t *testing.T) {
+	t.Parallel()
 	sources := []struct {
 		name string
 		// setup 准备好来源,返回仓库、技能目录、入库预览的输入和技能名。

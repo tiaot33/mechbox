@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
 	"os/exec"
 	"regexp"
 	"slices"
@@ -23,8 +22,8 @@ var ErrTimeout = errors.New("operation timed out")
 
 var FullCommit = regexp.MustCompile(`^[a-fA-F0-9]{40}$`)
 
-func timeout() time.Duration {
-	parsed, err := time.ParseDuration(os.Getenv("SKILLS_GIT_TIMEOUT"))
+func timeout(ctx context.Context) time.Duration {
+	parsed, err := time.ParseDuration(process.Getenv(ctx, "SKILLS_GIT_TIMEOUT"))
 	if err != nil || parsed <= 0 {
 		return defaultTimeout
 	}
@@ -44,9 +43,9 @@ func run(ctx context.Context, stdin io.Reader, combined bool, args ...string) ([
 	if err != nil {
 		return nil, err
 	}
-	commandCtx, cancel := context.WithTimeout(ctx, timeout())
+	commandCtx, cancel := context.WithTimeout(ctx, timeout(ctx))
 	defer cancel()
-	command := exec.CommandContext(commandCtx, "git", append([]string{
+	command := process.Command(commandCtx, "git", append([]string{
 		"-c", "core.askPass=",
 		"-c", "credential.interactive=false",
 		"-c", "filter.lfs.smudge=",
@@ -54,7 +53,7 @@ func run(ctx context.Context, stdin io.Reader, combined bool, args ...string) ([
 		"-c", "filter.lfs.required=false",
 		"-c", "protocol.ext.allow=never",
 	}, args...)...)
-	command.Env = append(os.Environ(),
+	command.Env = append(command.Env,
 		"GIT_TERMINAL_PROMPT=0",
 		"GCM_INTERACTIVE=Never",
 		"GIT_SSH_COMMAND="+ssh+" -oBatchMode=yes",
@@ -190,10 +189,10 @@ func unreachable(detail string) bool {
 }
 
 func sshCommand(ctx context.Context) (string, error) {
-	if command := os.Getenv("GIT_SSH_COMMAND"); command != "" {
+	if command := process.Getenv(ctx, "GIT_SSH_COMMAND"); command != "" {
 		return command, nil
 	}
-	config := exec.CommandContext(ctx, "git", "config", "--get", "core.sshCommand")
+	config := process.Command(ctx, "git", "config", "--get", "core.sshCommand")
 	config.WaitDelay = time.Second
 	process.Hide(config)
 	process.KillTreeOnCancel(config)
@@ -209,7 +208,7 @@ func sshCommand(ctx context.Context) (string, error) {
 			return "", errors.New("read Git SSH configuration: git config failed")
 		}
 	}
-	if executable := os.Getenv("GIT_SSH"); executable != "" {
+	if executable := process.Getenv(ctx, "GIT_SSH"); executable != "" {
 		return "'" + strings.ReplaceAll(executable, "'", "'\\''") + "'", nil
 	}
 	return "ssh", nil

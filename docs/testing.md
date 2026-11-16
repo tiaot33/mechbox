@@ -46,7 +46,7 @@
    go test ./...
    ```
 
-   全部通过时，每个包输出一行 `ok`。全量运行约 2.5 min，几乎都花在 `test/library` 上。代码没变的包，`go test` 直接用缓存的结果，输出里带 `(cached)`。
+   全部通过时，每个包输出一行 `ok`。全量运行约 1 min，大部分花在 `test/library` 上（约 35 s）。代码没变的包，`go test` 直接用缓存的结果，输出里带 `(cached)`。
 
 2. 运行静态检查：
 
@@ -84,9 +84,11 @@
 | Windows | 检查数据库文件权限的测试，Windows 上权限由 ACL 决定 |
 | 没有 `git` 或 POSIX shell | `agentdir`、`wsl` 子包的部分单元测试 |
 
-WSL 相关的测试不需要 Windows。测试把环境变量 `MECHBOX_TEST_WSL_SHELL` 设成本机的 `sh`，让本机的 shell 充当 WSL 发行版，所以在 macOS 和 Linux 上照常运行。
+WSL 相关的测试不需要 Windows。测试调用 `internal/library/platformtest` 的 `EmulateWSL`，让本机的 `sh` 充当 WSL 发行版，所以在 macOS 和 Linux 上照常运行。
 
-Windows 本机的目录读不出可执行位，相关的测试也不需要 Windows。测试设上环境变量 `MECHBOX_TEST_NO_FILE_MODES`，本机的目录就像在 Windows 上一样，读出的文件一律是普通文件（见 `test/library/library_modes_test.go`）。
+Windows 本机的目录读不出可执行位，相关的测试也不需要 Windows。测试调用 `platformtest.WithoutFileModes`，本机的目录就像在 Windows 上一样，读出的文件一律是普通文件（见 `test/library/library_modes_test.go`）。
+
+`platformtest` 只给测试导入，应用的代码不导入它；它改的是整个测试进程的设置，测试结束时还原。
 
 ## 写 Go 测试
 
@@ -129,16 +131,19 @@ Windows 本机的目录读不出可执行位，相关的测试也不需要 Windo
 | 在 Git 仓库里提交 | `runGit`、`commitGit` |
 | 打开一个临时数据库 | `openTestLibrary` |
 
-辅助函数用真实的 SQLite 文件、Git 仓库和 `httptest` 服务，不用 mock。要隔离本机的 `gh` 登录时用 `stubGitHubCLI`。
+辅助函数用真实的 SQLite 文件、Git 仓库和 `httptest` 服务，不用 mock。要隔离本机的 `gh` 登录时用 `stubGitHubCLI`，它把假的 `gh` 放进这个测试的 `PATH`。
 
-### 假远端、主目录与并行
+### 假远端、主目录、环境变量与并行
 
-每个顶层测试有自己的假远端和用户主目录，不改全局的 `http.DefaultClient` 和 `HOME`：
+每个顶层测试有自己的假远端、用户主目录和 `git`、`gh` 的环境变量，不改全局的 `http.DefaultClient`、`HOME` 和进程的环境变量：
 
-- **打开技能库**用 `openTestLibrary` 或 `openTestLibraryAt`。直接调用 `library.Open` 时带上 `testOptions(t)...`，否则这个技能库会访问真的网络、用进程的主目录。
+- **打开技能库**用 `openTestLibrary` 或 `openTestLibraryAt`。直接调用 `library.Open` 时带上 `testOptions(t)...`，否则这个技能库会访问真的网络、用进程的主目录和环境变量。
 - **假远端**用 `stubHTTP(t, ...)` 设置，或用建在它上面的 `serveArchive`、`serveSite`、`stubHTTPResponse`。要把自己不管的请求转给原来的假远端时，先用 `testTransport(t)` 取出它。
 - **主目录**用 `setTestHome(t, dir)` 指定；没指定时是一个临时目录。整个测试进程的 `HOME` 在 `TestMain` 里换成了空目录，`git`、`gh` 读不到本机的配置。
-- **并行**：不调用 `t.Setenv`、不依赖计时的测试，第一行写 `t.Parallel()`。要换环境变量的测试（给 `git`、`gh` 换配置，用 WSL 或 Windows 的模拟）不能并行，写了 Go 会直接 panic。
+- **`git`、`gh` 的环境变量**用 `setTestEnv(t, key, value)` 设置，用 `testEnv(t, key)` 读取：git 配置文件、改写仓库地址、SSH 命令、超时，假的 `gh` 或 `git` 放进 `PATH`，清掉 `gh` 的令牌，都用它。它只改这个测试里技能库启动的命令，不改进程的环境变量；已经打开的技能库下一次启动命令时就用上。
+- **并行**：测试第一行写 `t.Parallel()`。下面几种不能并行：
+  - 改整个测试进程的：调用 `t.Setenv`（核对技能库不读进程的环境变量、换进程的 `HOME` 或 `TMPDIR`）、`t.Chdir`（相对路径），以及用 `platformtest` 模拟 WSL 或读不出可执行位的。`t.Setenv` 和 `t.Chdir` 与 `t.Parallel()` 写在一起时 Go 会直接 panic；`platformtest` 不会，要自己注意。
+  - 依赖计时的：如 `library_multiprocess_test.go` 里核对等够数据库忙等时间的测试，和别的测试一起跑时计时不准。
 
 ### 新增来源或绑定方法时要改的测试
 

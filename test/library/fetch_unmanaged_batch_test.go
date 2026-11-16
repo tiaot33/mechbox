@@ -355,6 +355,7 @@ func TestPlanFetchUnmanagedMergesFoldersSharedByAgents(t *testing.T) {
 }
 
 func TestFetchUnmanagedSkillsReadsSourcesAndKeepsGoingWhenOneFails(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newSourcedSkillFixture(t)
 	recordsPath := globalRecordsPath(f.home)

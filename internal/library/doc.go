@@ -6,7 +6,8 @@
 // 装出去的是 SkillScope。集合(Collection)与组(Group)只给出技能 ID,技能信息统一从 [Library.ListSkills] 取。
 //
 // 用 [Open] 打开库,得到 [*Library];用完调用 [Library.Close]。方法可在多个 goroutine 里同时调用。
-// 这个 Library 发出的 HTTP 请求与用户主目录默认用这台机器的,要换(测试里接假远端、用临时主目录)时给 [Open] 传 [Option]。
+// 这个 Library 发出的 HTTP 请求、用户主目录与启动 git、gh 用的环境变量默认用这台机器的,
+// 要换(测试里接假远端、用临时主目录、给 git 和 gh 换配置)时给 [Open] 传 [Option]。
 // 方法返回的错误用 [ErrorOf] 取出 [*Error],或用 [IsCode] 按错误码判断。
 //
 // # 用户流程

@@ -137,7 +137,7 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 	if err != nil {
 		return nil, err
 	}
-	committed := committedFolders{}
+	committed := l.committedFolders()
 	directories, err := l.agentDirectories(ctx)
 	if err != nil {
 		return nil, err
@@ -195,21 +195,28 @@ type repository struct {
 	relative  string
 }
 
-type committedFolders map[repository]map[string]bool
+type committedFolders struct {
+	library *Library
+	found   map[repository]map[string]bool
+}
+
+func (l *Library) committedFolders() committedFolders {
+	return committedFolders{library: l, found: map[repository]map[string]bool{}}
+}
 
 func (c committedFolders) has(ctx context.Context, target resolvedScope, name string) (bool, error) {
 	if target.ProjectID == nil {
 		return false, nil
 	}
 	key := repository{projectID: ProjectID(*target.ProjectID), relative: target.relative}
-	if _, ok := c[key]; !ok {
-		committed, err := agentdir.Committed(ctx, target.root, target.relative)
+	if _, ok := c.found[key]; !ok {
+		committed, err := agentdir.Committed(c.library.commandContext(ctx), target.root, target.relative)
 		if err != nil {
 			return false, err
 		}
-		c[key] = committed
+		c.found[key] = committed
 	}
-	return c[key][name], nil
+	return c.found[key][name], nil
 }
 
 type sameFolders struct {

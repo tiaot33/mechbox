@@ -11,6 +11,7 @@ import (
 // 新技能
 
 func TestNewSkillsAreOnlyThoseAppearingAfterFetch(t *testing.T) {
+	t.Parallel()
 	for _, mode := range gitHubModes {
 		for _, entry := range []struct {
 			name    string

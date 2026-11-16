@@ -42,6 +42,7 @@ func openLibraryAt(t *testing.T, path string) *library.Library {
 }
 
 func TestPreviewIsReadOnlyAndInstanceScoped(t *testing.T) {
+	t.Parallel()
 	spec := mockPreviewArchive(t)
 	path := filepath.Join(t.TempDir(), "library.db")
 	lib := openLibraryAt(t, path)
@@ -105,6 +106,7 @@ func TestPreviewIsReadOnlyAndInstanceScoped(t *testing.T) {
 }
 
 func TestPreviewHandleLifetime(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name    string
 		wait    time.Duration
@@ -137,6 +139,7 @@ func TestPreviewHandleLifetime(t *testing.T) {
 }
 
 func TestCloseDuringPreviewDoesNotRetainIt(t *testing.T) {
+	t.Parallel()
 	spec := mockPreviewArchive(t)
 	transport := testTransport(t)
 	started, resume := make(chan struct{}), make(chan struct{})
@@ -163,6 +166,7 @@ func TestCloseDuringPreviewDoesNotRetainIt(t *testing.T) {
 }
 
 func TestPreviewsAreNotSynced(t *testing.T) {
+	t.Parallel()
 	spec := mockPreviewArchive(t)
 	stub := newS3Stub(t)
 	archiveTransport := testTransport(t)
@@ -219,6 +223,7 @@ func TestPreviewInvalidArgumentsHaveTypedErrors(t *testing.T) {
 }
 
 func TestPreviewArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
+	t.Parallel()
 	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "body")})
 	for _, spec := range []library.PreviewFetchRequest{
 		{Input: "https://source.example/skills.zip"},
@@ -310,6 +315,7 @@ func TestPreviewMapsErrorsAndPreservesCancellation(t *testing.T) {
 }
 
 func TestCandidateFetchedIsQueriedWhenPreviewing(t *testing.T) {
+	t.Parallel()
 	spec := mockPreviewArchive(t)
 	lib := openTestLibrary(t)
 	ctx := t.Context()
@@ -388,6 +394,7 @@ func TestPreviewFetchCollectionListsNewSkills(t *testing.T) {
 // 入库预览的候选写出它的 SKILL.md 提到了同一份预览里的哪些候选:点名写法和几个词连成的名字算,
 // 单个词的名字不交给 AI、不算;其他 Markdown 文件不读;整份预览里超过一半(至少 3 个)候选都有的一行不算。
 func TestPreviewFetchListsCandidatesMentionedInSkillMD(t *testing.T) {
+	t.Parallel()
 	shared := "Shared: always run /helper first."
 	root := mentionSource(t, map[string]string{
 		"entry":         "Run /ship, then writing-plans.\nCould you review this?\n" + shared + "\n",

@@ -19,20 +19,21 @@ import (
 )
 
 type Catalog struct {
-	source.Kinds
+	kinds     source.Kinds
+	environ   func() []string
 	github    *github.Client
 	download  download.Kind
 	wellknown wellknown.Kind
 	local     local.Kind
 }
 
-func New(httpClient *http.Client, maxFiles int, maxBytes int64) *Catalog {
+func New(httpClient *http.Client, environ func() []string, maxFiles int, maxBytes int64) *Catalog {
 	client := github.NewClient(httpClient)
 	direct := download.New(httpClient, maxFiles, maxBytes)
 	known := wellknown.New(httpClient, maxFiles, maxBytes)
 	directory := local.New(maxFiles, maxBytes)
 	return &Catalog{
-		Kinds: source.Kinds{
+		kinds: source.Kinds{
 			github.Type:    client,
 			git.Type:       git.Kind{},
 			download.Type:  direct,
@@ -42,8 +43,18 @@ func New(httpClient *http.Client, maxFiles int, maxBytes int64) *Catalog {
 		github:    client,
 		download:  direct,
 		wellknown: known,
+		environ:   environ,
 		local:     directory,
 	}
+}
+
+func (c *Catalog) Open(ctx context.Context, sourceType string, loc source.Locator, subpath string, hint source.State) (source.Snapshot, error) {
+	snapshot, err := c.kinds.Open(c.context(ctx), sourceType, loc, subpath, hint)
+	return c.wrap(snapshot), err
+}
+
+func (c *Catalog) Describe(sourceType string, loc source.Locator) (source.Description, error) {
+	return c.kinds.Describe(sourceType, loc)
 }
 
 func (c *Catalog) SetToken(token string) {
@@ -88,6 +99,12 @@ func classify(input string) inputKind {
 }
 
 func (c *Catalog) Locate(ctx context.Context, in Input, home string) (source.Target, error) {
+	target, err := c.locate(c.context(ctx), in, home)
+	target.Snapshot = c.wrap(target.Snapshot)
+	return target, err
+}
+
+func (c *Catalog) locate(ctx context.Context, in Input, home string) (source.Target, error) {
 	input := withHTTPS(in.Input)
 	switch classify(input) {
 	case localDirectory:
@@ -151,7 +168,8 @@ func (c *Catalog) probe(ctx context.Context, link string, in Input) (source.Targ
 	return source.Target{}, &source.InputError{Reason: "link is neither a skill file or archive, nor a site with a well-known skills index, nor a Git repository"}
 }
 
-func Refs(ctx context.Context, input string) (gitcmd.Refs, error) {
+func (c *Catalog) Refs(ctx context.Context, input string) (gitcmd.Refs, error) {
+	ctx = c.context(ctx)
 	input = withHTTPS(input)
 	switch classify(input) {
 	case localDirectory, hostedDownload:

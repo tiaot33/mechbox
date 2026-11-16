@@ -18,13 +18,13 @@ import (
 func githubRemote(t *testing.T) (string, string) {
 	t.Helper()
 	repository := t.TempDir()
-	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
-	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	setTestEnv(t, "GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
+	setTestEnv(t, "GIT_CONFIG_NOSYSTEM", "1")
 	runGit(t, repository, "init", "-b", "trunk")
 	writeFile(t, filepath.Join(repository, "SKILL.md"), []byte(skillDocument("example", "original")), 0o644)
 	commitGit(t, repository, "initial")
-	runGit(t, repository, "config", "--file", os.Getenv("GIT_CONFIG_GLOBAL"), "url.file://"+repository+".insteadOf", "https://github.com/owner/repo.git")
-	runGit(t, repository, "config", "--file", os.Getenv("GIT_CONFIG_GLOBAL"), "--add", "url.file://"+repository+".insteadOf", "git@github.com:owner/repo.git")
+	runGit(t, repository, "config", "--file", testEnv(t, "GIT_CONFIG_GLOBAL"), "url.file://"+repository+".insteadOf", "https://github.com/owner/repo.git")
+	runGit(t, repository, "config", "--file", testEnv(t, "GIT_CONFIG_GLOBAL"), "--add", "url.file://"+repository+".insteadOf", "git@github.com:owner/repo.git")
 	stubHTTP(t, func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("github api unavailable")
 	})
@@ -36,6 +36,7 @@ func githubRemote(t *testing.T) (string, string) {
 }
 
 func TestGitSourceRejectsSymlinkSubpathsAndPreservesInFlightCancellation(t *testing.T) {
+	t.Parallel()
 	repository, _ := githubRemote(t)
 	if err := os.Symlink(t.TempDir(), filepath.Join(repository, "outside")); err != nil {
 		t.Fatal(err)
@@ -60,26 +61,27 @@ func TestGitSourceRejectsSymlinkSubpathsAndPreservesInFlightCancellation(t *test
 }
 
 func TestPreviewUsesConfiguredSSHAuthenticationWithoutPrompts(t *testing.T) {
+	t.Parallel()
 	for _, setting := range []string{"core.sshCommand", "GIT_SSH", "GIT_SSH_COMMAND"} {
 		t.Run(setting, func(t *testing.T) {
 			repository, _ := githubRemote(t)
-			t.Setenv("GIT_SSH_COMMAND", "")
-			t.Setenv("GIT_SSH", "")
-			t.Setenv("GIT_SSH_VARIANT", "ssh")
-			t.Setenv("TEST_SSH_REPOSITORY", repository)
+			setTestEnv(t, "GIT_SSH_COMMAND", "")
+			setTestEnv(t, "GIT_SSH", "")
+			setTestEnv(t, "GIT_SSH_VARIANT", "ssh")
+			setTestEnv(t, "TEST_SSH_REPOSITORY", repository)
 			wrapper := filepath.Join(t.TempDir(), "ssh wrapper")
 			writeFile(t, wrapper, []byte("#!/bin/sh\ncase \" $* \" in *' -oBatchMode=yes '*) ;; *) exit 9 ;; esac\n[ \"$GIT_TERMINAL_PROMPT\" = 0 ] || exit 10\nexec git-upload-pack \"$TEST_SSH_REPOSITORY\"\n"), 0o755)
 			// 把 HTTPS 远端改写成 SSH 地址,克隆必须经过配置的 SSH 命令。
-			config := os.Getenv("GIT_CONFIG_GLOBAL")
+			config := testEnv(t, "GIT_CONFIG_GLOBAL")
 			runGit(t, repository, "config", "--file", config, "--unset-all", "url.file://"+repository+".insteadOf")
 			runGit(t, repository, "config", "--file", config, "url.git@example.invalid:repo.insteadOf", "https://github.com/owner/repo.git")
 			switch setting {
 			case "core.sshCommand":
-				runGit(t, repository, "config", "--file", os.Getenv("GIT_CONFIG_GLOBAL"), setting, "'"+wrapper+"'")
+				runGit(t, repository, "config", "--file", testEnv(t, "GIT_CONFIG_GLOBAL"), setting, "'"+wrapper+"'")
 			case "GIT_SSH":
-				t.Setenv(setting, wrapper)
+				setTestEnv(t, setting, wrapper)
 			case "GIT_SSH_COMMAND":
-				t.Setenv(setting, "'"+wrapper+"'")
+				setTestEnv(t, setting, "'"+wrapper+"'")
 			}
 			lib := openTestLibrary(t)
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -93,6 +95,7 @@ func TestPreviewUsesConfiguredSSHAuthenticationWithoutPrompts(t *testing.T) {
 }
 
 func TestPreviewFetchSelectsTreeAndNameWithoutSplittingSource(t *testing.T) {
+	t.Parallel()
 	repository, _ := githubRemote(t)
 	if err := os.Remove(filepath.Join(repository, "SKILL.md")); err != nil {
 		t.Fatal(err)
@@ -156,6 +159,7 @@ func TestPreviewFetchSelectsTreeAndNameWithoutSplittingSource(t *testing.T) {
 }
 
 func TestPreviewFetchRejectsBadGitHubInputsAndPreservesCancellation(t *testing.T) {
+	t.Parallel()
 	_, _ = githubRemote(t)
 	lib := openTestLibrary(t)
 	for _, input := range []string{"", "owner", "https://github.com/owner", "https://token@github.com/owner/repo", "https://github.com/owner/repo/tree/trunk/../outside", "owner/repo#", "owner/repo@", "owner/repo#--upload-pack=bad", "owner/repo#bad..ref"} {
@@ -177,6 +181,7 @@ func TestPreviewFetchRejectsBadGitHubInputsAndPreservesCancellation(t *testing.T
 }
 
 func TestPreviewFetchDoesNotAssumeMainWhenDefaultBranchIsUnknown(t *testing.T) {
+	t.Parallel()
 	repository, _ := githubRemote(t)
 	// 远端 HEAD 游离时 ls-remote 给不出默认分支。
 	runGit(t, repository, "checkout", "--quiet", "--detach")
@@ -191,6 +196,7 @@ func TestPreviewFetchDoesNotAssumeMainWhenDefaultBranchIsUnknown(t *testing.T) {
 }
 
 func TestGitHubInputsPreviewTheRequestedRefAndShareSource(t *testing.T) {
+	t.Parallel()
 	repository, sha := githubRemote(t)
 	runGit(t, repository, "tag", "v1")
 	lib := openTestLibrary(t)
@@ -228,10 +234,11 @@ func TestGitHubInputsPreviewTheRequestedRefAndShareSource(t *testing.T) {
 }
 
 func TestGitSourceKeepsPermissionErrorWhenOtherTransportIsUnavailable(t *testing.T) {
+	t.Parallel()
 	repository, _ := githubRemote(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusForbidden) }))
 	t.Cleanup(server.Close)
-	config := os.Getenv("GIT_CONFIG_GLOBAL")
+	config := testEnv(t, "GIT_CONFIG_GLOBAL")
 	runGit(t, repository, "config", "--file", config, "--unset-all", "url.file://"+repository+".insteadOf")
 	runGit(t, repository, "config", "--file", config, "url."+server.URL+"/.insteadOf", "https://github.com/")
 	runGit(t, repository, "config", "--file", config, "url.file://"+filepath.Join(t.TempDir(), "missing")+"/.insteadOf", "git@github.com:")
@@ -242,5 +249,34 @@ func TestGitSourceKeepsPermissionErrorWhenOtherTransportIsUnavailable(t *testing
 	}
 	if _, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "owner/repo", Ref: "trunk"}); !library.IsCode(err, library.Permission) {
 		t.Fatalf("preview fallback error = %v", err)
+	}
+}
+
+// 应用打开技能库时不传 WithEnvironment:git、gh 照常用进程的环境变量,也就是这台机器的配置和登录。
+func TestGitAndGitHubCLIUseProcessEnvironmentByDefault(t *testing.T) {
+	repository := t.TempDir()
+	runGit(t, repository, "init", "-b", "trunk")
+	writeFile(t, filepath.Join(repository, "SKILL.md"), []byte(skillDocument("example", "original")), 0o644)
+	commitGit(t, repository, "initial")
+	config := filepath.Join(t.TempDir(), "gitconfig")
+	runGit(t, repository, "config", "--file", config, "url.file://"+repository+".insteadOf", "https://github.com/owner/repo.git")
+	bin := t.TempDir()
+	marker := filepath.Join(bin, "called")
+	writeFile(t, filepath.Join(bin, "gh"), []byte("#!/bin/sh\ntouch '"+marker+"'\nexit 1\n"), 0o755)
+	t.Setenv("GIT_CONFIG_GLOBAL", config)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	stubHTTPResponse(t, http.StatusTooManyRequests, strings.NewReader("rate limited"))
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"), testHTTPOption(t), library.WithHomeDirectory(testHome(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lib.Close() })
+	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "owner/repo", Ref: "trunk"})
+	if err != nil || len(preview.Candidates) != 1 || preview.Candidates[0].Name != "example" {
+		t.Fatalf("PreviewFetch with the process's git configuration = %#v, %v", preview, err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatalf("gh on the process's PATH was not used: %v", err)
 	}
 }
