@@ -311,18 +311,19 @@ Git 不保存的部分由 `run.sh` 现场补上：空目录、zip 文件、Git �
    wails3 task dev:seeded
    ```
 
-   窗口打开后，左栏「技能库」有 25 个技能，「更新」有 5 个要处理的更新。
+   窗口打开后，左栏「技能库」有 25 个技能，「更新」有 4 个要处理的更新。
 
    Vite 的端口每次启动时自动选一个空闲的，别的工作区开着 `wails3 dev` 也不冲突。要固定端口时设 `WAILS_VITE_PORT`，如 `WAILS_VITE_PORT=9345 wails3 task dev:seeded`。
 
-3. 核对窗口用的是开发数据：左栏底部的数据库位置必须是 `…/.dev/seed/library.db`；在右栏选中 **Claude Code**，列表顶部写着 5 个已安装、1 个未纳管。
+3. 核对窗口用的是开发数据：左栏底部的数据库位置必须是 `…/.dev/seed/library.db`；在右栏选中 **Claude Code**，列表顶部写着 5 个已安装、3 个不在技能库里。
 
-   **核对不通过时，先退出这个窗口，不要安装或卸载任何技能。** 这个窗口读写的可能是你真实的 Agent 目录或数据库。常见的原因有两个：
+   **核对不通过时，先退出这个窗口，不要安装或卸载任何技能。** 这个窗口读写的可能是你真实的 Agent 目录或数据库。常见的原因有三个：
 
    - 启动的不是 `dev:seeded`，如 `wails3 dev` 或 `dev:test-db`。它们打开真实技能库或 `.dev/library.db`，`HOME` 也是真实的。
    - 你看的是另一个窗口。装好的 Mechbox 和别的工作区的开发版窗口在 Dock 里也都叫 Mechbox。
+   - 数据库位置对，数字对不上：开发数据是旧版 `devseed` 生成的。`dev:seeded` 只看数据库在不在，不看它是哪一版生成的。
 
-   退出后，在本工作区的 `cmd/desktop/` 下重新运行第 2 步。
+   退出后，在本工作区的 `cmd/desktop/` 下重新运行第 2 步；是开发数据旧了的，先运行第 1 步再运行第 2 步。
 
    同一个工作区里已经开着 `dev:seeded` 时，再运行一次只会把已有的窗口带到前台，新的 `dev:seeded` 随之结束。
 
@@ -358,19 +359,21 @@ Git 不保存的部分由 `run.sh` 现场补上：空目录、zip 文件、Git �
 
 ### 开发数据里有什么
 
-技能来自 skills.sh 上的 anthropics/skills、openai/skills 和 obra/superpowers，是提交在 `cmd/desktop/testdata/dev/git/` 里的快照。`devseed` 把同一个仓库的几个快照依次提交成本地 Git 仓库。临时 `HOME` 的 `.gitconfig` 让 `https://git.dev.test/<owner>/skills.git` 指向这些仓库。`devseed` 先按旧快照入库，再提交新快照、检查更新，用两段真实的提交历史造出下面的状态：
+技能来自 skills.sh 上的 anthropics/skills、openai/skills 和 obra/superpowers，是提交在 `cmd/desktop/testdata/dev/git/` 里的快照。`devseed` 把同一个仓库的几个快照依次提交成本地 Git 仓库。临时 `HOME` 的 `.gitconfig` 让 `https://git.dev.test/<owner>/skills.git` 指向这些仓库。`devseed` 先按旧快照入库，再提交新快照、检查更新，用两段真实的提交历史造出下面的状态（superpowers 另在快照之上补了一次只改 brainstorming 的提交）：
 
 | 方面 | 内容 |
 | --- | --- |
 | 集合 `git.dev.test/anthropics/skills` | frontend-design 有新版本；claude-academy-guide 可能改名为 academy-guide；来源里的新技能 discernment-nudge |
-| 集合 `git.dev.test/openai/skills` | 更新过一次，有历史可以回滚；openai-docs 有新版本并改动脚本；sora 和 doc 来源里已删除；新技能 define-goal |
-| 集合 `git.dev.test/obra/superpowers` | 全部 15 个技能，技能之间互相提到，用来看关系图：节标题上的「关系图」画出 33 条提到，其中 using-superpowers 提到了 anthropics 集合的 frontend-design(空心虚线圆);diagnosing-superpowers 和 receiving-code-review 没有连线，收在图下方;另有 4 处单个词的技能名(如 doc、brainstorming)要交给 AI 判断，没配 AI 时图上方提示去设置 |
-| 集合 `~/code/my-skills` | 本地目录来源，两个技能 |
-| 没有来源的技能 | internal-comms，从 Claude Code 全局的未纳管技能入库 |
-| 组 | 「前端」组安装到 Codex 全局；「文档」没有安装；「写计划」是 superpowers 的 brainstorming、writing-plans、executing-plans，关系图里提到的组外技能画成空心虚线圆 |
-| 项目 | web-app 是 Git 仓库，里面提交了 `.claude/skills/playwright`，和 Claude Code 全局的 playwright 同名；old-project 不在这台机器上 |
-| 安装状态 | 当前版本；被手动改过（Claude Code 全局的 playwright）；文件夹不在了（Claude Code 全局的 sora）；项目不在这台机器上 |
-| 未纳管技能 | webapp-testing 是 npx skills 的布局：真实文件夹在 Codex 全局，Claude Code 全局里是符号链接；来源记录认出来源 `git.dev.test/anthropics/skills` |
+| 集合 `git.dev.test/openai/skills` | 更新过一次，有历史可以回滚；openai-docs 有新版本并改动脚本；sora 来源里已删除；doc 来源里已删除，用户选了继续保留，只留淡色标记、不计入更新；新技能 define-goal |
+| 集合 `git.dev.test/obra/superpowers` | 全部 15 个技能，技能之间互相提到，用来看关系图：节标题上的「关系图」画出 33 条提到，其中 using-superpowers 提到了 anthropics 集合的 frontend-design(空心虚线圆);diagnosing-superpowers 和 receiving-code-review 没有连线，收在图下方;另有 4 处单个词的技能名(如 doc、brainstorming)要交给 AI 判断，没配 AI 时图上方提示去设置；来源里 brainstorming 又改了一次，这次改动已跳过，集合的历史里有一条跳过记录 |
+| 集合 `~/code/my-skills` | 本地目录来源，两个技能；入库后目录里的 gh-fix-ci 又改过，技能详情里「重新读取」能读出新版本；目录里另有一个 SKILL.md 没有 frontmatter 的文件夹 notes-without-name，入库预览时列在诊断里 |
+| 没有来源的技能 | internal-comms，从 Claude Code 全局的未纳管技能入库，之后在 Claude Code 全局里又改过 |
+| 备注 | frontend-design 有一条备注 |
+| 自定义 Agent | Cursor：全局目录 `~/.cursor/skills`，项目里 `.cursor/skills` |
+| 组 | 「前端」组安装到 Codex 全局；「文档」没有组安装；「写计划」是 superpowers 的 brainstorming、writing-plans、executing-plans，关系图里提到的组外技能画成空心虚线圆，组安装到 Cursor 全局和 web-app 的 Codex |
+| 项目 | web-app 是 Git 仓库，里面提交了 `.claude/skills/playwright`，和 Claude Code 全局的 playwright 同名；`.claude/skills/screenshot` 没提交，内容和库里的 screenshot 一样但不是 app 装的；old-project 不在这台机器上 |
+| 安装状态 | 当前版本；被手动改过（Claude Code 全局的 playwright、internal-comms）；文件夹不在了（Claude Code 全局的 sora）；项目不在这台机器上 |
+| 未纳管技能 | webapp-testing 是 npx skills 的布局：真实文件夹在 Codex 全局，Claude Code 全局里是符号链接；来源记录认出来源 `git.dev.test/anthropics/skills`；Claude Code 全局的 pr-summary 是指向 `~/code/skill-drafts` 的符号链接（指向 Agent 目录以外）；release-notes 在 Claude Code 全局和 Codex 全局各有一份，同名但内容不同 |
 
 开发数据已经标记为打开过 app，启动时不弹第一次打开的确认。三个 `git.dev.test` 集合在界面上显示为「Git 仓库」，不是 GitHub。按 GitHub 来源入库只能跟踪真实的默认分支，造不出要处理的更新。
 
