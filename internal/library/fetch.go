@@ -1,6 +1,7 @@
 package library
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -256,7 +257,7 @@ func (l *Library) previewTarget(ctx context.Context, req PreviewFetchRequest) (t
 	case input != "" && req.Collection != 0:
 		return source.Target{}, "collection", argumentError("preview fetch", "collection", "only one of input or collection may be given")
 	case req.Collection != 0:
-		if err := gitOnly(req); err != nil {
+		if err := catalog.GitOnly(catalog.Input{Ref: req.Ref, Subpath: req.Subpath}); err != nil {
 			return source.Target{}, "", err
 		}
 		target, err = l.collectionTarget(ctx, req.Collection)
@@ -266,14 +267,7 @@ func (l *Library) previewTarget(ctx context.Context, req PreviewFetchRequest) (t
 	home := l.home.Root()
 	unlock()
 	target, err = l.sources.Locate(ctx, catalog.Input{Input: input, Ref: req.Ref, Subpath: req.Subpath}, home)
-	return target, "input", requestError("preview fetch", err)
-}
-
-func requestError(operation string, err error) error {
-	if input, ok := errors.AsType[*source.InputError](err); ok && input.Field != "" {
-		return argumentError(operation, input.Field, input.Reason)
-	}
-	return err
+	return target, "input", err
 }
 
 // SourceRefs 是入库预览之前给用户选分支用的:一个 Git 类来源的全部分支和 tag。
@@ -302,19 +296,9 @@ func (l *Library) ListSourceRefs(ctx context.Context, input string) (refs Source
 	}
 	listed, err := catalog.Refs(ctx, input)
 	if err != nil {
-		return SourceRefs{}, inputField(requestError("list source refs", err), "input")
+		return SourceRefs{}, inputField(err, "input")
 	}
 	return SourceRefs{Branches: listed.Branches, Tags: listed.Tags, DefaultBranch: listed.DefaultBranch, InputRef: listed.InputRef}, nil
-}
-
-func gitOnly(req PreviewFetchRequest) error {
-	switch {
-	case req.Ref != "":
-		return argumentError("preview fetch", "ref", "ref only applies to Git repositories")
-	case req.Subpath != "":
-		return argumentError("preview fetch", "subpath", "subpath only applies to Git repositories")
-	}
-	return nil
 }
 
 func (l *Library) collectionTarget(ctx context.Context, id CollectionID) (source.Target, error) {
@@ -334,8 +318,8 @@ func (l *Library) collectionTarget(ctx context.Context, id CollectionID) (source
 }
 
 func inputField(err error, field string) error {
-	if _, ok := errors.AsType[*source.InputError](err); ok {
-		return &Error{Code: InvalidArgument, Message: err.Error(), Details: ErrorDetails{Field: field}, Err: err}
+	if input, ok := errors.AsType[*source.InputError](err); ok {
+		return &Error{Code: InvalidArgument, Message: err.Error(), Details: ErrorDetails{Field: cmp.Or(input.Field, field)}, Err: err}
 	}
 	return err
 }

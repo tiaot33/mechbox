@@ -34,10 +34,11 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 ### 新增一种来源
 
 1. 在 `internal/library/internal/source/` 下加子包,导出 `Type`、识别输入的 `Matches` / `Locate`(要联网才认得出的给 `Probe`)和实现 `source.Kind` 的类型。
-2. 在 `source/catalog` 的 `New` 里登记，并在 `Locate`(要联网才认得出的在 `probe`)的识别顺序里放到合适的位置。
-3. 在 `test/library/library_sources_test.go` 的 `sourceKinds` 里加一行，让它和其他来源走同一遍入库、检查更新、更新、新技能、删除。
+2. 在 `source/catalog` 的 `New` 里登记，并在 `classify`(要联网才认得出的在 `probe`)的识别顺序里放到合适的位置;`Locate` 和 `Refs` 都按它分派。
+3. 在 `library` 包的 `skills.go` 里加 `SourceType` 常量，补上 `doc.go` 与 `PreviewFetch` 的 doc comment 里列来源种类的地方，重新生成前端绑定，并在前端给这种来源起显示的名字。
+4. 在 `test/library/library_sources_test.go` 的 `sourceKinds` 里加一行，让它和其他来源走同一遍入库、检查更新、更新、新技能、删除。
 
-`PreviewFetchRequest` 只有一个输入,不加字段。`library` 包、更新、检查更新、展示与错误翻译都不用改。
+`PreviewFetchRequest` 只有一个输入,不加字段。入库、更新、检查更新与错误翻译的流程都不用改。
 
 ### 改表结构
 

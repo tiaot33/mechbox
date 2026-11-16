@@ -60,33 +60,70 @@ type Input struct {
 	Subpath string
 }
 
-func (c *Catalog) Locate(ctx context.Context, in Input, home string) (source.Target, error) {
-	input := withHTTPS(in.Input)
+type inputKind int
+
+const (
+	unrecognized inputKind = iota
+	localDirectory
+	hostedDownload
+	gitHubRepository
+	gitRepository
+	otherLink
+)
+
+func classify(input string) inputKind {
 	switch {
 	case local.Matches(input):
-		if err := gitOnly(in); err != nil {
+		return localDirectory
+	case download.Hosted(input):
+		return hostedDownload
+	case github.Matches(input):
+		return gitHubRepository
+	case git.Matches(input):
+		return gitRepository
+	case webLink(input):
+		return otherLink
+	}
+	return unrecognized
+}
+
+func (c *Catalog) Locate(ctx context.Context, in Input, home string) (source.Target, error) {
+	input := withHTTPS(in.Input)
+	switch classify(input) {
+	case localDirectory:
+		if err := GitOnly(in); err != nil {
 			return source.Target{}, err
 		}
 		return c.local.Locate(ctx, input, home)
-	case download.Hosted(input):
-		if err := gitOnly(in); err != nil {
+	case hostedDownload:
+		if err := GitOnly(in); err != nil {
+			return source.Target{}, err
+		}
+		if err := withoutCredentials(input); err != nil {
 			return source.Target{}, err
 		}
 		return download.Locate(input)
-	case github.Matches(input):
+	case gitHubRepository:
 		return github.Locate(ctx, github.Input{Input: input, Ref: in.Ref, Subpath: in.Subpath})
-	case git.Matches(input):
+	case gitRepository:
 		return git.Locate(ctx, git.Input{Input: input, Ref: in.Ref, Subpath: in.Subpath})
-	case webLink(input):
+	case otherLink:
 		return c.probe(ctx, input, in)
 	}
 	return source.Target{}, &source.InputError{Reason: "unrecognized source input; expected a local path, a GitHub repository, a Git repository or an http(s) link"}
 }
 
+func withoutCredentials(link string) error {
+	if u, err := url.Parse(link); err != nil || u.User != nil {
+		return &source.InputError{Reason: "links with embedded credentials are not supported; configure Git credentials on this machine instead"}
+	}
+	return nil
+}
+
 func (c *Catalog) probe(ctx context.Context, link string, in Input) (source.Target, error) {
 	link, _, _ = strings.Cut(link, "#")
-	if u, err := url.Parse(link); err != nil || u.User != nil {
-		return source.Target{}, &source.InputError{Reason: "links with embedded credentials are not supported; configure Git credentials on this machine instead"}
+	if err := withoutCredentials(link); err != nil {
+		return source.Target{}, err
 	}
 	target, ok, err := c.download.Probe(ctx, link)
 	if err != nil {
@@ -100,7 +137,7 @@ func (c *Catalog) probe(ctx context.Context, link string, in Input) (source.Targ
 		return source.Target{}, err
 	}
 	if ok {
-		return target, gitOnly(in)
+		return target, GitOnly(in)
 	}
 	target, ok, err = git.Probe(ctx, link, in.Ref, in.Subpath)
 	switch {
@@ -116,15 +153,15 @@ func (c *Catalog) probe(ctx context.Context, link string, in Input) (source.Targ
 
 func Refs(ctx context.Context, input string) (gitcmd.Refs, error) {
 	input = withHTTPS(input)
-	switch {
-	case local.Matches(input), download.Hosted(input):
-		return gitcmd.Refs{}, &source.InputError{Field: "input", Reason: "branches and tags are only listed for Git repositories"}
-	case github.Matches(input):
+	switch classify(input) {
+	case localDirectory, hostedDownload:
+		return gitcmd.Refs{}, &source.InputError{Reason: "branches and tags are only listed for Git repositories"}
+	case gitHubRepository:
 		return github.InputRefs(ctx, input)
-	case git.Matches(input):
+	case gitRepository:
 		return git.InputRefs(ctx, input)
 	}
-	return gitcmd.Refs{}, &source.InputError{Field: "input", Reason: "branches and tags are only listed for inputs recognizable as Git repositories"}
+	return gitcmd.Refs{}, &source.InputError{Reason: "branches and tags are only listed for inputs recognizable as Git repositories"}
 }
 
 func SearchInputs(origin, name string) (skillInput, sourceInput string, ok bool) {
@@ -153,7 +190,7 @@ func UserAuthored(sourceType string) bool {
 	return sourceType == local.Type
 }
 
-func gitOnly(in Input) error {
+func GitOnly(in Input) error {
 	switch {
 	case in.Ref != "":
 		return &source.InputError{Field: "ref", Reason: "ref only applies to Git repositories"}
