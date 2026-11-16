@@ -1,12 +1,19 @@
 package agentdir
 
-import "context"
+import (
+	"context"
+
+	"github.com/tiaot33/mechbox/internal/library/internal/agentsettings"
+)
+
+const codexMetadataFile = agentsettings.CodexFile
 
 type Folder struct {
-	Name    string
-	Path    string
-	Target  string
-	SkillMD []byte
+	Name          string
+	Path          string
+	Target        string
+	SkillMD       []byte
+	CodexMetadata []byte
 }
 
 const maxSkillMD = 1 << 20

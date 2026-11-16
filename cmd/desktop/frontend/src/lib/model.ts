@@ -158,6 +158,12 @@ export function projectLead(s: AgentList, code: AgentCode): AgentCode {
   return projectNamed(s, code)[0]?.code ?? code;
 }
 
+// scopeReaders 是读这个作用域里技能文件夹的 Agent:全局是它自己，项目里是共用这个目录的几个(含这台机器上不显示的)。
+export function scopeReaders(s: AgentList, scope: Scope): AgentCode[] {
+  const shared = scope.project_id ? projectSharers(s, scope.agent) : [];
+  return shared.length ? shared.map((a) => a.code) : [scope.agent];
+}
+
 export function sameProjectFolder(s: AgentList, a: AgentCode, b: AgentCode): boolean {
   return a === b || projectSharers(s, a).some((x) => x.code === b);
 }

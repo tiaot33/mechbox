@@ -434,11 +434,17 @@ export const zh = {
     riskScriptAdded: "新增脚本",
     riskScriptChanged: "改动脚本",
     riskOther: "需要看一眼",
-    riskSummary: (executables: number, scriptsAdded: number, scriptsChanged: number) =>
+    riskAllowedTools: (agent: string) => `${agent} 里不用确认就能用的工具多了`,
+    riskHooks: (agent: string) => `${agent} 的 hooks 新增或改动了`,
+    riskTools: (agent: string) => `${agent} 要接入的工具新增或改动了`,
+    riskAutoInvocation: (agent: string) => `${agent} 会自动调用它了（原来关掉了自动调用）`,
+    riskLooser: "放宽了 Agent 权限",
+    riskSummary: (executables: number, scriptsAdded: number, scriptsChanged: number, settings: number) =>
       [
         executables && `新增 ${executables} 个可执行文件`,
         scriptsAdded && `新增 ${scriptsAdded} 个脚本`,
         scriptsChanged && `改动 ${scriptsChanged} 个脚本`,
+        settings && `${settings} 处放宽了 Agent 权限`,
       ]
         .filter(Boolean)
         .join(" · "),
@@ -665,6 +671,46 @@ export const zh = {
     versionFiles: (n: number | undefined) => `版本 ${n} 的文件`,
   },
 
+  agentSettings: {
+    declared: "这是技能自己声明的，Agent 实际怎样做还取决于它自己的设置和版本",
+    invocationShort: { manual: "只能手动调用", auto: "只能自动调用", neither: "调用不了" } as Record<"manual" | "auto" | "neither", string>,
+    claudeInvocationTitle: (how: "manual" | "auto" | "neither", name: string) =>
+      how === "manual"
+        ? `SKILL.md 里写了 disable-model-invocation: true：Claude Code 不会自动调用它，要用 /${name} 手动调用`
+        : how === "auto"
+          ? `SKILL.md 里写了 user-invocable: false：它不在 / 菜单里，用 /${name} 也调不出来，只由 Claude Code 自动调用`
+          : "SKILL.md 里既关掉了自动调用（disable-model-invocation: true），又关掉了手动调用（user-invocable: false）：Claude Code 用不上它",
+    codexInvocationTitle: (name: string) => `agents/openai.yaml 里写了 allow_implicit_invocation: false：Codex 不会自动调用它，要用 $${name} 手动调用`,
+    codexProductsTitle: (products: string) => `agents/openai.yaml 的 policy.products 只写了 ${products}：Codex 不会加载它`,
+    codexNeither: "调用不了：policy.products 里没有 Codex，Codex 不会加载它",
+    list: (items: string[]) => items.join("、"),
+    title: "在 Agent 里怎样用",
+    note: "技能自己声明的",
+    noteTitle: "取自 SKILL.md 的 frontmatter（Claude Code）和 agents/openai.yaml（Codex），只列和默认不同的。Agent 实际怎样做还取决于它自己的设置和版本",
+    invocation: "调用方式",
+    claudeInvocation: (how: "manual" | "auto" | "neither", name: string) =>
+      how === "manual" ? `只能手动调用（/${name}），Claude 不会自动调用` : how === "auto" ? "只能由 Claude 自动调用，不在 / 菜单里" : "自动和手动调用都关掉了",
+    codexInvocation: (name: string) => `只能手动调用（$${name}），Codex 不会自动调用`,
+    paths: "只在这些文件上自动调用",
+    whenToUse: "什么时候调用",
+    allowedTools: "不用确认就能用",
+    hooks: "注册的 hooks",
+    disallowedTools: "用时拿掉的工具",
+    run: "运行方式",
+    fork: (agent: string) => (agent ? `在单独的 subagent（${agent}）里运行` : "在单独的 subagent 里运行"),
+    model: (model: string) => `换用模型 ${model}`,
+    effort: (effort: string) => `思考深度 ${effort}`,
+    shell: (shell: string) => `内联命令用 ${shell}`,
+    argumentHint: "参数提示",
+    products: "只在这些产品里用",
+    tools: "要接入的工具",
+    permissionShort: (allowed: number, hooks: number, tools: number) =>
+      [allowed && `${allowed} 个工具不用确认`, hooks && `${hooks} 个 hook`, tools && `接入 ${tools} 个工具`].filter(Boolean).join(" · "),
+    claudeAllowedTitle: "Claude Code 里调用它时，这些工具不用确认就能用：",
+    claudeHooksTitle: "Claude Code 里调用它时注册这些 hooks，之后整个会话都会触发：",
+    codexToolsTitle: "Codex 里它要接入这些工具：",
+  },
+
   list: {
     mentionsMissing: (n: number) => `提到的 ${n} 个找不到`,
     mentionsMissingTitle: (names: string[]) => `它提到的「${names.join("」「")}」在这里找不到，Agent 用它时可能用不全`,
@@ -831,7 +877,7 @@ export const zh = {
     changedSkillsEdited: (names: string[]) => `${names.join("、")} 有变化，更新会换掉你的修改`,
     renamedSkill: (name: string, to: string) => `${name} 可能改名为 ${to}`,
     deletedSkills: (names: string[]) => `${names.join("、")} 来源里已删除`,
-    riskTitle: "新增或改动的脚本、新增的可执行文件；打开更新计划看是哪几个",
+    riskTitle: "新增或改动的脚本、新增的可执行文件，或技能放宽了对 Agent 声明的权限；打开更新计划看是哪几个",
     updateEditedTitle: "更新会换掉你的修改，打开更新计划勾选确认",
     updateEdited: "更新…",
     view: "查看",
@@ -861,7 +907,7 @@ export const zh = {
     mixed: (text: string) => ` · ${text}`,
     latest: (revision: string) => ` · 来源最新是 ${revision}`,
     firstLook: "先看一眼",
-    noRisks: "这次的改动里没有新增或改动的脚本，也没有新增的可执行文件。",
+    noRisks: "这次的改动里没有新增或改动的脚本、新增的可执行文件，也没有放宽对 Agent 声明的权限。",
     skills: "技能",
     skippedTitle: "之前跳过了来源里的这份改动；照样可以勾上更新",
     skipped: "已跳过",
@@ -1216,6 +1262,7 @@ export const zh = {
   },
 
   review: {
+    wellKnownNoSettings: "这类站点入库前读不到技能对 Agent 声明的权限（不用确认就能用的工具、hooks、要接入的工具），入库后在技能详情里看。",
     mentionsUnpicked: (names: string[]) => `提到 ${names.join("、")} · 一起勾上`,
     mentionsUnpickedTitle: (names: string[]) => `它的 SKILL.md 提到了「${names.join("」「")}」，这几个还没勾;点一下一起勾上`,
     kindGitHub: "GitHub 仓库",

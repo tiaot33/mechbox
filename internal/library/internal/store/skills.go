@@ -9,6 +9,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/tiaot33/mechbox/internal/library/internal/agentsettings"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 )
 
@@ -37,6 +38,8 @@ type Skill struct {
 	Edited        bool
 	Note          string
 	Translations  map[string]string
+	SkillMD       []byte
+	CodexMetadata []byte
 }
 
 type Current struct {
@@ -78,7 +81,16 @@ const skillQuery = `
 		(
 			SELECT json_group_object(language, translation) FROM description_translations
 			WHERE description_translations.skill_id = skills.id AND description_translations.description = current_version.description
-		)
+		),
+		ifnull((
+			SELECT blobs.content FROM version_files JOIN blobs ON blobs.fingerprint = version_files.fingerprint
+			WHERE version_files.version_id = current_version.id AND lower(version_files.path) = 'skill.md'
+			ORDER BY version_files.path != 'SKILL.md' LIMIT 1
+		), x''),
+		ifnull((
+			SELECT blobs.content FROM version_files JOIN blobs ON blobs.fingerprint = version_files.fingerprint
+			WHERE version_files.version_id = current_version.id AND version_files.path = '` + agentsettings.CodexFile + `'
+		), x'')
 	FROM skills
 	LEFT JOIN sources ON sources.id = skills.source_id
 	JOIN skill_versions AS current_version ON current_version.id = skills.current_version_id
@@ -141,7 +153,7 @@ func (q queries) listSkills(ctx context.Context, operation, clause string, args 
 func scanSkill(row interface{ Scan(...any) error }) (Skill, error) {
 	var skill Skill
 	var fetchedAt, updatedAt, checkedAt, translations string
-	err := row.Scan(&skill.ID, &skill.Name, &skill.Description, &skill.Source.ID, &skill.Source.Type, &skill.Source.Locator, &skill.VersionID, &skill.Revision, &fetchedAt, &updatedAt, &checkedAt, &skill.CheckStatus, &skill.CheckFailed, &skill.CheckRevision, &skill.RenamedTo, &skill.Skipped, &skill.KeptDeleted, &skill.Edited, &skill.Note, &translations)
+	err := row.Scan(&skill.ID, &skill.Name, &skill.Description, &skill.Source.ID, &skill.Source.Type, &skill.Source.Locator, &skill.VersionID, &skill.Revision, &fetchedAt, &updatedAt, &checkedAt, &skill.CheckStatus, &skill.CheckFailed, &skill.CheckRevision, &skill.RenamedTo, &skill.Skipped, &skill.KeptDeleted, &skill.Edited, &skill.Note, &translations, &skill.SkillMD, &skill.CodexMetadata)
 	if err != nil {
 		return Skill{}, err
 	}

@@ -68,6 +68,8 @@ type UnmanagedSkill struct {
 	// Invalid 不为 nil 时,文件夹根上的 SKILL.md 不是有效的技能描述,给出哪里写错了(SKILL.md 超出列出时的读取上限时不判断):这个文件夹不能入库
 	// (FetchUnmanaged 返回 SourceInvalid,整批入库的计划里这一条带 Error),界面在作用域里就据此说明,不给入库的按钮。
 	Invalid *SkillFileProblem `json:"invalid,omitempty"`
+	// AgentSettings 是文件夹里的技能对 Claude Code、Codex 声明的设置(见 [AgentSettings]);都是默认时为 nil。
+	AgentSettings *AgentSettings `json:"agent_settings,omitempty"`
 }
 
 // SkillFileProblemKind 是 SKILL.md 不是有效技能描述的原因。值以后可能增加,调用方遇到不认识的值按「SKILL.md 写得不对」处理。
@@ -150,6 +152,7 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 		target := found.target
 		entry := unmanagedEntry{UnmanagedSkill: UnmanagedSkill{Scope: target.scope(), Name: found.Name, Folder: found.Path, LinkTarget: found.Target}, found: found}
 		entry.LinkOutside = found.Target != "" && !within(found.Target)
+		entry.AgentSettings = agentSettingsOf(found.SkillMD, found.CodexMetadata)
 		if found.SkillMD != nil {
 			if candidate, err := discovery.ParseSkillMD(found.SkillMD, found.Name); err == nil {
 				entry.Description = candidate.Description

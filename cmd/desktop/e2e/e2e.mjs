@@ -2351,8 +2351,9 @@ await step("更新计划：风险与差异、确认改名、继续保留已删�
   const claudeSkills = path.dirname((await drawer().locator(".scope-table tbody tr", { hasText: "Claude Code · 全局" }).locator(".font-mono").textContent()).replace(/^~/, HOME));
   await closeDrawer();
 
-  // kappa 改了并新增一个脚本;lambda 改名为 lambda-kit(内容不变);mu 删掉;新增 nu。
+  // kappa 改了并新增一个脚本，还放宽了 Claude Code 里不用确认就能用的工具;lambda 改名为 lambda-kit(内容不变);mu 删掉;新增 nu。
   const trio = `${ZIP_DIR}/trio`;
+  fs.writeFileSync(`${trio}/kappa/SKILL.md`, fs.readFileSync(`${trio}/kappa/SKILL.md`, "utf8").replace("name: kappa\n", "name: kappa\nallowed-tools: Bash(*)\n"));
   fs.appendFileSync(`${trio}/kappa/SKILL.md`, "\nNow with a script.\n");
   fs.mkdirSync(`${trio}/kappa/scripts`);
   fs.writeFileSync(`${trio}/kappa/scripts/x.sh`, "echo kappa\n");
@@ -2383,6 +2384,8 @@ await step("更新计划：风险与差异、确认改名、继续保留已删�
   } finally {
     await hold.close();
   }
+  // 技能对 Agent 声明的设置放宽了：和脚本一样列在风险里，写出新增的那几项。
+  await modal().locator(".update-risk", { hasText: "Claude Code 里不用确认就能用的工具多了" }).filter({ hasText: "Bash(*)" }).waitFor();
   await modal().locator(".update-risk", { hasText: "scripts/x.sh" }).click();
   await modal().locator('.update-diff [data-slot="file-diff"] [data-diff="add"]', { hasText: "echo kappa" }).waitFor();
   // 差异在右栏，左栏的技能和要换的地方不动;文件列表写明是改了的文件，每个文件标出新增、修改还是删除。

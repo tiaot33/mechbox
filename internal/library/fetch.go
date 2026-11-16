@@ -109,6 +109,10 @@ type Candidate struct {
 	// 判断规则同 [Library.ListMentions],只有三点不同:只读 SKILL.md(入库预览只读过它;well-known 索引的候选没读过,总为空),
 	// 公共段落按整份入库预览算,单个词的名字不交给 AI、不算提到(候选还没有版本,存不了结论)。界面用它在勾选时提示一起勾上。
 	Mentions []string `json:"mentions,omitempty"`
+	// AgentSettings 是它对 Claude Code、Codex 声明的设置(见 [AgentSettings]),入库前给用户看它要求哪些不用确认就能用的工具、
+	// 注册哪些 hooks、要接入哪些工具;都是默认时为 nil。和 Mentions 一样只读 SKILL.md 与 agents/openai.yaml,
+	// well-known 索引的候选没读过,总为 nil。
+	AgentSettings *AgentSettings `json:"agent_settings,omitempty"`
 }
 
 // PreviewDiagnostic 说明一个路径为何未成为候选。
@@ -338,7 +342,7 @@ func (l *Library) listCandidates(ctx context.Context, state *previewState) ([]Ca
 	for i, c := range state.candidates {
 		fetched := known.Fetched[c.Name]
 		isNew := len(known.Fetched) > 0 && fetched == 0 && !known.Seen[c.Name]
-		candidates[i] = Candidate{Fetched: SkillID(fetched), New: isNew, PluginName: c.PluginName, Name: c.Name, Description: c.Description, Path: c.Path, Mentions: mentions[i]}
+		candidates[i] = Candidate{Fetched: SkillID(fetched), New: isNew, PluginName: c.PluginName, Name: c.Name, Description: c.Description, Path: c.Path, Mentions: mentions[i], AgentSettings: agentSettingsOf(c.SkillMD, c.CodexMetadata)}
 	}
 	return candidates, nil
 }
@@ -593,7 +597,7 @@ func (l *Library) fetchAll(ctx context.Context, record store.Source, revision st
 			if err != nil {
 				return err
 			}
-			fetched = append(fetched, Skill{ID: SkillID(skillID), Name: skill.Name, Description: description, CollectionID: CollectionID(sourceID), Source: src, VersionID: VersionID(versionID), Revision: revision, FetchedAt: createdAt})
+			fetched = append(fetched, Skill{ID: SkillID(skillID), Name: skill.Name, Description: description, CollectionID: CollectionID(sourceID), Source: src, VersionID: VersionID(versionID), Revision: revision, FetchedAt: createdAt, AgentSettings: parseFileSettings(skill.Files).public()})
 		}
 		return nil
 	})

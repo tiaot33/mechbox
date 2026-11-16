@@ -138,10 +138,13 @@ func (s *seeder) layoutHome(webApp, oldProject string) error {
 			return err
 		}
 	}
+	if err := replaceInFile(filepath.Join(mySkills, "gh-fix-ci", "SKILL.md"), "name: \"gh-fix-ci\"\n", "name: \"gh-fix-ci\"\ndisable-model-invocation: true\nallowed-tools: Bash(gh pr checks *) Bash(gh run view *)\n"); err != nil {
+		return err
+	}
 	files := []struct{ path, content string }{
 		{filepath.Join(mySkills, "notes-without-name", "SKILL.md"), "# 随手记\n\n这个文件夹的 SKILL.md 没有 frontmatter，不是合法的技能。\n"},
 		{filepath.Join(drafts, "pr-summary", "SKILL.md"), skillMD("pr-summary", "Use when the user asks for a summary of a pull request, listing the changed areas, risky files and open questions.")},
-		{filepath.Join(s.home, ".claude", "skills", "release-notes", "SKILL.md"), skillMD("release-notes", "Use when drafting release notes for an app release; group changes by user-visible area.")},
+		{filepath.Join(s.home, ".claude", "skills", "release-notes", "SKILL.md"), strings.Replace(skillMD("release-notes", "Use when drafting release notes for an app release; group changes by user-visible area."), "\n---\n", "\ndisable-model-invocation: true\n---\n", 1)},
 		{filepath.Join(s.home, ".agents", "skills", "release-notes", "SKILL.md"), skillMD("release-notes", "Use when drafting release notes; one bullet per merged pull request, newest first.")},
 		{filepath.Join(s.home, ".agents", ".skill-lock.json"), `{"version":3,"skills":{"webapp-testing":{"source":"anthropics/skills","sourceType":"git","sourceUrl":"https://git.dev.test/anthropics/skills.git","ref":"main"}}}` + "\n"},
 		{filepath.Join(webApp, "README.md"), "# web-app\n"},
@@ -264,6 +267,9 @@ func (s *seeder) populate(ctx context.Context, anthropics, openai, superpowers g
 	if err := s.commit(anthropics, "dbd4588", "Update claude-api skill: dynamic workflows and the four workflow quickstarts (#1995)"); err != nil {
 		return err
 	}
+	if err := s.allowNpmInFrontendDesign(anthropics); err != nil {
+		return err
+	}
 
 	claudeSkills, err := s.lib.ScopeDirectory(ctx, claude)
 	if err != nil {
@@ -303,6 +309,16 @@ func (s *seeder) populate(ctx context.Context, anthropics, openai, superpowers g
 		return err
 	}
 	return appendFile(filepath.Join(mySkills, "gh-fix-ci", "SKILL.md"), "\n## 本机备注\n\n先跑 `gh pr checks` 看哪一项失败。\n")
+}
+
+func (s *seeder) allowNpmInFrontendDesign(anthropics gitSource) error {
+	if err := replaceInFile(filepath.Join(anthropics.dir, "skills", "frontend-design", "SKILL.md"), "name: frontend-design\n", "name: frontend-design\nallowed-tools: Bash(npm run *)\n"); err != nil {
+		return err
+	}
+	if err := git(anthropics.dir, "add", "-A"); err != nil {
+		return err
+	}
+	return git(anthropics.dir, "commit", "-qm", "frontend-design: run npm scripts without asking")
 }
 
 func (s *seeder) editSuperpowers(superpowers gitSource) error {
@@ -441,6 +457,17 @@ func writeFile(path, content string) error {
 		return err
 	}
 	return os.WriteFile(path, []byte(content), 0o644)
+}
+
+func replaceInFile(path, old, new string) error {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	if !strings.Contains(string(content), old) {
+		return fmt.Errorf("%s does not contain %q", path, old)
+	}
+	return os.WriteFile(path, []byte(strings.Replace(string(content), old, new, 1)), 0o644)
 }
 
 func appendFile(path, content string) error {

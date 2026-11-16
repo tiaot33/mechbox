@@ -67,6 +67,9 @@ type Skill struct {
 	// DescriptionTranslations 是当前描述的译文,键是语言标签([Library.TranslateDescription] 存下的);
 	// 只含翻译时的原文和当前描述相同的,技能更新后描述变了,旧译文就不在这里。没有译文为 nil。
 	DescriptionTranslations map[string]string `json:"description_translations,omitempty"`
+	// AgentSettings 是当前版本对 Claude Code、Codex 声明的设置(见 [AgentSettings]);都是默认时为 nil。
+	// 按库里的当前版本,装出去的文件夹被用户改过时不另读那一处。
+	AgentSettings *AgentSettings `json:"agent_settings,omitempty"`
 }
 
 // FolderPolicy 决定移除 skill 或注销项目时,磁盘上已安装的技能文件夹如何处理。
@@ -107,6 +110,7 @@ func (l *Library) skillOf(row store.Skill) (Skill, error) {
 		KeptDeleted:             row.KeptDeleted,
 		Note:                    row.Note,
 		DescriptionTranslations: row.Translations,
+		AgentSettings:           agentSettingsOf(row.SkillMD, row.CodexMetadata),
 	}
 	if row.Source.ID != 0 {
 		src, err := l.sourceOf(row.Source)

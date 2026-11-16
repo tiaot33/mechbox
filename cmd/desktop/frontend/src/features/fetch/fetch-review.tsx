@@ -13,12 +13,14 @@ import {
 import { configQuery, useLoadedSnapshot } from "@/lib/library";
 import { homePath, sameNameInLibrary, twinNote } from "@/lib/model";
 import { defaultCandidates } from "@/lib/consent";
+import { permissionNote } from "@/lib/agent-settings";
 import { isWSLPath } from "@/lib/paths";
 import { messages, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
 import { markFresh, useView } from "@/lib/view";
 import { chooseAndInstall, pageInstallTarget } from "@/features/install/install-to";
 import { cn, toggled } from "@/lib/utils";
+import { Hint } from "@/components/ui/field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ListBox, ListRow } from "@/components/ui/list";
@@ -124,6 +126,7 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
 
   const row = (c: Candidate, dir: string) => {
     const unpicked = unpickedMentions(c);
+    const permissions = permissionNote(c.agent_settings);
     // 分组时路径只写组目录以下的部分，和技能名一样就不重复写;来源根目录(单个 SKILL.md 是 ".")写作 "/"。
     const rel = grouped && dir ? c.path.slice(dir.length + 1) : c.path && c.path !== "." ? c.path : "/";
     return (
@@ -177,6 +180,12 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
             >
               <span className="truncate">{t.mentionsUnpicked(unpicked)}</span>
             </Button>
+          )}
+          {permissions && (
+            // 技能对 Agent 声明的权限(不用确认就能用的工具、hooks、要接入的工具):行上写各有几个，悬停逐项列出。
+            <Badge tone="warn" className="candidate-permissions max-w-[35%] min-w-0 shrink-0" title={permissions.title}>
+              <span className="truncate">{permissions.text}</span>
+            </Badge>
           )}
           <span className="candidate-desc min-w-0 grow truncate text-caption text-foreground-secondary">{c.description}</span>
           {rel !== c.name && <span className="max-w-[30%] min-w-0 shrink-[2] truncate font-mono text-caption text-muted-foreground">{rel}</span>}
@@ -253,6 +262,8 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
       ) : (
         <Notice alert>{t.noCandidates}</Notice>
       )}
+      {/* well-known 站点的候选入库前只读索引，读不到技能声明的权限，说一句免得看上去像什么都没声明。 */}
+      {preview.source.type === SourceType.SourceWellKnown && candidates.length > 0 && <Hint className="well-known-settings">{t.wellKnownNoSettings}</Hint>}
       <Diagnostics
         summary={t.diagnostics(preview.diagnostics?.length)}
         items={(preview.diagnostics ?? []).map((d) => ({ key: d.path, reason: d.reason }))}

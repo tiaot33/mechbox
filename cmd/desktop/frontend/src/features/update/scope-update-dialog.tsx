@@ -12,7 +12,7 @@ import { useSnapshot, type LibraryError } from "@/lib/library";
 import { folderKey, mergeProjectPlaces, sameMergedScope, scopeKey, scopeLabel, skillScopesOf } from "@/lib/model";
 import { Modal, useBusy, useUI } from "@/lib/ui";
 import { reportUpdates } from "./report";
-import { riskLabel } from "./risks";
+import { RiskList } from "./plan-sections";
 import { runUpdate, stalePlan } from "./update";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
@@ -136,16 +136,7 @@ export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; sco
         </Notice>
       )}
       <Hint>{t.becomes(place, skill.name)}</Hint>
-      {risks.length > 0 && (
-        <Notice alert className="flex flex-col gap-0.5">
-          {risks.map((r) => (
-            <button key={r.path} type="button" className="update-risk flex items-center gap-2 text-left hover:underline" onClick={() => setPath(r.path)}>
-              <span>{riskLabel(r)}</span>
-              <span className="min-w-0 truncate font-mono text-caption">{r.path}</span>
-            </button>
-          ))}
-        </Notice>
-      )}
+      <RiskList risks={risks} onView={setPath} />
       <SkillDiff plan={plan} item={item} path={path} onPath={setPath} onError={onStale} />
 
       {same.length > 0 && (

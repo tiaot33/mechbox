@@ -48,6 +48,9 @@
 //   - [Library.ListVersions]、[Library.GetVersion] 列出和读取版本;[Library.ListVersionFiles]、[Library.GetVersionFile] 按版本 ID
 //     列出和读取文件(当前版本传 Skill.VersionID,历史版本传 SkillVersion.ID);[Library.DiffVersions] 比较两个版本。
 //   - [Library.RemoveSkill] 从库中移除技能,默认连同各作用域里已安装的文件夹;只撤掉一个作用域用 [Library.Uninstall]。
+//   - 技能对 Claude Code、Codex 声明的设置(agent_settings.go):[Skill]、未纳管技能([UnmanagedSkill])与入库预览的候选([Candidate])
+//     都带 [AgentSettings],从 SKILL.md 的 frontmatter 与 agents/openai.yaml 现读现解析,不存进数据库,只给界面看,不改变任何行为。
+//     更新计划的风险里另有它们放宽了的几种(新增不用确认就能用的工具、hooks、要接入的工具)。
 //
 // 关系图(mentions.go):[Library.ListMentions] 给出一个集合或组里的技能提到了库里哪些技能,每条带提到对方的那几行原文。
 // 现场读当前版本的 Markdown 文件按规则判断,不联网,技能更新、入库、移除后再调用就跟着变。
