@@ -100,7 +100,7 @@ function RemoveTwinDialog({
       footer={
         <>
           <Button onClick={() => close()}>{t.common.cancel}</Button>
-          <Button variant="solid" autoFocus onClick={() => close({ policy: removing ? FolderPolicy.Remove : FolderPolicy.Keep, replace: swapping })}>
+          <Button variant="destructive" autoFocus onClick={() => close({ policy: removing ? FolderPolicy.Remove : FolderPolicy.Keep, replace: swapping })}>
             {a.remove}
           </Button>
         </>
