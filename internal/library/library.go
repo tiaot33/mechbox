@@ -48,20 +48,33 @@ const (
 
 type libraryOperationKey struct{}
 
+type heldOperation struct {
+	library   *Library
+	exclusive bool
+}
+
+func (l *Library) heldOperation(ctx context.Context) (heldOperation, bool) {
+	held, ok := ctx.Value(libraryOperationKey{}).(heldOperation)
+	return held, ok && held.library == l
+}
+
 func (l *Library) sharedOperation(ctx context.Context) (context.Context, func()) {
-	if ctx.Value(libraryOperationKey{}) == l {
+	if _, held := l.heldOperation(ctx); held {
 		return ctx, func() {}
 	}
 	l.mu.RLock()
-	return context.WithValue(ctx, libraryOperationKey{}, l), l.mu.RUnlock
+	return context.WithValue(ctx, libraryOperationKey{}, heldOperation{library: l}), l.mu.RUnlock
 }
 
 func (l *Library) exclusiveOperation(ctx context.Context) (context.Context, func()) {
-	if ctx.Value(libraryOperationKey{}) == l {
+	if held, ok := l.heldOperation(ctx); ok {
+		if !held.exclusive {
+			panic("library: exclusive operation requested while holding the shared lock")
+		}
 		return ctx, func() {}
 	}
 	l.mu.Lock()
-	return context.WithValue(ctx, libraryOperationKey{}, l), l.mu.Unlock
+	return context.WithValue(ctx, libraryOperationKey{}, heldOperation{library: l, exclusive: true}), l.mu.Unlock
 }
 
 // Open 打开 path 处的技能库。空库会建表并写入应用标识与 schema 版本。旧版本应用(v0.0.2 起,schema 版本 27 起)建的库
@@ -233,7 +246,7 @@ func (l *Library) SetAppSettings(ctx context.Context, settings map[string]string
 			return argumentError("set app settings", "settings", fmt.Sprintf("invalid setting name %q", name))
 		}
 	}
-	ctx, unlock := l.exclusiveOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	return l.store.SetAppSettings(ctx, settings)
 }

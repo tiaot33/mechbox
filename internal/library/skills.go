@@ -243,7 +243,7 @@ func (l *Library) ListSkills(ctx context.Context) (skills []Skill, err error) {
 // SetSkillNote 给技能写备注,去掉首尾空白,留空即删掉备注。备注只供展示(技能详情里显示,列表里鼠标停在技能名字上显示),
 // 不写进技能文件、不产生新版本;随推送、拉回走。技能不存在返回 NotFound。
 func (l *Library) SetSkillNote(ctx context.Context, id SkillID, note string) (err error) {
-	ctx, unlock := l.exclusiveOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	return l.store.SetSkillNote(ctx, int64(id), strings.TrimSpace(note))

@@ -80,7 +80,7 @@ func (l *Library) SetAISettings(ctx context.Context, settings AISettings) (err e
 	if settings.Provider == AIProviderOpenAI {
 		provider = ""
 	}
-	ctx, unlock := l.exclusiveOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	return l.store.SetAISettings(ctx, store.AISettings{
 		Provider: provider, BaseURL: settings.BaseURL, APIKey: settings.APIKey, Model: settings.Model,

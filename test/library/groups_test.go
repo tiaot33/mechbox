@@ -5,6 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -255,6 +258,37 @@ func TestCreateGroupMakesOccupiedNamesUniqueAndRecordsCreatedAt(t *testing.T) {
 	want := []library.Group{first, third, reused, spaced}
 	if !reflect.DeepEqual(listed, want) {
 		t.Fatalf("ListGroups() = %#v, want %#v", listed, want)
+	}
+}
+
+// 同时建几个同名的组:各自得到不重复的名字(后来的追加 #N),没有一个因为重名失败。
+func TestConcurrentCreateGroupWithTheSameNameGetsDistinctNames(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	const count = 16
+	names := make([]string, count)
+	errs := make([]error, count)
+	var wg sync.WaitGroup
+	for i := range count {
+		wg.Go(func() {
+			group, err := lib.CreateGroup(ctx, "writing")
+			names[i], errs[i] = group.Name, err
+		})
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent CreateGroup: %v", err)
+		}
+	}
+	want := []string{"writing"}
+	for n := 2; n <= count; n++ {
+		want = append(want, "writing#"+strconv.Itoa(n))
+	}
+	slices.Sort(names)
+	slices.Sort(want)
+	if !reflect.DeepEqual(names, want) {
+		t.Fatalf("group names = %v; want %v", names, want)
 	}
 }
 

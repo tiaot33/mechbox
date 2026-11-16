@@ -109,7 +109,7 @@ func (l *Library) SetSyncSettings(ctx context.Context, settings SyncSettings) (e
 	if settings.Keep > 0 {
 		stored.Keep = strconv.Itoa(settings.Keep)
 	}
-	ctx, unlock := l.exclusiveOperation(ctx)
+	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	return l.store.SetSyncSettings(ctx, stored)
 }

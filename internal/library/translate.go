@@ -108,7 +108,7 @@ func (l *Library) translate(ctx context.Context, settings ai.Settings, row store
 	if err != nil {
 		return "", err
 	}
-	write, unlock := l.exclusiveOperation(ctx)
+	write, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	if err := l.store.SetTranslation(write, row.ID, language, row.Description, translation, clockNow()); err != nil {
 		return "", err
@@ -157,7 +157,7 @@ func (l *Library) TranslateVersionFile(ctx context.Context, id VersionID, path, 
 	if err != nil {
 		return "", err
 	}
-	write, unlock := l.exclusiveOperation(ctx)
+	write, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	if err := l.store.SetFileTranslation(write, skillfile.Fingerprint(stored.Content), language, translation, clockNow()); err != nil {
 		return "", err
