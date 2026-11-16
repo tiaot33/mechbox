@@ -1,6 +1,7 @@
 package library_test
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -190,6 +191,47 @@ func TestRollbackAlsoSkipsTheNewerRevisionAlreadySeen(t *testing.T) {
 	}
 	if plan, err := lib.PlanUpdate(ctx, pdf.CollectionID); err != nil || plan.Skills[0].Change != library.PlannedChanged || !plan.Skills[0].Skipped {
 		t.Fatalf("plan after rollback = %#v, %v; want v3 offered as skipped", plan.Skills, err)
+	}
+	server.serve(zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v4")}), "")
+	if check := checkedSkill(t, lib, pdf.ID); !check.Pending || check.Skipped {
+		t.Fatalf("checked after the source moved again = %#v; want pending", check)
+	}
+}
+
+// 回滚前最近一次检查更新失败了(断网、来源一时读不到):回滚照样按之前读成来源的那一次,跳过来源里现在的那份。
+// 来源恢复后检查更新不把回滚掉的改动算回待办,来源再变了才重新计入。
+func TestRollbackAfterAFailedCheckStillSkipsTheNewerRevisionSeenBefore(t *testing.T) {
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	server := newArchiveServer(t, zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v1")}), "")
+	pdf := fetchArchive(t, lib, server.request())[0]
+	server.serve(zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v2")}), "")
+	updated, err := lib.Update(ctx, mustPlanUpdate(t, lib, pdf.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.serve(zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v3")}), "")
+	if check := checkedSkill(t, lib, pdf.ID); check.Status != library.UpdateAvailable || !check.Pending {
+		t.Fatalf("check before rollback = %#v; want v3 pending", check)
+	}
+	reachable := http.DefaultClient
+	stubHTTPResponse(t, http.StatusServiceUnavailable, strings.NewReader("down"))
+	if status, err := checkSkillUpdate(t, lib, ctx, pdf.ID); status != library.UpdateFailed || !library.IsCode(err, library.SourceUnreachable) {
+		t.Fatalf("check while the source is down = %v, %v; want failed with SourceUnreachable", status, err)
+	}
+	if got, err := lib.GetSkill(ctx, pdf.ID); err != nil || *got.LastUpdateCheck != (library.UpdateCheck{CheckedAt: got.LastUpdateCheck.CheckedAt, Status: library.UpdateFailed}) {
+		t.Fatalf("after the failed check = %#v, %v; want only the failure", got.LastUpdateCheck, err)
+	}
+	http.DefaultClient = reachable
+	if _, err := lib.Rollback(ctx, updated.Record); err != nil {
+		t.Fatal(err)
+	}
+	got, err := lib.GetSkill(ctx, pdf.ID)
+	if err != nil || got.VersionID != pdf.VersionID || got.LastUpdateCheck.Status != library.UpdateAvailable || got.LastUpdateCheck.Pending || !got.LastUpdateCheck.Skipped {
+		t.Fatalf("after rollback = %#v, %v; want v1 with the change skipped", got.LastUpdateCheck, err)
+	}
+	if check := checkedSkill(t, lib, pdf.ID); check.Status != library.UpdateAvailable || check.Pending || !check.Skipped {
+		t.Fatalf("rechecked after rollback = %#v; want v3 still skipped", check)
 	}
 	server.serve(zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v4")}), "")
 	if check := checkedSkill(t, lib, pdf.ID); !check.Pending || check.Skipped {

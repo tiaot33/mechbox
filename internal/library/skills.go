@@ -116,7 +116,9 @@ func (l *Library) skillOf(row store.Skill) (Skill, error) {
 		}
 		skill.CollectionID, skill.Source, skill.Edited = CollectionID(row.Source.ID), src, row.Edited
 	}
-	if row.CheckStatus != "" {
+	if row.CheckFailed {
+		skill.LastUpdateCheck = &UpdateCheck{CheckedAt: row.CheckedAt, Status: UpdateFailed}
+	} else if row.CheckStatus != "" {
 		status := UpdateCheckStatus(row.CheckStatus)
 		renamed := status == UpdateDeleted && row.RenamedTo != ""
 		skipped := (status == UpdateAvailable || renamed) && row.Skipped

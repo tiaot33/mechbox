@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math"
 	"time"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
@@ -193,8 +192,8 @@ type RollbackResult struct {
 // 别处的链接指着装回的地方、而那一处不在那次更新里时,先给它换上独立的一份,保持它现在读到的内容。
 // 回滚掉的改动自动记为跳过:不再计入角标,想要时在更新计划里照样能勾上再更新;换回了名字时,跳过的是改成那个名字的改名推测。
 // 跳过的是回滚前已知的来源里的那一份:检查更新已看到来源里有更新的一份,或之后那次更新、改名已跟上了来源时,它也带着回滚掉的改动,
-// 跳过的是这一份;来源没再变,之后检查更新照样不计入,来源再变了才重新计入。回滚前最近一次检查更新失败时不知道来源里现在是哪一份,
-// 只跳过回滚掉的那个版本。
+// 跳过的是这一份;来源没再变,之后检查更新照样不计入,来源再变了才重新计入。回滚前最近一次检查更新失败(没读成来源)时,
+// 按之前读成来源的那一次算,结果和检查成功时一样。
 // 用目录里的修改更新(UpdateRecord.FromScope)不是来源里的改动,回滚它不记跳过、不动检查更新的结论;取内容的那一处那次没有重新安装,
 // 也不动,和库里回滚掉的那个版本一致。回滚本身在集合的历史里记一条,
 // 那次更新的 RolledBackBy 指向它。
@@ -291,13 +290,13 @@ func (l *Library) Rollback(ctx context.Context, id UpdateRecordID) (result Rollb
 				name, fromName = targetName, row.Name
 			}
 			rollback.Skills = append(rollback.Skills, store.RecordSkill{SkillID: skill.SkillID, Name: name, FromName: fromName, From: row.VersionID, To: skill.From})
-			conclusion := store.UpdateCheck{At: now, Status: string(UpdateAvailable), Revision: record.Revision, Content: content, Found: true, Since: math.MaxInt64}
+			conclusion := store.UpdateCheck{At: now, Status: string(UpdateAvailable), Revision: record.Revision, Content: content, Found: true}
 			if renamedBack {
 				renamed, err := tx.VersionFiles(ctx, row.VersionID)
 				if err != nil {
 					return err
 				}
-				conclusion = store.UpdateCheck{At: now, Status: string(UpdateDeleted), Revision: record.Revision, Renamed: row.Name, Content: skillfile.Sum(renamed), Since: math.MaxInt64}
+				conclusion = store.UpdateCheck{At: now, Status: string(UpdateDeleted), Revision: record.Revision, Renamed: row.Name, Content: skillfile.Sum(renamed)}
 				if err := tx.MarkNew(ctx, record.SourceID, row.Name); err != nil {
 					return err
 				}
