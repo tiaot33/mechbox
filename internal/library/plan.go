@@ -177,7 +177,7 @@ func (l *Library) PlanUpdate(ctx context.Context, id CollectionID) (plan UpdateP
 			diff := diffDigests(skillfile.Digests(read.states[i].files), skillfile.Digests(item.latest.Files))
 			planned.Diff = &diff
 			planned.Risks = updateRisks(read.states[i].files, item.latest.Files)
-			item.content = skillfile.Sum(item.latest.Files)
+			item.content = checked.content
 		default:
 			planned.Change = PlannedUnchanged
 		}

@@ -204,49 +204,82 @@ func TestRenameWithdrawnBySourceClearsTheRememberedName(t *testing.T) {
 
 // 更新之后作者把技能改了名,检查更新已推测出改名;回滚那次更新,来源没再变时推测出的改名也带着回滚掉的改动,
 // 回滚完成时和之后检查更新、更新计划都一致地不计入角标;来源再变了才重新计入。
+// 那次更新加了文件,回滚回去的版本和改名后的技能不再那么像,推测照样留着。
 func TestRollbackAlsoSkipsTheRenameGuessedBefore(t *testing.T) {
 	ctx := t.Context()
-	fx := newRenameFixture(t)
-	v2 := renamedBody + "Number every page.\n"
-	fx.server.serve(zipArchive(t, map[string]string{
-		"pdf-tools/SKILL.md":       skillDocument("pdf-tools", v2),
-		"pdf-tools/scripts/run.sh": "#!/bin/sh\necho render\n",
-		"notes/SKILL.md":           skillDocument("notes", "v1"),
+	lib := openTestLibrary(t)
+	server := newArchiveServer(t, zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", renamedBody)}), "")
+	pdf := fetchArchive(t, lib, server.request())[0]
+	server.serve(zipArchive(t, map[string]string{
+		"pdf/SKILL.md":       skillDocument("pdf", renamedBody),
+		"pdf/scripts/run.sh": "#!/bin/sh\necho render\n",
 	}), "")
-	updated, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID))
+	updated, err := lib.Update(ctx, mustPlanUpdate(t, lib, pdf.ID))
 	if err != nil {
 		t.Fatal(err)
 	}
-	renamed := func(body string) {
-		fx.server.serve(zipArchive(t, map[string]string{
-			"pdf-kit/SKILL.md":       skillDocument("pdf-kit", body),
-			"pdf-kit/scripts/run.sh": "#!/bin/sh\necho render\n",
-			"notes/SKILL.md":         skillDocument("notes", "v1"),
+	renamed := func(script string) {
+		server.serve(zipArchive(t, map[string]string{
+			"pdf-kit/SKILL.md":       skillDocument("pdf-kit", renamedBody),
+			"pdf-kit/scripts/run.sh": script,
 		}), "")
 	}
-	renamed(v2)
-	if check := checkedSkill(t, fx.lib, fx.skill.ID); check.RenamedTo != "pdf-kit" || !check.Pending {
+	renamed("#!/bin/sh\necho render\n")
+	if check := checkedSkill(t, lib, pdf.ID); check.RenamedTo != "pdf-kit" || !check.Pending {
 		t.Fatalf("check before rollback = %#v; want renamed to pdf-kit, pending", check)
 	}
-	if _, err := fx.lib.Rollback(ctx, updated.Record); err != nil {
+	if _, err := lib.Rollback(ctx, updated.Record); err != nil {
+		t.Fatal(err)
+	}
+	got, err := lib.GetSkill(ctx, pdf.ID)
+	if err != nil || got.VersionID != pdf.VersionID || got.LastUpdateCheck.RenamedTo != "pdf-kit" || got.LastUpdateCheck.Pending || !got.LastUpdateCheck.Skipped {
+		t.Fatalf("after rollback = %#v, %v; want v1 with the rename skipped", got.LastUpdateCheck, err)
+	}
+	if check := checkedSkill(t, lib, pdf.ID); check.RenamedTo != "pdf-kit" || check.Pending || !check.Skipped {
+		t.Fatalf("rechecked after rollback = %#v; want the rename still skipped", check)
+	}
+	plan, err := lib.PlanUpdate(ctx, pdf.CollectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if planned := plannedSkill(t, plan, pdf.ID); planned.RenamedTo != "pdf-kit" || !planned.Skipped {
+		t.Fatalf("plan after rollback = %#v; want the rename offered as skipped", planned)
+	}
+	renamed("#!/bin/sh\necho render all\n")
+	if check := checkedSkill(t, lib, pdf.ID); check.RenamedTo != "pdf-kit" || !check.Pending || check.Skipped {
+		t.Fatalf("checked after the source moved again = %#v; want pending", check)
+	}
+}
+
+// 确认改名的那次更新和之后的一次内容更新都回滚:先回滚改名,再回滚之后那次,技能回到新名字,
+// 来源里同名的那份就是这个技能,不是改名推测;它带着回滚掉的改动,一并跳过。
+func TestRollingBackTheRenameThenTheLaterUpdateLeavesNoRenameGuess(t *testing.T) {
+	ctx := t.Context()
+	fx := newRenameFixture(t)
+	renamedUpdate, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx.server.serve(zipArchive(t, map[string]string{
+		"pdf-kit/SKILL.md":       skillDocument("pdf-kit", renamedBody+"Number every page.\n"),
+		"pdf-kit/scripts/run.sh": "#!/bin/sh\necho render\n",
+		"notes/SKILL.md":         skillDocument("notes", "v1"),
+	}), "")
+	later, err := fx.lib.Update(ctx, mustPlanUpdate(t, fx.lib, fx.skill.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.lib.Rollback(ctx, renamedUpdate.Record); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.lib.Rollback(ctx, later.Record); err != nil {
 		t.Fatal(err)
 	}
 	got, err := fx.lib.GetSkill(ctx, fx.skill.ID)
-	if err != nil || got.VersionID != fx.skill.VersionID || got.LastUpdateCheck.RenamedTo != "pdf-kit" || got.LastUpdateCheck.Pending || !got.LastUpdateCheck.Skipped {
-		t.Fatalf("after rollback = %#v, %v; want v1 with the rename skipped", got.LastUpdateCheck, err)
+	if err != nil || got.Name != "pdf-kit" || got.LastUpdateCheck.Status != library.UpdateAvailable || got.LastUpdateCheck.RenamedTo != "" || got.LastUpdateCheck.Pending || !got.LastUpdateCheck.Skipped {
+		t.Fatalf("after both rollbacks = %s %#v, %v; want pdf-kit with the later change skipped and no rename guess", got.Name, got.LastUpdateCheck, err)
 	}
-	if check := checkedSkill(t, fx.lib, fx.skill.ID); check.RenamedTo != "pdf-kit" || check.Pending || !check.Skipped {
-		t.Fatalf("rechecked after rollback = %#v; want the rename still skipped", check)
-	}
-	plan, err := fx.lib.PlanUpdate(ctx, fx.skill.CollectionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if planned := plannedSkill(t, plan, fx.skill.ID); planned.RenamedTo != "pdf-kit" || !planned.Skipped {
-		t.Fatalf("plan after rollback = %#v; want the rename offered as skipped", planned)
-	}
-	renamed(v2 + "Keep the margins.\n")
-	if check := checkedSkill(t, fx.lib, fx.skill.ID); check.RenamedTo != "pdf-kit" || !check.Pending || check.Skipped {
-		t.Fatalf("checked after the source moved again = %#v; want pending", check)
+	if check := checkedSkill(t, fx.lib, fx.skill.ID); check.Status != library.UpdateAvailable || check.RenamedTo != "" || check.Pending || !check.Skipped {
+		t.Fatalf("rechecked after both rollbacks = %#v; want the later change still skipped", check)
 	}
 }

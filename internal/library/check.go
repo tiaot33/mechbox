@@ -185,9 +185,9 @@ func (r *collectionRead) conclusions() ([]store.UpdateCheck, *Error) {
 	for i, checked := range r.checked {
 		switch {
 		case checked.err == nil && checked.changed:
-			conclusions[i] = store.UpdateCheck{Status: string(UpdateAvailable), Revision: r.revision, Content: skillfile.Sum(checked.latest.Files), Found: true}
+			conclusions[i] = store.UpdateCheck{Status: string(UpdateAvailable), Revision: r.revision, Content: checked.content, Found: true}
 		case checked.err == nil:
-			conclusions[i] = store.UpdateCheck{Status: string(UpdateCurrent), Revision: r.revision, Content: skillfile.Sum(checked.latest.Files), Found: true}
+			conclusions[i] = store.UpdateCheck{Status: string(UpdateCurrent), Revision: r.revision, Content: checked.content, Found: true}
 		case missingSkill(checked.err):
 			conclusions[i] = store.UpdateCheck{Status: string(UpdateDeleted), Revision: r.revision, Renamed: r.renames[i].latest.Name, Content: r.renames[i].content}
 		default:
@@ -326,6 +326,7 @@ func missingSkill(err error) bool {
 type checkedSkill struct {
 	changed bool
 	latest  source.Skill
+	content string
 	err     error
 }
 
@@ -349,7 +350,7 @@ func keepEdits(checked []checkedSkill, states []currentVersion) {
 		if checked[i].changed && !skillfile.Equal(checked[i].latest.Files, states[i].files) {
 			continue
 		}
-		checked[i] = checkedSkill{latest: source.Skill{Name: states[i].origin.Name, Files: states[i].files}}
+		checked[i] = checkedSkill{latest: source.Skill{Name: states[i].origin.Name, Files: states[i].files}, content: checked[i].content}
 	}
 }
 
@@ -363,6 +364,9 @@ func checkSkills(ctx context.Context, snapshot source.Snapshot, haves []source.H
 				continue
 			}
 			results[i].changed, results[i].latest, results[i].err = checkSnapshot(ctx, snapshot, have)
+			if results[i].err == nil {
+				results[i].content = skillfile.Sum(results[i].latest.Files)
+			}
 		}
 		if snapshot.Revision() == revision {
 			return results

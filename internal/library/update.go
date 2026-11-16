@@ -128,7 +128,7 @@ func (l *Library) Update(ctx context.Context, req UpdateRequest) (result UpdateR
 		}
 		same := !checked.changed
 		if item.change == PlannedChanged {
-			same = checked.changed && skillfile.Sum(checked.latest.Files) == item.content
+			same = checked.changed && checked.content == item.content
 		}
 		if read.states[i].versionID != item.versionID || !same {
 			return UpdateResult{}, &Error{Code: Conflict, Message: operation + ": skill changed since the update plan", Details: ErrorDetails{SkillID: id}}
@@ -282,7 +282,7 @@ func (l *Library) applyUpdate(ctx context.Context, read *collectionRead, ids []S
 			guess, renamed := read.renames[i]
 			renamed = renamed && selected >= 0
 			if renamed {
-				checked = checkedSkill{changed: true, latest: guess.latest}
+				checked = checkedSkill{changed: true, latest: guess.latest, content: guess.content}
 			}
 			if checked.err != nil || selected < 0 && checked.changed {
 				continue
@@ -327,7 +327,7 @@ func (l *Library) applyUpdate(ctx context.Context, read *collectionRead, ids []S
 			} else if err := tx.ConfirmVersion(ctx, id, string(latest.State), revision); err != nil {
 				return err
 			}
-			conclusion := store.UpdateCheck{At: now, Status: string(UpdateCurrent), Revision: read.revision, Content: skillfile.Sum(latest.Files), Found: true}
+			conclusion := store.UpdateCheck{At: now, Status: string(UpdateCurrent), Revision: read.revision, Content: checked.content, Found: true}
 			if selected >= 0 {
 				err = tx.SaveUpdateCheck(ctx, id, conclusion)
 			} else {

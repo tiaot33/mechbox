@@ -10,7 +10,6 @@ import (
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
-	"github.com/tiaot33/mechbox/internal/library/internal/source/catalog"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
@@ -301,23 +300,29 @@ func (l *Library) Rollback(ctx context.Context, id UpdateRecordID) (result Rollb
 				if err := tx.MarkNew(ctx, record.SourceID, row.Name); err != nil {
 					return err
 				}
-				if err := tx.RememberRename(ctx, skill.SkillID, row.Name); err != nil {
-					return err
-				}
 			}
 			if record.FromScope == nil {
-				seen, err := seenInSource(ctx, tx, row)
+				seen, err := tx.UpdateCheck(ctx, skill.SkillID)
 				if err != nil {
 					return err
 				}
 				if seen.Content != "" {
 					conclusion.Revision, conclusion.Content = seen.Revision, seen.Content
-					if seen.Renamed != "" {
+					switch seen.Renamed {
+					case "":
+					case targetName:
+						conclusion.Status, conclusion.Renamed, conclusion.Found = string(UpdateAvailable), "", true
+					default:
 						conclusion.Status, conclusion.Renamed, conclusion.Found = string(UpdateDeleted), seen.Renamed, false
 					}
 				}
 				rollback.Skipped = append(rollback.Skipped, store.SkippedChange{SkillID: skill.SkillID, Content: conclusion.Content})
 				if err := tx.SaveUpdateCheck(ctx, skill.SkillID, conclusion); err != nil {
+					return err
+				}
+			}
+			if conclusion.Renamed != "" {
+				if err := tx.RememberRename(ctx, skill.SkillID, conclusion.Renamed); err != nil {
 					return err
 				}
 			}
@@ -331,28 +336,6 @@ func (l *Library) Rollback(ctx context.Context, id UpdateRecordID) (result Rollb
 		return RollbackResult{}, err
 	}
 	return l.rollbackPlaces(ctx, operation, record, result, updated, removed, done)
-}
-
-func seenInSource(ctx context.Context, tx *store.Tx, row store.Skill) (store.UpdateCheck, error) {
-	stored, err := tx.UpdateCheck(ctx, row.ID)
-	if err != nil {
-		return store.UpdateCheck{}, err
-	}
-	if stored.Content != "" || UpdateCheckStatus(stored.Status) != UpdateCurrent {
-		return stored, nil
-	}
-	files, err := tx.VersionFiles(ctx, row.VersionID)
-	if err != nil {
-		return store.UpdateCheck{}, err
-	}
-	if !catalog.UserAuthored(row.Source.Type) {
-		origin, err := tx.Origin(ctx, row.VersionID)
-		if err != nil {
-			return store.UpdateCheck{}, err
-		}
-		files = origin.Files
-	}
-	return store.UpdateCheck{Revision: stored.Revision, Content: skillfile.Sum(files)}, nil
 }
 
 type placeKey struct {
