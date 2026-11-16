@@ -39,6 +39,7 @@ type seeder struct {
 	out, data, home string
 	lib             *library.Library
 	skills          map[string]library.SkillID
+	groups          map[string]library.GroupID
 }
 
 type gitSource struct {
@@ -59,7 +60,7 @@ func newSeeder(out, data string) (*seeder, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &seeder{out: out, data: data, home: filepath.Join(out, "home"), skills: map[string]library.SkillID{}}, nil
+	return &seeder{out: out, data: data, home: filepath.Join(out, "home"), skills: map[string]library.SkillID{}, groups: map[string]library.GroupID{}}, nil
 }
 
 func (s *seeder) snapshot(source, commit, skill string) string {
@@ -232,6 +233,19 @@ func (s *seeder) populate(ctx context.Context, anthropics, openai, superpowers g
 	if err := s.group(ctx, "写计划", nil, "brainstorming", "writing-plans", "executing-plans"); err != nil {
 		return err
 	}
+	cursor, err := s.lib.AddAgent(ctx, library.CustomAgent{Name: "Cursor", GlobalDirectory: "~/.cursor/skills", ProjectDirectory: ".cursor/skills"})
+	if err != nil {
+		return err
+	}
+	if err := s.installGroup(ctx, "写计划", library.GlobalScope(cursor.Code)); err != nil {
+		return err
+	}
+	if err := s.installGroup(ctx, "文档", library.ProjectScope(library.AgentCodex, web.ID)); err != nil {
+		return err
+	}
+	if err := s.lib.SetSkillNote(ctx, s.skills["frontend-design"], "团队的设计规范以 Figma 为准，这个技能只用来起草页面。"); err != nil {
+		return err
+	}
 
 	if err := s.commit(openai, "30444ae", "Align curated OpenAI Docs skill with system copy (#365)"); err != nil {
 		return err
@@ -259,6 +273,12 @@ func (s *seeder) populate(ctx context.Context, anthropics, openai, superpowers g
 	if err := os.RemoveAll(oldProject); err != nil {
 		return err
 	}
+	if err := appendFile(filepath.Join(claudeSkills, "internal-comms", "SKILL.md"), "\n## 本机备注\n\n周报发到 #team-weekly。\n"); err != nil {
+		return err
+	}
+	if err := s.editSuperpowers(superpowers); err != nil {
+		return err
+	}
 
 	collections, err := s.lib.ListCollections(ctx)
 	if err != nil {
@@ -268,8 +288,65 @@ func (s *seeder) populate(ctx context.Context, anthropics, openai, superpowers g
 	for i, collection := range collections {
 		ids[i] = collection.ID
 	}
-	_, err = s.lib.CheckUpdates(ctx, ids)
-	return err
+	if _, err := s.lib.CheckUpdates(ctx, ids); err != nil {
+		return err
+	}
+	if err := s.skip(ctx, s.skills["brainstorming"]); err != nil {
+		return err
+	}
+	if _, err := s.lib.KeepDeletedSkill(ctx, s.skills["doc"]); err != nil {
+		return err
+	}
+	return s.layoutLater(webApp)
+}
+
+func (s *seeder) editSuperpowers(superpowers gitSource) error {
+	if err := appendFile(filepath.Join(superpowers.dir, "skills", "brainstorming", "SKILL.md"), "\nKeep each question short; ask one at a time.\n"); err != nil {
+		return err
+	}
+	if err := git(superpowers.dir, "add", "-A"); err != nil {
+		return err
+	}
+	return git(superpowers.dir, "commit", "-qm", "brainstorming: one question at a time")
+}
+
+func (s *seeder) skip(ctx context.Context, skill library.SkillID) error {
+	current, err := s.lib.GetSkill(ctx, skill)
+	if err != nil {
+		return err
+	}
+	plan, err := s.lib.PlanUpdate(ctx, current.CollectionID)
+	if err != nil {
+		return err
+	}
+	return s.lib.SkipUpdate(ctx, library.SkipRequest{Plan: plan.ID, Skills: []library.SkillID{skill}})
+}
+
+func (s *seeder) layoutLater(webApp string) error {
+	mySkills := filepath.Join(s.home, "code", "my-skills")
+	if err := appendFile(filepath.Join(mySkills, "gh-fix-ci", "SKILL.md"), "\n## 本机备注\n\n先跑 `gh pr checks` 看哪一项失败。\n"); err != nil {
+		return err
+	}
+	if err := os.CopyFS(filepath.Join(webApp, ".claude", "skills", "screenshot"), os.DirFS(filepath.Join(mySkills, "screenshot"))); err != nil {
+		return err
+	}
+	drafts := filepath.Join(s.home, "code", "skill-drafts")
+	files := []struct{ path, content string }{
+		{filepath.Join(mySkills, "notes-without-name", "SKILL.md"), "# 随手记\n\n这个文件夹的 SKILL.md 没有 frontmatter，不是合法的技能。\n"},
+		{filepath.Join(drafts, "pr-summary", "SKILL.md"), skillMD("pr-summary", "Use when the user asks for a summary of a pull request, listing the changed areas, risky files and open questions.")},
+		{filepath.Join(s.home, ".claude", "skills", "release-notes", "SKILL.md"), skillMD("release-notes", "Use when drafting release notes for an app release; group changes by user-visible area.")},
+		{filepath.Join(s.home, ".agents", "skills", "release-notes", "SKILL.md"), skillMD("release-notes", "Use when drafting release notes; one bullet per merged pull request, newest first.")},
+	}
+	for _, f := range files {
+		if err := writeFile(f.path, f.content); err != nil {
+			return err
+		}
+	}
+	return os.Symlink(filepath.Join(drafts, "pr-summary"), filepath.Join(s.home, ".claude", "skills", "pr-summary"))
+}
+
+func skillMD(name, description string) string {
+	return "---\nname: " + name + "\ndescription: " + description + "\n---\n\n# " + name + "\n"
 }
 
 var superpowersSkills = []string{
@@ -298,6 +375,7 @@ func (s *seeder) group(ctx context.Context, name string, scope *library.Scope, s
 	if err != nil {
 		return err
 	}
+	s.groups[name] = group.ID
 	for _, skill := range skills {
 		if _, err := s.lib.AddSkillToGroup(ctx, group.ID, s.skills[skill]); err != nil {
 			return err
@@ -307,6 +385,11 @@ func (s *seeder) group(ctx context.Context, name string, scope *library.Scope, s
 		return nil
 	}
 	_, err = s.lib.InstallGroup(ctx, group.ID, *scope, library.InstallOptions{})
+	return err
+}
+
+func (s *seeder) installGroup(ctx context.Context, name string, scope library.Scope) error {
+	_, err := s.lib.InstallGroup(ctx, s.groups[name], scope, library.InstallOptions{})
 	return err
 }
 
