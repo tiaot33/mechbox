@@ -317,12 +317,13 @@ Git 不保存的部分由 `run.sh` 现场补上：空目录、zip 文件、Git �
 
 3. 核对窗口用的是开发数据：左栏底部的数据库位置必须是 `…/.dev/seed/library.db`；在右栏选中 **Claude Code**，列表顶部写着 5 个已安装、3 个不在技能库里。
 
-   **核对不通过时，先退出这个窗口，不要安装或卸载任何技能。** 这个窗口读写的可能是你真实的 Agent 目录或数据库。常见的原因有两个：
+   **核对不通过时，先退出这个窗口，不要安装或卸载任何技能。** 这个窗口读写的可能是你真实的 Agent 目录或数据库。常见的原因有三个：
 
    - 启动的不是 `dev:seeded`，如 `wails3 dev` 或 `dev:test-db`。它们打开真实技能库或 `.dev/library.db`，`HOME` 也是真实的。
    - 你看的是另一个窗口。装好的 Mechbox 和别的工作区的开发版窗口在 Dock 里也都叫 Mechbox。
+   - 数据库位置对，数字对不上：开发数据是旧版 `devseed` 生成的。`dev:seeded` 只看数据库在不在，不看它是哪一版生成的。
 
-   退出后，在本工作区的 `cmd/desktop/` 下重新运行第 2 步。
+   退出后，在本工作区的 `cmd/desktop/` 下重新运行第 2 步；是开发数据旧了的，先运行第 1 步再运行第 2 步。
 
    同一个工作区里已经开着 `dev:seeded` 时，再运行一次只会把已有的窗口带到前台，新的 `dev:seeded` 随之结束。
 
@@ -369,7 +370,7 @@ Git 不保存的部分由 `run.sh` 现场补上：空目录、zip 文件、Git �
 | 没有来源的技能 | internal-comms，从 Claude Code 全局的未纳管技能入库，之后在 Claude Code 全局里又改过 |
 | 备注 | frontend-design 有一条备注 |
 | 自定义 Agent | Cursor：全局目录 `~/.cursor/skills`，项目里 `.cursor/skills` |
-| 组 | 「前端」组安装到 Codex 全局；「文档」组安装到 web-app 的 Codex；「写计划」是 superpowers 的 brainstorming、writing-plans、executing-plans，关系图里提到的组外技能画成空心虚线圆，组安装到 Cursor 全局 |
+| 组 | 「前端」组安装到 Codex 全局；「文档」没有组安装；「写计划」是 superpowers 的 brainstorming、writing-plans、executing-plans，关系图里提到的组外技能画成空心虚线圆，组安装到 Cursor 全局和 web-app 的 Codex |
 | 项目 | web-app 是 Git 仓库，里面提交了 `.claude/skills/playwright`，和 Claude Code 全局的 playwright 同名；`.claude/skills/screenshot` 没提交，内容和库里的 screenshot 一样但不是 app 装的；old-project 不在这台机器上 |
 | 安装状态 | 当前版本；被手动改过（Claude Code 全局的 playwright、internal-comms）；文件夹不在了（Claude Code 全局的 sora）；项目不在这台机器上 |
 | 未纳管技能 | webapp-testing 是 npx skills 的布局：真实文件夹在 Codex 全局，Claude Code 全局里是符号链接；来源记录认出来源 `git.dev.test/anthropics/skills`；Claude Code 全局的 pr-summary 是指向 `~/code/skill-drafts` 的符号链接（指向 Agent 目录以外）；release-notes 在 Claude Code 全局和 Codex 全局各有一份，同名但内容不同 |
