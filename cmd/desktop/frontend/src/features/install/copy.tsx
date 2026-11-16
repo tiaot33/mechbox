@@ -9,7 +9,7 @@
 // - 一项装不上不影响其余的;全部装上时只提示装了几个，有没装上的才列出结果。
 import { useEffect, useRef, useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
-import { GroupMemberOutcome, InstallPlanStatus, type AgentCode, type Group, type ProjectID, type Skill, type SkillInScope } from "@bindings/internal/library";
+import { GroupMemberOutcome, InstallPlanStatus, type AgentCode, type Group, type ProjectID, type Skill, type SkillID, type SkillInScope } from "@bindings/internal/library";
 import { copyable, copyDefaults, copyOverwriteCount, copyOverwrites, copyPlaceByDefault, type CopyPlanned } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
@@ -22,6 +22,7 @@ import {
   copyItems,
   copyProjectSources,
   copySources,
+  errorOccupier,
   placeOf,
   projectName,
   scopeKey,
@@ -42,7 +43,7 @@ import { ListBox, ListRow } from "@/components/ui/list";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Notice } from "@/components/ui/notice";
 import { memberRows, showResults, type ResultRow } from "@/components/app/results";
-import { occupiedReason, toastInstalled } from "./install";
+import { occupied, toastInstalled } from "./install";
 
 // CopyKind 是一种照装：照着谁(sources 的 key)、装到的那一处的名字(toName)、要装的各处、各处的标题与确认框里另外说的话。
 // 文案都在调用时取，跟随当前界面语言。
@@ -379,7 +380,7 @@ function SkillRow({
   const t = useT().copy;
   const single = plan && "plan" in plan ? plan.plan : undefined;
   const reason =
-    plan && "error" in plan ? describeError(plan.error) : single && !copyable(single.status) ? occupiedReason(s, skill.id, single) : undefined;
+    plan && "error" in plan ? describeError(plan.error) : single && !copyable(single.status) ? occupied(s, skill.id, single).reason : undefined;
   return (
     <ListRow asChild compact clickable={!!single && !reason} selected={on} className="copy-skill pl-6" data-name={skill.name}>
       <label title={skill.description || undefined}>
@@ -473,10 +474,12 @@ async function runCopy(
   // installed 按"哪一处的哪个技能"记，同一个技能既随组又直接安装时只算一次;groups 是记下的组安装数。
   const installed = new Set<string>();
   let groups = 0;
-  const skip = (label: string, reason: string) => rows.push({ label, outcome: a.memberSkipped, tone: "warn", reason });
+  const skip = (label: string, reason: string, occupier?: SkillID) => rows.push({ label, outcome: a.memberSkipped, tone: "warn", reason, occupier });
   let failed = false;
-  const fail = (label: string, e: unknown) => {
-    rows.push({ label, outcome: a.failed, tone: "critical", reason: describeError(toLibraryError(e)) });
+  // id 是装的那一个技能：执行时才被同一批里先装的同名技能占上的，错误里有占着的那个，照样能点开。
+  const fail = (label: string, e: unknown, id?: SkillID) => {
+    const err = toLibraryError(e);
+    rows.push({ label, outcome: a.failed, tone: "critical", reason: describeError(err), occupier: id && errorOccupier(s, id, err) });
     failed = true;
   };
   const placed: SkillInScope[] = [];
@@ -507,7 +510,7 @@ async function runCopy(
             }
             const skipped = results.filter((r) => r.outcome === GroupMemberOutcome.MemberSkipped);
             // 有不是库装的同名文件夹而没勾覆盖的，是用户自己选的跳过，不再列出。
-            rows.push(...memberRows(s, skipped.filter((r) => overwrite.has(key) || !untrackedSkip(plans.get(key), r.skill_id))));
+            rows.push(...memberRows(s, skipped.filter((r) => overwrite.has(key) || !untrackedSkip(planned, r.skill_id))));
           } catch (e) {
             fail(t.groupFailed(g.name, where), e);
           }
@@ -523,7 +526,8 @@ async function runCopy(
           if (!("plan" in planned)) continue;
           const { plan } = planned;
           if (!copyable(plan.status)) {
-            skip(`${x.name} → ${where}`, occupiedReason(s, x.id, plan));
+            const { reason, occupier } = occupied(s, x.id, plan);
+            skip(`${x.name} → ${where}`, reason, occupier);
             continue;
           }
           if (!checked.has(key)) continue;
@@ -532,7 +536,7 @@ async function runCopy(
             installed.add(`${scopeKey(scope)}:${x.id}`);
             placed.push({ skill_id: x.id, scope });
           } catch (e) {
-            fail(`${x.name} → ${where}`, e);
+            fail(`${x.name} → ${where}`, e, x.id);
           }
         }
       }
