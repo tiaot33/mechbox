@@ -160,6 +160,7 @@ export const en = {
     occupiedSource: (source: string, folder: string) =>
       `Can't install: a skill with the same name from ${source} is already installed at\n${folder}\nUninstall it first, then install`,
     occupiedOther: (folder: string) => `Can't install: another skill with the same name is already installed at\n${folder}\nUninstall it first, then install`,
+    occupiedNoSource: (folder: string) => `Can't install: a skill with the same name and no Source is already installed at\n${folder}\nUninstall it first, then install`,
     openOccupier: "Open the skill using it",
     untrackedTitle: "A folder with the same name is already there",
     untrackedBody: (folder: string, name: string) => `${folder} exists but wasn't installed by the Library. Overwriting replaces it with “${name}”.`,
@@ -315,7 +316,7 @@ export const en = {
       `Delete the folders in ${wheres.join(", ")}; those places will no longer have this “${name}”${edited ? `; ${edited} of them ${edited === 1 ? "was" : "were"} edited and the edits will be lost` : ""}`,
     replaceTwin: "Install the one you keep in those places",
     replaceTwinDesc: (name: string, source: string, wheres: string[]) =>
-      `Installs “${name}” (${source}) in ${wheres.join(", ")}. The two “${name}” skills differ, so the Agents there will use this one instead`,
+      `Installs “${name}” (${source}) in ${wheres.join(", ")}, so the Agents there use this one from now on`,
     replaceInstallTitle: (name: string) => `Install “${name}” where the removed one was`,
     replaceInstalled: (name: string) => `Removed, and installed “${name}” where it was`,
     pickedAllThere: (where: string) => `The selected skills are all installed directly in ${where}`,

@@ -159,6 +159,7 @@ export const zh = {
     occupiedSelf: (folder: string) => `无法安装：这个技能的另一个作用域已装在\n${folder}\n先卸载它，再安装`,
     occupiedSource: (source: string, folder: string) => `无法安装：来自 ${source} 的同名技能已装在\n${folder}\n先卸载它，再安装`,
     occupiedOther: (folder: string) => `无法安装：另一个同名技能已装在\n${folder}\n先卸载它，再安装`,
+    occupiedNoSource: (folder: string) => `无法安装：没有来源的同名技能已装在\n${folder}\n先卸载它，再安装`,
     openOccupier: "打开占用的技能",
     untrackedTitle: "目标已有同名文件夹",
     untrackedBody: (folder: string, name: string) => `${folder} 已存在，但不是从技能库装的。覆盖会用「${name}」替换它。`,
@@ -291,7 +292,7 @@ export const zh = {
       `从 ${wheres.join("、")} 删除文件夹，这几处不再有这个「${name}」${edited ? `；其中 ${edited} 处被改过，改动会丢掉` : ""}`,
     replaceTwin: "在这几处装上留下的这个",
     replaceTwinDesc: (name: string, source: string, wheres: string[]) =>
-      `把「${name}」（${source}）装到 ${wheres.join("、")}。两个「${name}」内容不同，装上以后这几处的 Agent 用的就是它`,
+      `把「${name}」（${source}）装到 ${wheres.join("、")}，这几处的 Agent 之后用的就是它`,
     replaceInstallTitle: (name: string) => `把「${name}」装到原来的几处`,
     replaceInstalled: (name: string) => `已移除，并在原来的几处装上「${name}」`,
     pickedAllThere: (where: string) => `勾选的技能都已直接安装到 ${where}`,

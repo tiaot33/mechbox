@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AgentCode,
-  InstallPlanStatus,
+  ErrorCode,
   SameNameRule,
   ScopeKind,
   SkillFileProblemKind,
@@ -64,6 +64,7 @@ import {
   foldCollections,
   uncopiedProjectUnmanaged,
   uncopiedUnmanaged,
+  errorOccupier,
   occupierOf,
   twinReplaceScopes,
 } from "./model";
@@ -751,32 +752,40 @@ describe("skillSameNameNote", () => {
 });
 
 describe("库里同名的技能", () => {
-  // 两个 tdd:1 装在 Claude Code 全局、项目 7(在这台机器上)和项目 8(不在这台机器上);2 装在 Codex 全局和项目 7。
+  // 两个 tdd:A(1) 装在 Claude Code 全局;B(2) 装在 Codex 全局、Claude Code 在项目 7、Codex 在项目 9,和 Claude Code 在项目 8(不在这台机器上)。
   const s = snapshot({
     skills: [skill(1, "tdd", "a/skills"), skill(2, "tdd", "b/skills")],
     skillScopes: [
       installed(1, "claude-code"),
-      installed(1, "claude-code", 7),
-      { ...installed(1, "claude-code", 8), status: SkillScopeStatus.SkillScopeRootMissing },
       installed(2, "codex"),
       installed(2, "claude-code", 7),
+      installed(2, "codex", 9),
+      { ...installed(2, "claude-code", 8), status: SkillScopeStatus.SkillScopeRootMissing },
     ],
   });
 
-  it("移除一个时，能换上留下的那个的是它装着、留下的那个还没装、项目在这台机器上的几处", () => {
+  it("移除 B 留下 A 时，能换上 A 的是 B 装着、项目在这台机器上、那个 Agent 在全局没装 A 的几处", () => {
+    // Claude Code 在项目 7 里本来就用得到全局的 A,不再装一份。
+    expect(twinReplaceScopes(s, 2, 1)).toEqual([where("codex"), where("codex", 9)]);
     expect(twinReplaceScopes(s, 1, 2)).toEqual([where("claude-code")]);
-    expect(twinReplaceScopes(s, 2, 1)).toEqual([where("codex")]);
   });
 
   it("没装在任何地方时没有要换的", () => {
     expect(twinReplaceScopes(snapshot({ skills: s.skills }), 1, 2)).toEqual([]);
   });
 
-  it("安装被占用时，占着的是同名的另一个技能才能点开它", () => {
-    expect(occupierOf(1, { status: InstallPlanStatus.InstallOccupied, occupier_skill_id: 2 })).toBe(2);
-    // 占着的是这个技能自己的另一个作用域：没有另一个技能可打开。
-    expect(occupierOf(1, { status: InstallPlanStatus.InstallOccupied, occupier_skill_id: 1 })).toBeUndefined();
-    expect(occupierOf(1, { status: InstallPlanStatus.InstallReady })).toBeUndefined();
+  it("安装被占用时，占着的是库里同名的另一个技能才能点开它", () => {
+    expect(occupierOf(s, 1, 2)).toBe(2);
+    // 占着的是这个技能自己的另一个作用域、不在快照里、没有占用者：没有可打开的。
+    expect(occupierOf(s, 1, 1)).toBeUndefined();
+    expect(occupierOf(s, 1, 9)).toBeUndefined();
+    expect(occupierOf(s, 1, undefined)).toBeUndefined();
+  });
+
+  it("安装失败的错误里，被占用(FailedPrecondition)时才有占着的技能", () => {
+    expect(errorOccupier(s, 1, { code: ErrorCode.FailedPrecondition, details: { skill_id: 2 } })).toBe(2);
+    expect(errorOccupier(s, 1, { code: ErrorCode.NotFound, details: { skill_id: 2 } })).toBeUndefined();
+    expect(errorOccupier(s, 1, undefined)).toBeUndefined();
   });
 });
 

@@ -13,7 +13,7 @@
 import type { ComponentProps, ReactNode } from "react";
 import { cva, type VariantProps } from "class-variance-authority";
 import { Slot } from "radix-ui";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { byLevel, byUrgency, type Mark, type Tone } from "@/lib/level";
 import { cn } from "@/lib/utils";
@@ -73,18 +73,20 @@ function Badge({ className, tone, asChild = false, children, ...props }: Compone
 }
 
 // Alert 是一条提醒或更新：级别、一句话(label)、补充说明(tip);className 是测试钩子;onClick 是它能直接做的那件事(有新版本时打开更新计划);
-// menu 是点它弹出的下拉菜单里的选项(库里有同名的：选一个打开它),有 menu 时不看 onClick。
+// menu 是它的下拉菜单里的选项(库里有同名的：选一个打开它),见 AlertIcon。
 type Alert = { tone: Mark; label: string; tip?: string; className?: string; onClick?: () => void; menu?: ReactNode };
 
 // AlertIcon 把一处的一条或几条提醒合成一个图标：图标按最重的一级画，鼠标停住时从重到轻逐条列出(图标 + 一句话 + 说明)。
 // 提示里的每一条同时留在 DOM 里(读屏和测试读到的和提示里显示的是同一份),界面上不占地方。
-// 排在最前的那一条带 onClick 或 menu 时整个图标是按钮，点它(或聚焦后按回车、空格)做那件事或弹出菜单。
+// 排在最前的那一条带 onClick 时整个图标是按钮，点它(或聚焦后按回车、空格)做那件事。
+// 有一条带 menu 时(不论排第几),点图标弹出菜单：排在最前的那一条能做的事在最上面，下面是带 menu 那一条的说法和它的选项。
 // 点按钮和菜单里的选项都不再往外传，免得同时点开了所在的行。
 function AlertIcon({ items, className, labeled = false }: { items: (Alert | false | null | undefined | "")[]; className?: string; labeled?: boolean }) {
   const alerts = items.filter((x): x is Alert => !!x).sort((a, b) => (labeled ? byUrgency : byLevel)(a.tone, b.tone));
   if (!alerts.length) return null;
   // 只有排在最前、画出来的那一条能直接做事时才是按钮：点下去做的就是看到的那一条(文件夹不在了 +1 不会点开更新计划)。
-  const { onClick: act, menu } = alerts[0];
+  const act = alerts[0].onClick;
+  const listed = alerts.find((a) => a.menu);
   const box = labeled
     ? cn("relative flex h-6 max-w-full min-w-0 items-center gap-1.5 rounded-control px-1 -mx-1 text-left text-caption outline-none", className)
     : cn("relative inline-grid size-4 shrink-0 place-items-center rounded-full outline-none", className);
@@ -116,7 +118,7 @@ function AlertIcon({ items, className, labeled = false }: { items: (Alert | fals
       className={cn(box, "cursor-pointer focus-visible:ring-3 focus-visible:ring-primary-soft", labeled && "hover:bg-fill")}
       onClick={(e) => {
         e.stopPropagation();
-        if (!menu) act?.();
+        if (!listed) act?.();
       }}
     >
       {inner}
@@ -125,7 +127,7 @@ function AlertIcon({ items, className, labeled = false }: { items: (Alert | fals
   const tooltip = (
     <Tooltip>
       <TooltipTrigger asChild>
-        {menu ? (
+        {listed ? (
           <DropdownMenuTrigger asChild>{button}</DropdownMenuTrigger>
         ) : act ? (
           button
@@ -146,12 +148,21 @@ function AlertIcon({ items, className, labeled = false }: { items: (Alert | fals
       </TooltipContent>
     </Tooltip>
   );
-  if (!menu) return tooltip;
+  if (!listed) return tooltip;
   return (
     <DropdownMenu>
       {tooltip}
       <DropdownMenuContent align="start" className="alert-menu" onClick={(e) => e.stopPropagation()}>
-        {menu}
+        {act && (
+          <>
+            <DropdownMenuItem className="alert-menu-act" onSelect={act}>
+              {alerts[0].label}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
+        <div className="alert-menu-title px-2 pt-1 pb-0.5 text-caption text-muted-foreground">{listed.label}</div>
+        {listed.menu}
       </DropdownMenuContent>
     </DropdownMenu>
   );
