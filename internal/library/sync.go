@@ -217,6 +217,7 @@ func (l *Library) syncTarget(ctx context.Context) (syncTarget, error) {
 	settings := syncSettings(stored)
 	return syncTarget{
 		s3: s3.Settings{
+			Client:   l.client,
 			Endpoint: settings.Endpoint, Bucket: settings.Bucket, Region: settings.Region,
 			AccessKeyID: settings.AccessKeyID, SecretAccessKey: settings.SecretAccessKey, SessionToken: settings.SessionToken,
 		},
@@ -508,7 +509,7 @@ func (l *Library) SyncPull(ctx context.Context, backup SyncBackupID) (err error)
 	defer image.Close()
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	home, err := resolveHome(ctx, l.distro)
+	home, err := l.resolveHome(ctx, l.distro)
 	if err != nil {
 		return fmt.Errorf("sync pull: %w", err)
 	}

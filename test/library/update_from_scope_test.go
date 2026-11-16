@@ -159,8 +159,9 @@ func TestUpdateFromScopeLeavesUncheckedPlacesAndRefusesEditedOnesWithoutConsent(
 }
 
 func TestUpdateFromScopeWithLocalSource(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, _ := fetchLocalSkill(t, lib, "pdf", "v1")
 	claude := library.GlobalScope(library.AgentClaudeCode)

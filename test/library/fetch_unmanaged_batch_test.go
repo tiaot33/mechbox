@@ -89,9 +89,10 @@ func touchTree(t *testing.T, root string, at time.Time) {
 }
 
 func TestFetchUnmanagedSkillsTakesOverGlobalSkillsInOneConfirmation(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	codex := library.GlobalScope(library.AgentCodex)
@@ -164,8 +165,9 @@ func TestFetchUnmanagedSkillsTakesOverGlobalSkillsInOneConfirmation(t *testing.T
 }
 
 func TestPlanFetchUnmanagedListsConflictsAndSelectsTheNewest(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	codex := library.GlobalScope(library.AgentCodex)
@@ -210,8 +212,9 @@ func TestPlanFetchUnmanagedListsConflictsAndSelectsTheNewest(t *testing.T) {
 }
 
 func TestPlanFetchUnmanagedLeavesTeamSkillsOfTheProjectUnselected(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	repository := t.TempDir()
 	runGit(t, repository, "init", "-b", "main")
@@ -250,7 +253,8 @@ func TestPlanFetchUnmanagedLeavesTeamSkillsOfTheProjectUnselected(t *testing.T) 
 }
 
 func TestPlanFetchUnmanagedListsFoldersThatCannotBeFetched(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	t.Parallel()
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	directory := scopeDirectory(t, lib, claude)
@@ -291,8 +295,9 @@ func TestPlanFetchUnmanagedListsFoldersThatCannotBeFetched(t *testing.T) {
 }
 
 func TestPlanFetchUnmanagedKeepsCopiesInOneScopeApart(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	directory := scopeDirectory(t, lib, claude)
@@ -323,8 +328,9 @@ func TestPlanFetchUnmanagedKeepsCopiesInOneScopeApart(t *testing.T) {
 }
 
 func TestPlanFetchUnmanagedMergesFoldersSharedByAgents(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	shared, err := lib.AddAgent(ctx, library.CustomAgent{Name: "Shared", GlobalDirectory: "~/.claude/skills", ProjectDirectory: ".shared/skills"})
 	if err != nil {
@@ -411,8 +417,9 @@ func TestFetchUnmanagedSkillsReadsSourcesAndKeepsGoingWhenOneFails(t *testing.T)
 }
 
 func TestFetchUnmanagedSkillsErrors(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	codex := library.GlobalScope(library.AgentCodex)

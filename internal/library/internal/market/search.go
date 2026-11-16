@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -22,13 +23,13 @@ type Skill struct {
 	DetailURL string
 }
 
-func Search(ctx context.Context, query string) ([]Skill, error) {
+func Search(ctx context.Context, client *http.Client, query string) ([]Skill, error) {
 	ctx, cancel := context.WithTimeout(ctx, searchTimeout)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	response, err := get(ctx, baseURL+"/api/search?"+url.Values{"q": {query}, "limit": {fmt.Sprint(searchLimit)}}.Encode())
+	response, err := get(ctx, client, baseURL+"/api/search?"+url.Values{"q": {query}, "limit": {fmt.Sprint(searchLimit)}}.Encode())
 	if err != nil {
 		return nil, fmt.Errorf("search skills: %w", err)
 	}

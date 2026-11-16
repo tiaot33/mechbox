@@ -542,7 +542,7 @@ func (l *Library) FindUnmanagedSources(ctx context.Context, req FindUnmanagedSou
 	for name := range maps.Clone(searched) {
 		wg.Go(func() {
 			limit.do(ctx, func() {
-				results, err := market.Search(ctx, name)
+				results, err := market.Search(ctx, l.client, name)
 				if err != nil {
 					return
 				}

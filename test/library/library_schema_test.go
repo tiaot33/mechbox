@@ -15,10 +15,11 @@ import (
 // 内置 Agent 的名称和目录以应用版本为准:库里的行缺了或被改过,重开后都恢复为应用内置的值;
 // 已按身份记录的 SkillScope 按恢复后的目录算出,并可继续按身份安装。
 func TestOpenRestoresBuiltinAgentsFromApplication(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	path := filepath.Join(t.TempDir(), "library.db")
-	lib, err := library.Open(path)
+	lib, err := library.Open(path, testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +62,7 @@ func TestOpenRestoresBuiltinAgentsFromApplication(t *testing.T) {
 	wantAgents := seededAgents(home)
 	wantAgents[0].Detected = true
 	for range 2 {
-		reopened, err := library.Open(path)
+		reopened, err := library.Open(path, testOptions(t)...)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -87,10 +88,11 @@ func TestOpenRestoresBuiltinAgentsFromApplication(t *testing.T) {
 
 // 库里有、本版应用不认识的 Agent(例如从装了更新版本应用的机器同步来)保持原样:照样列出,目录按库里的规则算。
 func TestOpenKeepsAgentsUnknownToThisVersion(t *testing.T) {
+	t.Parallel()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	path := filepath.Join(t.TempDir(), "library.db")
-	lib, err := library.Open(path)
+	lib, err := library.Open(path, testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,10 +116,11 @@ func TestOpenKeepsAgentsUnknownToThisVersion(t *testing.T) {
 }
 
 func TestOpenRejectsMissingScopeIdentityConstraint(t *testing.T) {
+	t.Parallel()
 	for _, index := range []string{"skill_scopes_global_scope", "skill_scopes_project_scope", "group_installs_global_scope", "group_installs_project_scope"} {
 		t.Run(index, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "library.db")
-			lib, err := library.Open(path)
+			lib, err := library.Open(path, testOptions(t)...)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -129,7 +132,7 @@ func TestOpenRejectsMissingScopeIdentityConstraint(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			invalid, err := library.Open(path)
+			invalid, err := library.Open(path, testOptions(t)...)
 			if err == nil {
 				_ = invalid.Close()
 			}
@@ -144,8 +147,9 @@ func TestOpenRejectsMissingScopeIdentityConstraint(t *testing.T) {
 
 // 同一 schema 版本下少了表的库同样按表结构不符拒绝,文件保持不变。
 func TestOpenRejectsLibraryMissingATable(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "library.db")
-	lib, err := library.Open(path)
+	lib, err := library.Open(path, testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +161,7 @@ func TestOpenRejectsLibraryMissingATable(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	invalid, err := library.Open(path)
+	invalid, err := library.Open(path, testOptions(t)...)
 	if err == nil {
 		_ = invalid.Close()
 	}
@@ -170,10 +174,11 @@ func TestOpenRejectsLibraryMissingATable(t *testing.T) {
 
 // v0.0.6(schema 版本 27)之前的库不升级,比本版应用新的库不认:两种都被拒绝,文件保持不变。
 func TestOpenRejectsUnsupportedSchemaVersionsWithoutChangingTheFile(t *testing.T) {
+	t.Parallel()
 	for _, version := range []int{24, 9999} {
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "library.db")
-			lib, err := library.Open(path)
+			lib, err := library.Open(path, testOptions(t)...)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -185,7 +190,7 @@ func TestOpenRejectsUnsupportedSchemaVersionsWithoutChangingTheFile(t *testing.T
 			if err != nil {
 				t.Fatal(err)
 			}
-			unsupported, err := library.Open(path)
+			unsupported, err := library.Open(path, testOptions(t)...)
 			if err == nil {
 				_ = unsupported.Close()
 			}
@@ -203,12 +208,13 @@ func TestOpenRejectsUnsupportedSchemaVersionsWithoutChangingTheFile(t *testing.T
 
 // 用户选错了文件(不是 SQLite 数据库)时,Open 返回 FailedPrecondition,文件保持不变。
 func TestOpenRejectsNonDatabaseFileWithoutChangingIt(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "notes.txt")
 	before := bytes.Repeat([]byte("not a sqlite database\n"), 256)
 	if err := os.WriteFile(path, before, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	lib, err := library.Open(path)
+	lib, err := library.Open(path, testOptions(t)...)
 	if err == nil {
 		_ = lib.Close()
 	}
@@ -220,6 +226,7 @@ func TestOpenRejectsNonDatabaseFileWithoutChangingIt(t *testing.T) {
 }
 
 func TestOpenRejectsForeignDatabaseWithoutMutatingIt(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "foreign.db")
 	foreign, err := sql.Open("sqlite3", path)
 	if err != nil {
@@ -235,7 +242,7 @@ func TestOpenRejectsForeignDatabaseWithoutMutatingIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lib, err := library.Open(path)
+	lib, err := library.Open(path, testOptions(t)...)
 	if err == nil {
 		_ = lib.Close()
 	}

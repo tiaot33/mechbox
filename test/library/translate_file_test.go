@@ -32,6 +32,7 @@ func currentVersion(t *testing.T, lib *library.Library, id library.SkillID) libr
 // 翻译文件把文件全文作为用户消息发给模型,系统提示里写明文件名和要译成的语言;译文存进数据库,
 // 之后读这个文件时按语言给出。再点一次翻译也重新翻译,覆盖原来的译文;别的语言另存一份。
 func TestTranslateVersionFileStoresTranslation(t *testing.T) {
+	t.Parallel()
 	lib, stub := translatingLibrary(t, library.AIProviderOpenAI)
 	skill, source := fetchLocalSkill(t, lib, "formatter", "# Formatter\n")
 	writeFile(t, filepath.Join(source, "references", "guide.md"), []byte("# Guide\n\nRun the formatter.\n"), 0o644)
@@ -78,6 +79,7 @@ func TestTranslateVersionFileStoresTranslation(t *testing.T) {
 // 内容相同的脚本不带(不翻译的文件不给译文);
 // 改过的文件没有,再翻译只换掉新内容的译文,旧版本的不变。
 func TestFileTranslationFollowsContent(t *testing.T) {
+	t.Parallel()
 	lib, stub := translatingLibrary(t, library.AIProviderOpenAI)
 	skill, source := fetchLocalSkill(t, lib, "formatter", "# Formatter\n")
 	first := currentVersion(t, lib, skill.ID)
@@ -134,6 +136,7 @@ func TestFileTranslationFollowsContent(t *testing.T) {
 // 不是 Markdown 或纯文本的文件(脚本等代码文件)、二进制内容和只有空白的文件返回 FailedPrecondition(Details.Path),都不发请求。
 // 服务拒绝、回答被截断时按测试连接的规则归类,不存译文,原来的译文不变。
 func TestTranslateVersionFileErrors(t *testing.T) {
+	t.Parallel()
 	stub := newAIStub(t)
 	lib := openTestLibrary(t)
 	skill, source := fetchLocalSkill(t, lib, "formatter", "# Formatter\n")
@@ -187,6 +190,7 @@ func TestTranslateVersionFileErrors(t *testing.T) {
 
 // 文件列表标出能翻译的文件:Markdown(.md、.markdown)与纯文本(.txt),不区分大小写;脚本、图片等不能。
 func TestListVersionFilesMarksTranslatableFiles(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	skill, source := fetchLocalSkill(t, lib, "formatter", "# Formatter\n")
 	for _, path := range []string{"references/guide.markdown", "NOTES.TXT", "scripts/run.py", "logo.png"} {

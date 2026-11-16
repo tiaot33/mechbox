@@ -182,11 +182,9 @@ func (infiniteZeros) Read(p []byte) (int, error) {
 
 func TestPreviewArchiveRejectsOversizedDownloadWithoutCreatingPreview(t *testing.T) {
 	lib := openTestLibrary(t)
-	client := http.DefaultClient
-	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
+	stubHTTP(t, func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(io.LimitReader(infiniteZeros{}, 64<<20+1)), Header: make(http.Header)}, nil
-	})}
-	t.Cleanup(func() { http.DefaultClient = client })
+	})
 	preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://source.example/skills.zip"})
 	if !library.IsCode(err, library.SourceInvalid) || preview.ID != "" {
 		t.Fatalf("download size = %#v, %v", preview, err)
@@ -198,9 +196,7 @@ func TestPreviewArchiveRejectsOversizedDownloadWithoutCreatingPreview(t *testing
 
 func TestPreviewArchiveErrorsDoNotExposeSourceCredentials(t *testing.T) {
 	lib := openTestLibrary(t)
-	client := http.DefaultClient
-	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) { return nil, errors.New("offline") })}
-	t.Cleanup(func() { http.DefaultClient = client })
+	stubHTTP(t, func(*http.Request) (*http.Response, error) { return nil, errors.New("offline") })
 	_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "https://source.example/archive?token=example-secret"})
 	if !library.IsCode(err, library.SourceUnreachable) || strings.Contains(err.Error(), "example-secret") {
 		t.Fatalf("archive error exposed credentials or wrong code: %v", err)

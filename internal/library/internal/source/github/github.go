@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -14,12 +15,13 @@ import (
 const Type = "github"
 
 type Client struct {
+	http *http.Client
 	auth githubAuth
 	memo githubObjectMemo
 }
 
-func NewClient() *Client {
-	client := &Client{memo: newGitHubMemo()}
+func NewClient(httpClient *http.Client) *Client {
+	client := &Client{http: httpClient, memo: newGitHubMemo()}
 	client.auth.current.Store(&githubCredentials{})
 	return client
 }

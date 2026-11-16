@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"errors"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -19,26 +20,29 @@ import (
 
 type Catalog struct {
 	source.Kinds
-	github   *github.Client
-	download download.Kind
-	local    local.Kind
+	github    *github.Client
+	download  download.Kind
+	wellknown wellknown.Kind
+	local     local.Kind
 }
 
-func New(maxFiles int, maxBytes int64) *Catalog {
-	client := github.NewClient()
-	direct := download.New(maxFiles, maxBytes)
+func New(httpClient *http.Client, maxFiles int, maxBytes int64) *Catalog {
+	client := github.NewClient(httpClient)
+	direct := download.New(httpClient, maxFiles, maxBytes)
+	known := wellknown.New(httpClient, maxFiles, maxBytes)
 	directory := local.New(maxFiles, maxBytes)
 	return &Catalog{
 		Kinds: source.Kinds{
 			github.Type:    client,
 			git.Type:       git.Kind{},
 			download.Type:  direct,
-			wellknown.Type: wellknown.New(maxFiles, maxBytes),
+			wellknown.Type: known,
 			local.Type:     directory,
 		},
-		github:   client,
-		download: direct,
-		local:    directory,
+		github:    client,
+		download:  direct,
+		wellknown: known,
+		local:     directory,
 	}
 }
 
@@ -89,7 +93,7 @@ func (c *Catalog) probe(ctx context.Context, link string, in Input) (source.Targ
 		return source.Target{}, err
 	}
 	if !ok {
-		target, ok, err = wellknown.Locate(ctx, link)
+		target, ok, err = c.wellknown.Locate(ctx, link)
 	}
 	scope, scoped := errors.AsType[*wellknown.ScopeError](err)
 	if err != nil && !scoped {

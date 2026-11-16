@@ -20,14 +20,12 @@ func recordHTTP(t *testing.T) func() []string {
 	t.Helper()
 	var mu sync.Mutex
 	var requested []string
-	client := http.DefaultClient
-	http.DefaultClient = &http.Client{Transport: fetchTransport(func(r *http.Request) (*http.Response, error) {
+	stubHTTP(t, func(r *http.Request) (*http.Response, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		requested = append(requested, r.URL.String())
 		return &http.Response{StatusCode: http.StatusInternalServerError, Body: io.NopCloser(strings.NewReader("boom")), Request: r}, nil
-	})}
-	t.Cleanup(func() { http.DefaultClient = client })
+	})
 	return func() []string {
 		mu.Lock()
 		defer mu.Unlock()
@@ -91,12 +89,10 @@ func TestInputWithoutSchemeStartingWithDomainGetsHTTPS(t *testing.T) {
 	t.Run("other domain", func(t *testing.T) {
 		isolateGit(t)
 		var requested []string
-		client := http.DefaultClient
-		http.DefaultClient = &http.Client{Transport: fetchTransport(func(r *http.Request) (*http.Response, error) {
+		stubHTTP(t, func(r *http.Request) (*http.Response, error) {
 			requested = append(requested, r.URL.String())
 			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader("---\nname: example\ndescription: d\n---\nbody")), Request: r}, nil
-		})}
-		t.Cleanup(func() { http.DefaultClient = client })
+		})
 		lib := openTestLibrary(t)
 		preview, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "git.company.com/org/repo"})
 		if err != nil {

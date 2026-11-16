@@ -68,6 +68,7 @@ func translatingLibrary(t *testing.T, provider library.AIProvider) (*library.Lib
 // 翻译描述用数据库里的 AI 设置把当前描述发给模型,让它译成语言标签对应的语言;译文存进数据库,
 // 之后读技能时按语言给出。再点一次翻译也重新翻译,覆盖原来的译文。
 func TestTranslateDescriptionStoresTranslation(t *testing.T) {
+	t.Parallel()
 	lib, stub := translatingLibrary(t, library.AIProviderOpenAI)
 	skill, _ := fetchDescribedSkill(t, lib, "formatter", "Format code before committing")
 	stub.reply(" 提交前格式化代码\n")
@@ -108,6 +109,7 @@ func TestTranslateDescriptionStoresTranslation(t *testing.T) {
 // Anthropic 的接口:描述作为用户消息、翻译要求作为系统提示;回答里的思考块不算译文。
 // 推理模型把思考写在 <think> 里的,也去掉。
 func TestTranslateDescriptionTakesOnlyAnswerText(t *testing.T) {
+	t.Parallel()
 	lib, stub := translatingLibrary(t, library.AIProviderAnthropic)
 	skill, _ := fetchDescribedSkill(t, lib, "formatter", "Format code")
 	stub.reply("格式化代码")
@@ -135,6 +137,7 @@ func TestTranslateDescriptionTakesOnlyAnswerText(t *testing.T) {
 
 // 技能更新后描述变了,旧译文对不上当前描述,读技能时不再给出;再翻译就是新描述的译文。描述没变的更新不影响译文。
 func TestTranslationIsDroppedWhenDescriptionChanges(t *testing.T) {
+	t.Parallel()
 	lib, stub := translatingLibrary(t, library.AIProviderOpenAI)
 	skill, source := fetchDescribedSkill(t, lib, "formatter", "Format code")
 	stub.reply("格式化代码")
@@ -168,6 +171,7 @@ func TestTranslationIsDroppedWhenDescriptionChanges(t *testing.T) {
 // 自动翻译只翻还没有译文的:跳过描述为空的、已有对得上当前描述的译文的,以及不在 ids 里的,这些都不发请求;
 // 返回这次翻译了几个。界面语言是中文时,已经是中文的描述也跳过;其他语言都交给模型判断。
 func TestTranslateDescriptionsSkipsWhatNeedsNoTranslation(t *testing.T) {
+	t.Parallel()
 	lib, stub := translatingLibrary(t, library.AIProviderOpenAI)
 	english, _ := fetchDescribedSkill(t, lib, "english", "Format code")
 	chinese, _ := fetchDescribedSkill(t, lib, "chinese", "格式化 Go 代码")
@@ -210,6 +214,7 @@ func TestTranslateDescriptionsSkipsWhatNeedsNoTranslation(t *testing.T) {
 // 中文界面下按汉字在汉字与其他文字的词里占的比例判断描述是不是中文:中文里夹几个英文词的算中文、跳过;
 // 英文里夹一个中文专名的、日文(有假名)都要翻译。
 func TestTranslateDescriptionsJudgesChineseByShare(t *testing.T) {
+	t.Parallel()
 	lib, stub := translatingLibrary(t, library.AIProviderOpenAI)
 	stub.reply("译文")
 	want := map[string]bool{
@@ -242,6 +247,7 @@ func TestTranslateDescriptionsJudgesChineseByShare(t *testing.T) {
 // 被 max_tokens 截断的回答(OpenAI 兼容的 finish_reason 为 length,Anthropic 的 stop_reason 为 max_tokens),
 // 以及停在 <think> 里的回答都不存:报 InvalidArgument,Details.Field 为 max_tokens,原来的译文不变。测试连接也一样。
 func TestTranslateDescriptionRejectsTruncatedAnswers(t *testing.T) {
+	t.Parallel()
 	for _, provider := range []library.AIProvider{library.AIProviderOpenAI, library.AIProviderAnthropic} {
 		lib, stub := translatingLibrary(t, provider)
 		skill, _ := fetchDescribedSkill(t, lib, "formatter", "Format code")
@@ -275,6 +281,7 @@ func TestTranslateDescriptionRejectsTruncatedAnswers(t *testing.T) {
 // 自动翻译里只因某一条描述失败的(服务拒绝了这一条、回答被截断)记进 Failed,其余照常翻译,不返回错误;
 // 整体性的失败(如 Key 被拒)返回错误。
 func TestTranslateDescriptionsSkipsDescriptionsThatFail(t *testing.T) {
+	t.Parallel()
 	lib, stub := translatingLibrary(t, library.AIProviderOpenAI)
 	var ids []library.SkillID
 	var blocked library.SkillID
@@ -310,6 +317,7 @@ func TestTranslateDescriptionsSkipsDescriptionsThatFail(t *testing.T) {
 // 描述为空返回 FailedPrecondition,都不发请求。服务拒绝时按测试连接的规则归类,不存译文;
 // 自动翻译遇到失败也返回这个错误。
 func TestTranslateDescriptionErrors(t *testing.T) {
+	t.Parallel()
 	stub := newAIStub(t)
 	lib := openTestLibrary(t)
 	skill, _ := fetchDescribedSkill(t, lib, "formatter", "Format code")
@@ -350,6 +358,7 @@ func TestTranslateDescriptionErrors(t *testing.T) {
 
 // 译文随技能一并删除:移除有译文的技能不受影响。
 func TestRemoveSkillWithTranslation(t *testing.T) {
+	t.Parallel()
 	lib, stub := translatingLibrary(t, library.AIProviderOpenAI)
 	skill, _ := fetchDescribedSkill(t, lib, "formatter", "Format code")
 	stub.reply("格式化代码")

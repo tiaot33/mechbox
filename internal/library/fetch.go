@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -123,7 +124,7 @@ func (l *Library) SearchSkills(ctx context.Context, query string) (result []Sear
 	if query == "" {
 		return nil, &Error{Code: InvalidArgument, Message: "search query must not be empty"}
 	}
-	skills, err := market.Search(ctx, query)
+	skills, err := market.Search(ctx, l.client, query)
 	if err != nil {
 		return nil, err
 	}
@@ -500,7 +501,7 @@ func (l *Library) GetCandidateAudit(ctx context.Context, id FetchPreviewID, name
 	if hit {
 		return cloneAudit(&cached), nil
 	}
-	got := lookupAudit(ctx, owner, repo, name)
+	got := lookupAudit(ctx, l.client, owner, repo, name)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -515,8 +516,8 @@ func (l *Library) GetCandidateAudit(ctx context.Context, id FetchPreviewID, name
 	return cloneAudit(&got), nil
 }
 
-func lookupAudit(ctx context.Context, owner, repo, name string) SkillAudit {
-	found, err := market.Audit(ctx, owner, repo, name)
+func lookupAudit(ctx context.Context, client *http.Client, owner, repo, name string) SkillAudit {
+	found, err := market.Audit(ctx, client, owner, repo, name)
 	if err != nil {
 		return SkillAudit{Availability: AuditUnavailable}
 	}

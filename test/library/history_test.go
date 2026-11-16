@@ -15,8 +15,9 @@ import (
 // 更新记录、单独重试与回滚
 
 func TestRetriedPlaceIsRolledBackWithTheUpdate(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, source := fetchLocalSkill(t, lib, "pdf", "v1")
 	projectPath := t.TempDir()
@@ -84,7 +85,7 @@ func TestRetriedPlaceIsRolledBackWithTheUpdate(t *testing.T) {
 
 func TestRollbackRestoresLibraryAndCheckedPlacesAndSkipsTheChange(t *testing.T) {
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	server := newArchiveServer(t, zipArchive(t, map[string]string{"pdf/SKILL.md": skillDocument("pdf", "v1"), "docx/SKILL.md": skillDocument("docx", "v1")}), "")
 	skills := fetchArchive(t, lib, server.request())
@@ -214,7 +215,7 @@ func TestRollbackAfterAFailedCheckStillSkipsTheNewerRevisionSeenBefore(t *testin
 	if check := checkedSkill(t, lib, pdf.ID); check.Status != library.UpdateAvailable || !check.Pending {
 		t.Fatalf("check before rollback = %#v; want v3 pending", check)
 	}
-	reachable := http.DefaultClient
+	reachable := testTransport(t)
 	stubHTTPResponse(t, http.StatusServiceUnavailable, strings.NewReader("down"))
 	if status, err := checkSkillUpdate(t, lib, ctx, pdf.ID); status != library.UpdateFailed || !library.IsCode(err, library.SourceUnreachable) {
 		t.Fatalf("check while the source is down = %v, %v; want failed with SourceUnreachable", status, err)
@@ -222,7 +223,7 @@ func TestRollbackAfterAFailedCheckStillSkipsTheNewerRevisionSeenBefore(t *testin
 	if got, err := lib.GetSkill(ctx, pdf.ID); err != nil || *got.LastUpdateCheck != (library.UpdateCheck{CheckedAt: got.LastUpdateCheck.CheckedAt, Status: library.UpdateFailed}) {
 		t.Fatalf("after the failed check = %#v, %v; want only the failure", got.LastUpdateCheck, err)
 	}
-	http.DefaultClient = reachable
+	stubHTTP(t, reachable.RoundTrip)
 	if _, err := lib.Rollback(ctx, updated.Record); err != nil {
 		t.Fatal(err)
 	}
@@ -345,8 +346,9 @@ func TestUpdateHistoryByTheSkillShowsCommitMessages(t *testing.T) {
 // 审查补充
 
 func TestCanceledRollbackContinuesOnTheNextCall(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, source := fetchLocalSkill(t, lib, "pdf", "v1")
 	claude := library.GlobalScope(library.AgentClaudeCode)
@@ -392,8 +394,9 @@ func TestCanceledRollbackContinuesOnTheNextCall(t *testing.T) {
 }
 
 func TestFailedRetryKeepsAnEarlierSuccessForRollback(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, source := fetchLocalSkill(t, lib, "pdf", "v1")
 	global := library.GlobalScope(library.AgentCodex)
@@ -425,8 +428,9 @@ func TestFailedRetryKeepsAnEarlierSuccessForRollback(t *testing.T) {
 }
 
 func TestRollbackLeavesAProjectRegisteredAfterTheUpdate(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	skill, source := fetchLocalSkill(t, lib, "pdf", "v1")
 	old, err := lib.RegisterProject(ctx, t.TempDir())

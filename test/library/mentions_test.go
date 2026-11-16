@@ -73,6 +73,7 @@ func requireMentionPairs(t *testing.T, got, want []string) {
 }
 
 func TestListMentionsDrawsInvocationFormsForAnyName(t *testing.T) {
+	t.Parallel()
 	root := mentionSource(t, map[string]string{
 		"entry": strings.Join([]string{
 			"Run /ship when the work is done.",
@@ -98,6 +99,7 @@ func TestListMentionsDrawsInvocationFormsForAnyName(t *testing.T) {
 }
 
 func TestListMentionsDrawsMultiWordNamesWrittenPlainly(t *testing.T) {
+	t.Parallel()
 	root := mentionSource(t, map[string]string{
 		"entry": strings.Join([]string{
 			"Next, use writing-plans to write the plan.",
@@ -125,6 +127,7 @@ func TestListMentionsDrawsMultiWordNamesWrittenPlainly(t *testing.T) {
 }
 
 func TestListMentionsSkipsPathsURLsFileNamesAndSelf(t *testing.T) {
+	t.Parallel()
 	root := mentionSource(t, map[string]string{
 		"entry": strings.Join([]string{
 			"This is entry; entry calls itself /entry.",
@@ -145,6 +148,7 @@ func TestListMentionsSkipsPathsURLsFileNamesAndSelf(t *testing.T) {
 }
 
 func TestListMentionsReadsEveryMarkdownFileIncludingFrontmatter(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, "entry", "SKILL.md"), []byte("---\nname: entry\ndescription: Use after writing-plans finishes.\n---\n# entry\n"), 0o644)
 	writeFile(t, filepath.Join(root, "entry", "references", "flow.md"), []byte("# Flow\n\nThen hand off to /ship.\n"), 0o644)
@@ -173,6 +177,7 @@ func TestListMentionsReadsEveryMarkdownFileIncludingFrontmatter(t *testing.T) {
 }
 
 func TestListMentionsListsEachDistinctLineOnce(t *testing.T) {
+	t.Parallel()
 	root := mentionSource(t, map[string]string{
 		"entry":         "Use writing-plans.\n\n  Use writing-plans.\n\nAfter that, writing-plans again: /writing-plans.\n",
 		"writing-plans": "# writing-plans\n",
@@ -194,6 +199,7 @@ func TestListMentionsListsEachDistinctLineOnce(t *testing.T) {
 }
 
 func TestListMentionsSkipsLinesSharedByMoreThanHalfTheCollection(t *testing.T) {
+	t.Parallel()
 	preamble := "Only proactively suggest /ship and /qa."
 	skills := map[string]string{
 		"ship": "# ship\n", "qa": "# qa\n",
@@ -209,6 +215,7 @@ func TestListMentionsSkipsLinesSharedByMoreThanHalfTheCollection(t *testing.T) {
 }
 
 func TestListMentionsKeepsLinesSharedByHalfTheCollectionOrFewerThanThree(t *testing.T) {
+	t.Parallel()
 	line := "Hand the result to /ship."
 	lib := openTestLibrary(t)
 	half := fetchMentionSource(t, lib, mentionSource(t, map[string]string{
@@ -225,6 +232,7 @@ func TestListMentionsKeepsLinesSharedByHalfTheCollectionOrFewerThanThree(t *test
 }
 
 func TestListMentionsReachesOtherCollectionsAndPrefersTheSameNameInThisSet(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	home := fetchMentionSource(t, lib, mentionSource(t, map[string]string{
 		"entry":       "Start with shared-tool, then other-thing.\n",
@@ -270,6 +278,7 @@ func TestListMentionsReachesOtherCollectionsAndPrefersTheSameNameInThisSet(t *te
 }
 
 func TestListMentionsInGroupSkipsSharedLinesByEachSkillsCollection(t *testing.T) {
+	t.Parallel()
 	preamble := "Only proactively suggest /ship."
 	lib := openTestLibrary(t)
 	source := fetchMentionSource(t, lib, mentionSource(t, map[string]string{
@@ -289,6 +298,7 @@ func TestListMentionsInGroupSkipsSharedLinesByEachSkillsCollection(t *testing.T)
 }
 
 func TestListMentionsFollowsNewVersionsFetchesAndRemovals(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	entry, source := fetchLocalSkill(t, lib, "entry", "Hand off to writing-plans.\n")
 	filter := library.MentionsFilter{CollectionID: entry.CollectionID}
@@ -315,6 +325,7 @@ func TestListMentionsFollowsNewVersionsFetchesAndRemovals(t *testing.T) {
 }
 
 func TestListMentionsRejectsBadFiltersAndMissingSets(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	skill := fetchNamedSkill(t, lib, "entry")
 	group, err := lib.CreateGroup(t.Context(), "empty")
@@ -337,6 +348,7 @@ func TestListMentionsRejectsBadFiltersAndMissingSets(t *testing.T) {
 }
 
 func TestListMentionsMatchesNamesCaseSensitively(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeLocalSkill(t, filepath.Join(root, "entry"), "Run /Ship, $SHIP, or WRITING-PLANS.\n")
 	writeLocalSkill(t, filepath.Join(root, "ship"), "# ship\n")

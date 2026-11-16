@@ -15,8 +15,7 @@ import (
 
 func TestSearchSkillsReturnsGitHubSourcesWithoutChangingLibrary(t *testing.T) {
 	lib := openTestLibrary(t)
-	client := http.DefaultClient
-	http.DefaultClient = &http.Client{Transport: fetchTransport(func(r *http.Request) (*http.Response, error) {
+	stubHTTP(t, func(r *http.Request) (*http.Response, error) {
 		if r.URL.String() != "https://skills.sh/api/search?limit=20&q=testing+tools" {
 			t.Errorf("search URL = %s", r.URL)
 		}
@@ -24,8 +23,7 @@ func TestSearchSkillsReturnsGitHubSourcesWithoutChangingLibrary(t *testing.T) {
 			t.Error("search lacks timeout")
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"skills":[{"id":"owner/repo/testing","name":"testing","source":"owner/repo","installs":123},{"id":"owner/repo/minimal","name":"minimal","source":"owner/repo"},{"id":"other","name":"unsupported","source":"https://gitlab.com/owner/repo"}]}`))}, nil
-	})}
-	t.Cleanup(func() { http.DefaultClient = client })
+	})
 	result, err := lib.SearchSkills(t.Context(), "  testing tools  ")
 	// 无法转换为入库预览输入的条目直接过滤掉。
 	if err != nil || len(result) != 2 {
@@ -60,11 +58,9 @@ func TestSearchSkillsDistinguishesEmptyInvalidAndUnavailableResults(t *testing.T
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			lib := openTestLibrary(t)
-			client := http.DefaultClient
-			http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
+			stubHTTP(t, func(*http.Request) (*http.Response, error) {
 				return &http.Response{StatusCode: tc.status, Body: io.NopCloser(strings.NewReader(tc.body))}, nil
-			})}
-			t.Cleanup(func() { http.DefaultClient = client })
+			})
 			result, err := lib.SearchSkills(t.Context(), "testing")
 			if tc.code == "" {
 				if err != nil || result == nil || len(result) != 0 {
@@ -85,9 +81,7 @@ func TestSearchSkillsDistinguishesEmptyInvalidAndUnavailableResults(t *testing.T
 
 func TestSearchSkillsLimitsResultsAndSupportsCancellation(t *testing.T) {
 	lib := openTestLibrary(t)
-	client := http.DefaultClient
-	t.Cleanup(func() { http.DefaultClient = client })
-	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) { t.Fatal("empty query contacted network"); return nil, nil })}
+	stubHTTP(t, func(*http.Request) (*http.Response, error) { t.Fatal("empty query contacted network"); return nil, nil })
 	if _, err := lib.SearchSkills(t.Context(), " \t\n"); !library.IsCode(err, library.InvalidArgument) {
 		t.Fatalf("empty query = %v", err)
 	}
@@ -95,7 +89,7 @@ func TestSearchSkillsLimitsResultsAndSupportsCancellation(t *testing.T) {
 	for i := range 25 {
 		entries = append(entries, fmt.Sprintf(`{"id":"owner/repo/a%d","name":"a%d","source":"owner/repo"}`, i, i))
 	}
-	http.DefaultClient.Transport = fetchTransport(func(*http.Request) (*http.Response, error) {
+	stubHTTP(t, func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"skills":[` + strings.Join(entries, ",") + `]}`))}, nil
 	})
 	result, err := lib.SearchSkills(t.Context(), "test")
@@ -103,7 +97,7 @@ func TestSearchSkillsLimitsResultsAndSupportsCancellation(t *testing.T) {
 		t.Fatalf("limit = %#v, %v", result, err)
 	}
 	ctx, cancel := context.WithCancel(t.Context())
-	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
+	stubHTTP(t, func(r *http.Request) (*http.Response, error) {
 		cancel()
 		<-r.Context().Done()
 		return nil, r.Context().Err()
@@ -111,7 +105,7 @@ func TestSearchSkillsLimitsResultsAndSupportsCancellation(t *testing.T) {
 	if _, err := lib.SearchSkills(ctx, "test"); !library.IsCode(err, library.Canceled) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancel = %v", err)
 	}
-	http.DefaultClient.Transport = fetchTransport(func(*http.Request) (*http.Response, error) { return nil, errors.New("offline") })
+	stubHTTP(t, func(*http.Request) (*http.Response, error) { return nil, errors.New("offline") })
 	if _, err := lib.SearchSkills(t.Context(), "test"); !library.IsCode(err, library.SourceUnreachable) {
 		t.Fatalf("offline = %v", err)
 	}
@@ -119,11 +113,9 @@ func TestSearchSkillsLimitsResultsAndSupportsCancellation(t *testing.T) {
 
 func TestSearchSkillsDoesNotInterpretDisplayNamesAsRefs(t *testing.T) {
 	lib := openTestLibrary(t)
-	client := http.DefaultClient
-	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
+	stubHTTP(t, func(*http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"skills":[{"id":"owner/repo/display","name":"display#other-ref","source":"owner/repo"}]}`))}, nil
-	})}
-	t.Cleanup(func() { http.DefaultClient = client })
+	})
 	result, err := lib.SearchSkills(t.Context(), "display")
 	if err != nil || len(result) != 0 {
 		t.Fatalf("unsafe selector = %#v, %v", result, err)

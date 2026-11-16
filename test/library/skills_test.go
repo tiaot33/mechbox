@@ -13,6 +13,7 @@ import (
 )
 
 func TestFetchLocalSkillAndReadItBackIntact(t *testing.T) {
+	t.Parallel()
 	source := filepath.Join(t.TempDir(), "example-skill")
 	writeLocalSkill(t, source, "# Example\n")
 	writeFile(t, filepath.Join(source, "references", "guide.md"), []byte("nested\n"), 0o644)
@@ -56,6 +57,7 @@ func TestFetchLocalSkillAndReadItBackIntact(t *testing.T) {
 }
 
 func TestFetchRecordsDescriptionAndVersionTimes(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	withDesc := filepath.Join(t.TempDir(), "described")
@@ -94,6 +96,7 @@ func TestFetchRecordsDescriptionAndVersionTimes(t *testing.T) {
 
 // 列表与详情给出的是同一个技能,不带文件;详情也带最近一次更新检查。
 func TestListsAndDetailReturnTheSameSkill(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	skill := fetchExampleSkill(t, lib, "example")
@@ -126,6 +129,7 @@ func TestListsAndDetailReturnTheSameSkill(t *testing.T) {
 
 // 更新时间只在更新带来新版本后才有;读文件按版本 ID,技能更新后旧版本的文件仍按原样可读。
 func TestUpdateTimeAndVersionFilesAcrossUpdate(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "changing")
@@ -174,8 +178,9 @@ func TestUpdateTimeAndVersionFilesAcrossUpdate(t *testing.T) {
 }
 
 func TestRemoveSkillKeepsOrRemovesFolders(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 
 	fetchSkill := func(name string) library.Skill {
@@ -262,8 +267,9 @@ func TestRemoveSkillKeepsOrRemovesFolders(t *testing.T) {
 // RemoveSkill(Remove) 先删记录、把技能文件夹改名暂存、提交后才真正删除:改名失败时库与磁盘都原样不动;
 // 技能文件夹已被手动删掉时仍成功;成功后 Scope 目录下不留暂存残留。
 func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	present := fetchNamedSkill(t, lib, "present")
 	missing := fetchNamedSkill(t, lib, "missing")
@@ -326,6 +332,7 @@ func TestRemoveSkillRemoveKeepsLibraryAndDiskTogether(t *testing.T) {
 }
 
 func TestFetchDuplicateLocalSkillCarriesIdentity(t *testing.T) {
+	t.Parallel()
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "dup")
 	writeLocalSkill(t, source, "# Dup\n")

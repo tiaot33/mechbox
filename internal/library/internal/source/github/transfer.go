@@ -29,7 +29,7 @@ func escapeGitHubPath(name string) string {
 	return strings.Join(parts, "/")
 }
 
-func githubDownload(ctx context.Context, location, token string, dest io.Writer) error {
+func githubDownload(ctx context.Context, httpClient *http.Client, location, token string, dest io.Writer) error {
 	ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
@@ -43,7 +43,7 @@ func githubDownload(ctx context.Context, location, token string, dest io.Writer)
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	client := *http.DefaultClient
+	client := *httpClient
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 		req.Header.Del("Authorization")
 		if len(via) >= 10 {
@@ -202,7 +202,7 @@ func (c *githubClient) rawBlobs(ctx context.Context, owner, repo, commit string,
 func (c *githubClient) rawBlob(ctx context.Context, owner, repo, commit string, blob githubBlob, token string) ([]byte, error) {
 	location := "https://raw.githubusercontent.com/" + url.PathEscape(owner) + "/" + url.PathEscape(repo) + "/" + commit + "/" + escapeGitHubPath(blob.repoPath)
 	var body bytes.Buffer
-	if err := githubDownload(ctx, location, token, &body); err != nil {
+	if err := githubDownload(ctx, c.http, location, token, &body); err != nil {
 		return nil, err
 	}
 	content := body.Bytes()
@@ -224,7 +224,7 @@ func (c *githubClient) tarball(ctx context.Context, owner, repo, commit string, 
 		if token != "" {
 			location = githubAPIURL("/repos/%s/%s/tarball/%s", owner, repo, commit)
 		}
-		return githubDownload(ctx, location, token, &archive)
+		return githubDownload(ctx, c.http, location, token, &archive)
 	}, func() error {
 		archive.Reset()
 		endpoint := "/repos/" + owner + "/" + repo + "/tarball/" + commit

@@ -24,9 +24,10 @@ func requireSameNameSkills(t *testing.T, lib *library.Library, want []library.Sa
 }
 
 func TestListSameNameSkillsMarksGlobalAndProjectFoldersWhetherOrNotTheLibraryInstalledThem(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	project, err := lib.RegisterProject(ctx, t.TempDir())
 	if err != nil {
@@ -123,9 +124,10 @@ func TestListSameNameSkillsMarksGlobalAndProjectFoldersWhetherOrNotTheLibraryIns
 }
 
 func TestSameNameRuleComesWithTheAgent(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	project, err := lib.RegisterProject(ctx, t.TempDir())
 	if err != nil {
@@ -161,8 +163,9 @@ func TestSameNameRuleComesWithTheAgent(t *testing.T) {
 }
 
 func TestListSameNameSkillsMatchesTheNameInSkillMD(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
 	project, err := lib.RegisterProject(ctx, t.TempDir())
 	if err != nil {

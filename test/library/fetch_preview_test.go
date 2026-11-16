@@ -24,17 +24,15 @@ func (f fetchTransport) RoundTrip(r *http.Request) (*http.Response, error) { ret
 func mockPreviewArchive(t *testing.T) library.PreviewFetchRequest {
 	t.Helper()
 	archive := zipArchive(t, map[string]string{"first/SKILL.md": skillDocument("first", "first"), "second/SKILL.md": skillDocument("second", "second")})
-	client := http.DefaultClient
-	http.DefaultClient = &http.Client{Transport: fetchTransport(func(r *http.Request) (*http.Response, error) {
+	stubHTTP(t, func(r *http.Request) (*http.Response, error) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
-	})}
-	t.Cleanup(func() { http.DefaultClient = client })
+	})
 	return library.PreviewFetchRequest{Input: "https://source.example/skills.zip"}
 }
 
 func openLibraryAt(t *testing.T, path string) *library.Library {
 	t.Helper()
-	lib, err := library.Open(path)
+	lib, err := library.Open(path, testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,10 +59,10 @@ func TestPreviewIsReadOnlyAndInstanceScoped(t *testing.T) {
 		t.Fatal(err)
 	}
 	// URL 入库必须仅依赖入库预览时下载的内容,不能再次访问远端。
-	http.DefaultClient = &http.Client{Transport: fetchTransport(func(*http.Request) (*http.Response, error) {
+	stubHTTP(t, func(*http.Request) (*http.Response, error) {
 		t.Error("fetch contacted remote source")
 		return nil, errors.New("offline")
-	})}
+	})
 	preview.Candidates[0].Name = "changed by caller"
 	if skills, err := lib.ListSkills(ctx); err != nil || len(skills) != 0 {
 		t.Fatalf("ListSkills = %v, %v", skills, err)
@@ -139,9 +137,9 @@ func TestPreviewHandleLifetime(t *testing.T) {
 
 func TestCloseDuringPreviewDoesNotRetainIt(t *testing.T) {
 	spec := mockPreviewArchive(t)
-	transport := http.DefaultClient.Transport
+	transport := testTransport(t)
 	started, resume := make(chan struct{}), make(chan struct{})
-	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
+	stubHTTP(t, func(r *http.Request) (*http.Response, error) {
 		close(started)
 		<-resume
 		return transport.RoundTrip(r)
@@ -166,8 +164,8 @@ func TestCloseDuringPreviewDoesNotRetainIt(t *testing.T) {
 func TestPreviewsAreNotSynced(t *testing.T) {
 	spec := mockPreviewArchive(t)
 	stub := newS3Stub(t)
-	archiveTransport := http.DefaultClient.Transport
-	http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
+	archiveTransport := testTransport(t)
+	stubHTTP(t, func(r *http.Request) (*http.Response, error) {
 		if r.URL.Host == "source.example" {
 			return archiveTransport.RoundTrip(r)
 		}
@@ -193,6 +191,7 @@ func TestPreviewsAreNotSynced(t *testing.T) {
 }
 
 func TestPreviewInvalidArgumentsHaveTypedErrors(t *testing.T) {
+	t.Parallel()
 	lib := openLibraryAt(t, filepath.Join(t.TempDir(), "library.db"))
 	for _, tc := range []struct {
 		name  string
@@ -225,10 +224,8 @@ func TestPreviewArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
 	} {
 		t.Run("url", func(t *testing.T) {
 			lib := openLibraryAt(t, ":memory:")
-			client := http.DefaultClient
-			t.Cleanup(func() { http.DefaultClient = client })
 
-			http.DefaultClient = &http.Client{Transport: fetchTransport(func(r *http.Request) (*http.Response, error) {
+			stubHTTP(t, func(r *http.Request) (*http.Response, error) {
 				deadline, ok := r.Context().Deadline()
 				if !ok {
 					t.Error("download lacks timeout")
@@ -236,13 +233,13 @@ func TestPreviewArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
 					t.Errorf("download timeout = %v, want at most 30s", remaining)
 				}
 				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
-			})}
+			})
 			if _, err := lib.PreviewFetch(t.Context(), spec); err != nil {
 				t.Fatal(err)
 			}
 
 			ctx, cancel := context.WithCancel(t.Context())
-			http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
+			stubHTTP(t, func(r *http.Request) (*http.Response, error) {
 				cancel()
 				<-r.Context().Done()
 				return nil, r.Context().Err()
@@ -252,7 +249,7 @@ func TestPreviewArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
 			}
 
 			synctest.Test(t, func(t *testing.T) {
-				http.DefaultClient.Transport = fetchTransport(func(r *http.Request) (*http.Response, error) {
+				stubHTTP(t, func(r *http.Request) (*http.Response, error) {
 					<-r.Context().Done()
 					return nil, r.Context().Err()
 				})
@@ -272,6 +269,7 @@ func TestPreviewArchiveDownloadTimesOutAndHonorsCancel(t *testing.T) {
 }
 
 func TestPreviewMapsErrorsAndPreservesCancellation(t *testing.T) {
+	t.Parallel()
 	for _, test := range []struct {
 		name   string
 		status int
@@ -285,7 +283,7 @@ func TestPreviewMapsErrorsAndPreservesCancellation(t *testing.T) {
 				w.WriteHeader(test.status)
 			}))
 			defer server.Close()
-			lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+			lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"), testOptions(t)...)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -299,7 +297,7 @@ func TestPreviewMapsErrorsAndPreservesCancellation(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"), testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -358,6 +356,7 @@ func TestCandidateFetchedIsQueriedWhenPreviewing(t *testing.T) {
 // 再预览一次集合,看作者又发布了哪些技能
 
 func TestPreviewFetchCollectionListsNewSkills(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
 	root := t.TempDir()

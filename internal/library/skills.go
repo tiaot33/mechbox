@@ -181,7 +181,7 @@ func (l *Library) GetSkillAudit(ctx context.Context, id SkillID) (audit *SkillAu
 	if !ok {
 		return nil, nil
 	}
-	got := lookupAudit(ctx, owner, repo, row.Name)
+	got := lookupAudit(ctx, l.client, owner, repo, row.Name)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

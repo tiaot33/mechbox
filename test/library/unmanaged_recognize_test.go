@@ -24,7 +24,7 @@ func newRecognizeFixture(t *testing.T) *recognizeFixture {
 	t.Helper()
 	isolateGit(t)
 	home := t.TempDir()
-	t.Setenv("HOME", home)
+	setTestHome(t, home)
 	return &recognizeFixture{
 		lib: openTestLibrary(t), home: home, site: serveSearchedSite(t, nil),
 		claude: library.GlobalScope(library.AgentClaudeCode), codex: library.GlobalScope(library.AgentCodex),

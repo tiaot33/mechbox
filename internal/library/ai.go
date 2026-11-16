@@ -105,6 +105,7 @@ func (l *Library) TestAISettings(ctx context.Context, settings AISettings) (err 
 	if settings.Model == "" {
 		return argumentError("test ai settings", "model", "model is required")
 	}
+	parsed.Client = l.client
 	return ai.Test(ctx, parsed)
 }
 
@@ -154,7 +155,9 @@ func (l *Library) aiSettings(ctx context.Context, operation string) (ai.Settings
 	if err != nil {
 		return ai.Settings{}, err
 	}
-	return parseAISettings(operation, aiSettingsOf(stored))
+	settings, err := parseAISettings(operation, aiSettingsOf(stored))
+	settings.Client = l.client
+	return settings, err
 }
 
 type skillFailure struct {

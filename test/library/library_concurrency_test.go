@@ -43,7 +43,7 @@ func mustFinishBeforeRelease(t *testing.T, gate *networkGate, what string, run f
 }
 
 func TestUpdateNetworkPhaseDoesNotBlockInstallOrListing(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	gate := newNetworkGate()
 	var archive atomic.Pointer[[]byte]
 	old := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")})
@@ -131,12 +131,12 @@ func TestUpdateReportsSkillRemovedByAnotherInstanceAsNotFound(t *testing.T) {
 	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")})
 	server := serveGatedArchive(t, gate, func() []byte { return archive })
 	path := filepath.Join(t.TempDir(), "library.db")
-	first, err := library.Open(path)
+	first, err := library.Open(path, testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = first.Close() })
-	second, err := library.Open(path)
+	second, err := library.Open(path, testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestUpdateFailsWithConflictWhenAnotherUpdateCommitsFirst(t *testing.T) {
 }
 
 func TestCheckUpdatesNetworkPhaseDoesNotBlockInstall(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	gate := newNetworkGate()
 	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "old")})
 	server := serveGatedArchive(t, gate, func() []byte { return archive })
@@ -229,7 +229,7 @@ func TestCheckUpdatesNetworkPhaseDoesNotBlockInstall(t *testing.T) {
 }
 
 func TestFetchMaterializationDoesNotBlockOtherPreviewsOrInstall(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	repo := writeGitHubRepo(t, map[string]repoFile{
 		"first/SKILL.md":  {content: []byte(skillDocument("first", "first body")), mode: 0o644},
 		"first/notes.md":  {content: []byte("first notes"), mode: 0o644},
@@ -301,7 +301,7 @@ func TestCloseDoesNotWaitForFetchMaterialization(t *testing.T) {
 	gate := newNetworkGate()
 	api.gateBlob(gate, fx.blobSHA("first/notes.md"))
 
-	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"))
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"), testOptions(t)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +323,7 @@ func TestCloseDoesNotWaitForFetchMaterialization(t *testing.T) {
 }
 
 func TestSyncPushAndPullPlanNetworkPhasesDoNotBlockLibrary(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t, t.TempDir())
 	stub := newS3Stub(t)
 	lib := stub.open(t)
 	local := fetchNamedSkill(t, lib, "local")
