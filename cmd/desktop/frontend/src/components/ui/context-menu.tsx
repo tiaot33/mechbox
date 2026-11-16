@@ -1,5 +1,5 @@
 // shadcn/ui 的 ContextMenu(右键菜单),按本应用改过：表面与弹层一致(毛玻璃),
-// 选项高亮用悬停的灰底(子菜单开着时也是),破坏性的选项(移除)和别的选项一样;只保留用到的部分(选项、分隔线、子菜单)。
+// 选项高亮用悬停的灰底(子菜单开着时也是),破坏性的选项(删除组)用红字(菜单项的 className 给 text-destructive);只保留用到的部分(选项、分隔线、子菜单)。
 import type { ComponentProps } from "react";
 import { ContextMenu as ContextMenuPrimitive } from "radix-ui";
 import { cn } from "@/lib/utils";

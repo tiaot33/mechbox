@@ -178,7 +178,7 @@ function SameNameList({ skill, twins }: { skill: Skill; twins: Skill[] }) {
           <Truncated tip={twinNote(s, x)}>
             <span className="twin-note min-w-0 grow truncate text-caption text-muted-foreground">{twinNote(s, x)}</span>
           </Truncated>
-          <Button size="sm" variant="ghost" className="remove-twin shrink-0" title={d.removeTwinTitle(x.name)} onClick={() => void removeTwin(x.id, skill.id)}>
+          <Button size="sm" variant="ghost" danger className="remove-twin shrink-0" title={d.removeTwinTitle(x.name)} onClick={() => void removeTwin(x.id, skill.id)}>
             {d.removeTwin}
           </Button>
         </li>

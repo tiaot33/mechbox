@@ -7,8 +7,8 @@
 // - 强调(accent):和普通按钮一样的灰底，字是半粗的绿色。给一块区域里最要紧的那个动作(技能详情的「安装」);
 // - 普通(default):灰底、主要档的字。常用但不抢眼的动作;
 // - 轻(ghost):没有底、次要档的灰字，悬停才铺灰底。顶栏、列表行内，以及不常用的动作(「更新历史」「添加备注」「跳过」「不感兴趣」)。
-// 破坏性不是另一档：平时用普通或轻;
-// 确认删除的弹窗里，确认按钮用实心强调(solid)。文字链接(link)只用于去别的地方，动作用轻按钮。
+// 破坏性(会删掉用户内容、撤不回):入口照常用普通或轻，加 danger 把字换成红色(移除技能、删除组、删除 Agent、卸载 Mechbox);
+// 确认这类操作的弹窗里，确认按钮用红底白字(destructive)。文字链接(link)只用于去别的地方，动作用轻按钮。
 // loading 时文字留着占位、上面盖一个转圈，按钮宽度不变;done 时转圈合成对勾(给操作完成后停一下再关弹窗的按钮用)。
 // ripple 的按钮按下时缩一点，从按下的位置漾开一圈。
 import type { ComponentProps } from "react";
@@ -29,7 +29,7 @@ const buttonVariants = cva(
         pillQuiet: "rounded-pill bg-control px-3 text-foreground hover:bg-control-hover active:bg-control-active disabled:text-subtle disabled:hover:bg-control",
         accent:
           "bg-control font-semibold text-on-primary-soft hover:bg-control-hover active:bg-control-active disabled:font-normal disabled:text-subtle disabled:hover:bg-control",
-        solid: "bg-solid text-on-solid hover:bg-solid/85 disabled:opacity-45 disabled:hover:bg-solid",
+        destructive: "bg-destructive text-on-destructive hover:brightness-110 active:brightness-95 disabled:opacity-45 disabled:hover:brightness-100",
         ghost: "text-foreground-secondary hover:bg-fill hover:text-foreground disabled:text-subtle disabled:hover:bg-transparent",
         link: "text-primary hover:underline focus-visible:ring-0 focus-visible:underline disabled:text-subtle disabled:no-underline enabled:active:scale-100",
       },
@@ -42,6 +42,7 @@ const buttonVariants = cva(
         "icon-sm": "size-5 [&_[data-slot=icon]]:size-3",
         inline: "h-auto p-0 text-body",
       },
+      danger: { true: "text-destructive hover:text-destructive disabled:text-subtle", false: "" },
     },
     // 行内的轻按钮(size="inline")没有内边距，悬停只把字加深，不铺灰底，按下也不缩。
     compoundVariants: [{ variant: "ghost", size: "inline", class: "hover:bg-transparent enabled:active:scale-100" }],
@@ -79,13 +80,14 @@ function Button({
   loading = false,
   done = false,
   ripple = false,
+  danger = false,
   disabled,
   children,
   onPointerDown,
   ...props
 }: ButtonProps) {
   const classes = cn(
-    buttonVariants({ variant, size: size ?? (variant === "link" ? "inline" : "default") }),
+    buttonVariants({ variant, size: size ?? (variant === "link" ? "inline" : "default"), danger }),
     done && "pointer-events-none",
     ripple && "overflow-hidden transition-[color,background-color,border-color,opacity,transform] duration-150 active:scale-[0.96] disabled:active:scale-100",
     className,
@@ -108,7 +110,7 @@ function Button({
       aria-busy={loading || undefined}
       onPointerDown={(e) => {
         onPointerDown?.(e);
-        if (ripple && e.button === 0) spawnRipple(e, variant === "primary" || variant === "pill" || variant === "solid");
+        if (ripple && e.button === 0) spawnRipple(e, variant === "primary" || variant === "pill" || variant === "destructive");
       }}
       {...props}
     >
@@ -116,7 +118,7 @@ function Button({
         <>
           <span className="invisible inline-flex items-center gap-[5px]">{children}</span>
           <span className="absolute inset-0 grid place-items-center">
-            <Spinner status={loading ? "running" : "done"} className={cn(done && (variant === "primary" || variant === "pill") && "[&_svg]:text-on-primary!", done && variant === "solid" && "[&_svg]:text-on-solid!")} />
+            <Spinner status={loading ? "running" : "done"} className={cn(done && (variant === "primary" || variant === "pill") && "[&_svg]:text-on-primary!", done && variant === "destructive" && "[&_svg]:text-on-destructive!")} />
           </span>
         </>
       ) : (

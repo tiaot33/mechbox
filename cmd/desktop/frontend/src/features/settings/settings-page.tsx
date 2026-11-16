@@ -239,7 +239,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                     <Tipped className="grow" tip={t.uninstallDesc()}>
                       {t.uninstall}
                     </Tipped>
-                    <Button onClick={() => ui.open((close) => <UninstallDialog onClose={close} />)}>
+                    <Button danger onClick={() => ui.open((close) => <UninstallDialog onClose={close} />)}>
                       {t.uninstallButton}
                     </Button>
                   </SetRow>

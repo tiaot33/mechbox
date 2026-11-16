@@ -11,7 +11,7 @@
   .art { position:absolute; top:0; left:480px; width:480px; height:288px; overflow:hidden; }
   .art svg { display:block; width:480px; height:288px; }
   .pane { rx:var(--radius-tile); }
-  .ink { fill:var(--solid); }
+  .ink { fill:var(--foreground); }
   .green { fill:var(--primary); }
   .tint { fill:var(--primary-soft); }
   .dot { fill:var(--on-primary); }
@@ -25,7 +25,7 @@
 <div class="art" aria-hidden="true">
 <svg viewBox="0 0 480 288" width="480" height="288">
 <!--
-  blocks      primary 216×278 bled off the top (the one hue, largest) · solid 104×168 (black; white in dark) · primary-soft 128×216 bleeding off the right edge (the selected-row tint) — about 37% of 960×288
+  blocks      primary 216×278 bled off the top (the one hue, largest) · foreground 104×168 (near-black; near-white in dark) · primary-soft 128×216 bleeding off the right edge (the selected-row tint) — about 37% of 960×288
   arrangement the app's three panes side by side with pane-gap (8px) gutters, bottoms on one line 24px above the edge, tops staggered
   pattern     dot grid, from "标识符用等宽" and the fixed spacing scale: 8×6 dots at a space-16 pitch cut into the centre pane in on-primary
   scales      sides in space-8 multiples; gutters pane-gap; pitch space-16; dot radius space-2; corners radius-tile

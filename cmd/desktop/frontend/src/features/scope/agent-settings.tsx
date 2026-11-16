@@ -50,7 +50,7 @@ export function AgentSection({
                 <Button variant="ghost" onClick={() => void edit(a)}>
                   {t.edit}
                 </Button>
-                <Button variant="ghost" onClick={() => void deleteAgent(a)}>
+                <Button variant="ghost" danger onClick={() => void deleteAgent(a)}>
                   {t.delete}
                 </Button>
               </>

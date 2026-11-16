@@ -119,7 +119,7 @@ export function SyncDialog({ onClose }: { onClose: () => void }) {
             <span className="grow" />
             {pull.backups.length > 0 && (
               <Button
-                variant="solid"
+                variant="destructive"
                 disabled={!plan?.can_pull || (working !== null && working !== "run")}
                 loading={working === "run"}
                 onClick={execute}

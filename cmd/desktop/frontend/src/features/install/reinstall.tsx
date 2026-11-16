@@ -129,7 +129,7 @@ function ReinstallDialog({
           <Button onClick={() => close()}>{t.common.cancel}</Button>
           <Button
             className="reinstall-confirm"
-            variant={overwrite.size ? "solid" : "primary"}
+            variant={overwrite.size ? "destructive" : "primary"}
             disabled={nothing}
             title={nothing ? t.actions.reinstallNothingPicked : undefined}
             onClick={() => close({ overwrite, missing: choices })}

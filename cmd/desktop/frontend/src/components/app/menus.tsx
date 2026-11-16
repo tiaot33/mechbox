@@ -81,7 +81,7 @@ export function useGroupMenu(g: Group, { graph, newGroup = false }: { graph: boo
   return [
     ...(graph ? [{ label: tt.graph.open, onSelect: () => openGraph({ kind: "group", id: g.id }) }, "separator" as const] : []),
     { label: t.renameWith, onSelect: () => renameGroup(g.id) },
-    { label: t.deleteGroupWith, onSelect: () => deleteGroup(g.id) },
+    { label: t.deleteGroupWith, className: "text-destructive", onSelect: () => deleteGroup(g.id) },
     ...(newGroup ? ["separator" as const, { label: t.newGroupWith, onSelect: () => createGroup() }] : []),
   ];
 }

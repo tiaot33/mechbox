@@ -72,7 +72,7 @@ export function PickBar({ listing }: { listing: PageListing }) {
             {t.pickRemoveFromGroup}
           </Button>
         )}
-        <Button variant="ghost" onClick={act(() => removeSkills(ids))}>
+        <Button variant="ghost" danger onClick={act(() => removeSkills(ids))}>
           {t.pickRemove}
         </Button>
         <Button size="icon-sm" variant="ghost" className="ml-0.5" title={t.pickClear} aria-label={t.pickClear} onClick={clearPicked}>
