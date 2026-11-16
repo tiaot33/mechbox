@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -771,7 +770,7 @@ func writeGitHubRepo(t *testing.T, files map[string]repoFile) string {
 
 func gitRevParse(t *testing.T, repository, spec string) string {
 	t.Helper()
-	output, err := exec.Command("git", "-C", repository, "rev-parse", spec).Output()
+	output, err := gitCommand(t, "-C", repository, "rev-parse", spec).Output()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -781,7 +780,7 @@ func gitRevParse(t *testing.T, repository, spec string) string {
 // gitLog 返回 git log 的输出,去掉首尾空白。
 func gitLog(t *testing.T, repository string, args ...string) string {
 	t.Helper()
-	output, err := exec.Command("git", append([]string{"-C", repository, "log"}, args...)...).Output()
+	output, err := gitCommand(t, append([]string{"-C", repository, "log"}, args...)...).Output()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -797,7 +796,7 @@ func inspectGitHubRepo(t *testing.T, repo string) gitHubFixture {
 		blobs:    map[string][]byte{},
 		paths:    map[string]gitHubTreeEntry{},
 	}
-	output, err := exec.Command("git", "-c", "core.excludesFile=/dev/null", "-C", repo, "ls-tree", "-r", "-t", "HEAD").Output()
+	output, err := gitCommand(t, "-c", "core.excludesFile=/dev/null", "-C", repo, "ls-tree", "-r", "-t", "HEAD").Output()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -809,7 +808,7 @@ func inspectGitHubRepo(t *testing.T, repo string) gitHubFixture {
 		}
 		entry := gitHubTreeEntry{Path: filePath, Mode: fields[0], Type: fields[1], SHA: fields[2]}
 		if entry.Type == "blob" {
-			content, err := exec.Command("git", "-c", "core.excludesFile=/dev/null", "-C", repo, "cat-file", "-p", entry.SHA).Output()
+			content, err := gitCommand(t, "-c", "core.excludesFile=/dev/null", "-C", repo, "cat-file", "-p", entry.SHA).Output()
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -191,9 +191,18 @@ func zipArchive(t *testing.T, files map[string]string) []byte {
 	return buffer.Bytes()
 }
 
+// gitCommand 是构造测试仓库用的 git:环境变量和这个测试里的 Library 看到的一样(git 配置与本机的隔开),
+// 只是 PATH 用进程的,所以测试换上的假 git 不会接到构造仓库的命令。
+func gitCommand(t *testing.T, args ...string) *exec.Cmd {
+	t.Helper()
+	command := exec.Command("git", args...)
+	command.Env = append(worldOf(t).environ(), "PATH="+os.Getenv("PATH"))
+	return command
+}
+
 func runGit(t *testing.T, directory string, args ...string) {
 	t.Helper()
-	command := exec.Command("git", append([]string{"-c", "core.excludesFile=/dev/null", "-c", "commit.gpgsign=false", "-C", directory}, args...)...)
+	command := gitCommand(t, append([]string{"-c", "core.excludesFile=/dev/null", "-c", "commit.gpgsign=false", "-C", directory}, args...)...)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, output)
 	}
@@ -398,8 +407,8 @@ func testHome(t *testing.T) string {
 	return home
 }
 
-// setTestEnv 给这个测试里的 Library 启动的 git、gh 设环境变量 key,测试结束时还原;进程的环境变量不变。
-// 已经打开的 Library 下一次启动 git、gh 时就用上。
+// setTestEnv 给这个测试里的 Library 启动的 git、gh 与构造测试仓库的 git(PATH 除外)设环境变量 key,测试结束时还原;
+// 进程的环境变量不变。已经打开的 Library 下一次读来源或查已提交的文件夹时就用上。
 func setTestEnv(t *testing.T, key, value string) {
 	t.Helper()
 	world := worldOf(t)

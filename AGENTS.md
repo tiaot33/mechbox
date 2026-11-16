@@ -18,7 +18,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
   - `skilllock` — 解析 `npx skills` 留下的来源记录，给未纳管技能认出来源(不是一种来源);记录文件由 `agentdir` 读出。
   - `skillfile` — 技能文件、文件集合比较与内容指纹,`library` 与各子包共用。
   - `agentsettings` — 解析技能对 Claude Code、Codex 声明的设置:`SKILL.md` frontmatter 里 Claude Code 才读的字段与 `agents/openai.yaml`,按各 Agent 自己的规则,解析不出来就当作没写。
-  - `process` — 各子包启动外部命令(`git`、`gh`、`wsl.exe`)时共用的进程设置:在 Windows 上不弹出命令行窗口，取消时连同子进程一起结束，用 Library 指定的环境变量(经 ctx 带下来,没指定时用进程的)启动并在其中的 `PATH` 里找命令。
+  - `process` — 各子包启动外部命令(`git`、`gh`、`wsl.exe`)时共用的进程设置:在 Windows 上不弹出命令行窗口，取消时连同子进程一起结束;启动 `git`、`gh` 时用 Library 指定的环境变量(经 ctx 带下来,没指定时用进程的),并在其中的 `PATH` 里找命令。
 - `internal/library/platformtest/` — 只给测试导入：在 macOS、Linux 上模拟 WSL 发行版与读不出可执行位的 Windows 目录。应用的代码不导入它。
 - `test/library/` — 技能库的集成测试。
 - `cmd/desktop/` — 桌面端(Wails v3,与 Library 同进程,ADR 0008):绑定服务开放 Library 的全部方法,`frontend/` 是 React + TS 前端,`frontend/bindings/` 由 `wails3 generate bindings` 生成、不手改。开发、构建与约定见 `cmd/desktop/README.md`,测试见 `docs/testing.md`。
@@ -26,7 +26,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
 ### 依赖方向
 
 - 应用依赖 Library,Library 不依赖应用。新增应用时默认共用根 module,入口放 `cmd/<app>/`;桌面端的位置见 [ADR 0008](docs/adr/0008-desktop-is-wails-v3-in-process.md)。
-- 子包放在 `internal/library/internal/` 下,只有 `library` 能导入;用户流程的编排留在 `package library`。
+- 子包放在 `internal/library/internal/` 下,只有 `library` 和只给测试导入的 `platformtest` 能导入;子包里只给 `platformtest` 用的导出(`wsl.Emulate`、`agentdir.WithoutModes`)应用代码不调用。用户流程的编排留在 `package library`。
 - 每个外部系统(SQLite、Agent 目录、各来源、skills.sh、S3、AI 服务)一个子包;子包用自己的记录类型(如 store 的记录),由 `library` 转换成公开类型。
 
 ### 错误

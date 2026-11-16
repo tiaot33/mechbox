@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
-	"github.com/tiaot33/mechbox/internal/library/internal/process"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/catalog"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 	"github.com/tiaot33/mechbox/internal/library/internal/wsl"
@@ -84,9 +83,12 @@ func WithHTTPClient(client *http.Client) Option {
 	return func(l *Library) { l.client = client }
 }
 
-// WithEnvironment 让这个 Library 启动 git、gh 时用 environ 给出的环境变量,而不是这个进程自己的:每启动一次调用一次,
-// 返回值和 [os.Environ] 的一样,每项形如 KEY=value,同名的以后面的为准。git 的配置、SSH 命令与超时,gh 的登录,
-// 以及到 PATH 的哪些目录里找这两个命令,都按它。不传时用这个进程的环境变量,git、gh 照常用这台机器的配置和登录。
+// WithEnvironment 让这个 Library 启动 git、gh 时用 environ 给出的环境变量,而不是这个进程自己的。
+// 返回值和 [os.Environ] 的一样,每项形如 KEY=value,同名的以后面的为准;返回 nil 时当作没有环境变量,不改用进程的。
+// 每次读来源(识别输入、列分支、读来源内容与检查更新的每一步)或查项目里已提交的文件夹时调用一次,
+// 这一步里启动的 git、gh 都用这一份。git 的配置、SSH 命令与超时,gh 的登录,以及到 PATH 的哪些目录里找这两个命令,都按它。
+// WSL 发行版里执行的命令(包括在发行版里查项目已提交的文件夹)与 wsl.exe 本身不受这个选项影响,照常用发行版自己的环境。
+// 不传时用这个进程的环境变量,git、gh 照常用这台机器的配置和登录。
 func WithEnvironment(environ func() []string) Option {
 	return func(l *Library) { l.environ = environ }
 }
@@ -165,7 +167,7 @@ func (l *Library) HomeDirectory() string {
 // 不在 Windows 上或没装 WSL 时返回空列表;Docker Desktop 自带的发行版不列出。
 func (l *Library) ListWSLDistros(ctx context.Context) (distros []string, err error) {
 	defer func() { err = typedError(err) }()
-	distros, err = wsl.Distros(l.commandContext(ctx))
+	distros, err = wsl.Distros(ctx)
 	if distros == nil && err == nil {
 		distros = []string{}
 	}
@@ -202,13 +204,6 @@ func (l *Library) SetWSLDistro(ctx context.Context, distro string) (err error) {
 	}
 	l.home, l.distro = home, distro
 	return nil
-}
-
-func (l *Library) commandContext(ctx context.Context) context.Context {
-	if l.environ == nil {
-		return ctx
-	}
-	return process.WithEnv(ctx, l.environ())
 }
 
 func (l *Library) resolveHome(ctx context.Context, distro string) (agentdir.Home, error) {

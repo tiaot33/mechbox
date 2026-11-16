@@ -11,6 +11,7 @@ import (
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
 	"github.com/tiaot33/mechbox/internal/library/internal/market"
+	"github.com/tiaot33/mechbox/internal/library/internal/process"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/catalog"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
@@ -196,12 +197,12 @@ type repository struct {
 }
 
 type committedFolders struct {
-	library *Library
+	environ func() []string
 	found   map[repository]map[string]bool
 }
 
 func (l *Library) committedFolders() committedFolders {
-	return committedFolders{library: l, found: map[repository]map[string]bool{}}
+	return committedFolders{environ: l.environ, found: map[repository]map[string]bool{}}
 }
 
 func (c committedFolders) has(ctx context.Context, target resolvedScope, name string) (bool, error) {
@@ -210,7 +211,7 @@ func (c committedFolders) has(ctx context.Context, target resolvedScope, name st
 	}
 	key := repository{projectID: ProjectID(*target.ProjectID), relative: target.relative}
 	if _, ok := c.found[key]; !ok {
-		committed, err := agentdir.Committed(c.library.commandContext(ctx), target.root, target.relative)
+		committed, err := agentdir.Committed(process.WithEnv(ctx, c.environ), target.root, target.relative)
 		if err != nil {
 			return false, err
 		}

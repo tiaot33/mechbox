@@ -7,7 +7,7 @@
 //
 // 用 [Open] 打开库,得到 [*Library];用完调用 [Library.Close]。方法可在多个 goroutine 里同时调用。
 // 这个 Library 发出的 HTTP 请求、用户主目录与启动 git、gh 用的环境变量默认用这台机器的,
-// 要换(测试里接假远端、用临时主目录、给 git 和 gh 换配置)时给 [Open] 传 [Option]。
+// 要换(测试里接假远端、用临时主目录、给 git 和 gh 换配置)时给 [Open] 传 [Option];WSL 发行版里的命令不受环境变量这一项影响。
 // 方法返回的错误用 [ErrorOf] 取出 [*Error],或用 [IsCode] 按错误码判断。
 //
 // # 用户流程
@@ -197,6 +197,11 @@
 // 整批入库的计划只把认出结果相同的几处合成一条,读不出可执行位的一处不会把可执行位不同的别处连进来。
 // 认出来源里的新版只存了带可执行位的内容哈希,这里的可执行位取库里当前那一版的:来源的新版加了可执行文件、
 // 或改了哪个文件的可执行位时,Windows 本机上认不出,那一处照样算用户改过、未纳管技能照样单列。
+//
+// 启动 git、gh 用的环境变量([WithEnvironment])经 ctx 带到 process.Command:它从 ctx 里取环境变量,并在其中的 PATH 里找命令,
+// ctx 里没有时用进程的。source/catalog 在 Locate、Open、Refs 和它返回的 Snapshot 的每个方法上带上;
+// 不经 catalog 启动 git 的地方(unmanaged.go 查项目里已提交的文件夹)自己用 process.WithEnv 带上。
+// 新加会启动 git、gh 的调用要走这两条路之一,否则会悄悄用进程的环境变量。WSL 发行版里的命令与 wsl.exe 不经这条路。
 //
 // 数据库、Agent 目录、各来源、skills.sh、S3、AI 服务各是 internal/ 下的一个子包,只返回自己的哨兵错误或错误类型,
 // 由 errors.go 的 typedError 统一翻译成公开的 [ErrorCode]。

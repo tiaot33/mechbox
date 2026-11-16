@@ -12,9 +12,13 @@ import (
 
 type envKey struct{}
 
-func WithEnv(ctx context.Context, env []string) context.Context {
-	if env == nil {
+func WithEnv(ctx context.Context, environ func() []string) context.Context {
+	if environ == nil {
 		return ctx
+	}
+	env := environ()
+	if env == nil {
+		env = []string{}
 	}
 	return context.WithValue(ctx, envKey{}, env)
 }

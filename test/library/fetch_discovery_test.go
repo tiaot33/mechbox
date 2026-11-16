@@ -10,7 +10,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -523,7 +522,7 @@ func TestPreviewDiscoveryChoosesSkillFilenameDeterministically(t *testing.T) {
 					for name, content := range files {
 						temp := filepath.Join(t.TempDir(), "content")
 						writeFile(t, temp, []byte(content), 0o644)
-						command := exec.Command("git", "-C", repo, "hash-object", "-w", temp)
+						command := gitCommand(t, "-C", repo, "hash-object", "-w", temp)
 						output, err := command.Output()
 						if err != nil {
 							t.Fatal(err)

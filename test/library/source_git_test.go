@@ -99,7 +99,7 @@ func TestGitHostLinkWithoutDotGitIsRecognizedAsGitRepository(t *testing.T) {
 	isolateGit(t)
 	root := t.TempDir()
 	runGit(t, root, "clone", "--quiet", "--bare", skillRepository(t), filepath.Join(root, "org", "repo"))
-	execPath, err := exec.Command("git", "--exec-path").Output()
+	execPath, err := gitCommand(t, "--exec-path").Output()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -466,7 +466,7 @@ func TestGitSourceDownloadsOnlySkillFiles(t *testing.T) {
 	commitGit(t, repository, "initial")
 	runGit(t, repository, "config", "uploadpack.allowFilter", "true")
 	runGit(t, repository, "config", "uploadpack.allowAnySHA1InWant", "true")
-	output, err := exec.Command("git", "-C", repository, "rev-parse", "HEAD", "HEAD:assets/video.bin").Output()
+	output, err := gitCommand(t, "-C", repository, "rev-parse", "HEAD", "HEAD:assets/video.bin").Output()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -539,7 +539,7 @@ func TestGitSourceRejectsDotEntryInTree(t *testing.T) {
 	commitGit(t, repository, "initial")
 	object := func(kind string, content []byte) []byte {
 		t.Helper()
-		command := exec.Command("git", "-C", repository, "hash-object", "-w", "--literally", "-t", kind, "--stdin")
+		command := gitCommand(t, "-C", repository, "hash-object", "-w", "--literally", "-t", kind, "--stdin")
 		command.Stdin = bytes.NewReader(content)
 		output, err := command.Output()
 		if err != nil {
@@ -554,7 +554,7 @@ func TestGitSourceRejectsDotEntryInTree(t *testing.T) {
 	entry := func(mode, name string, id []byte) []byte {
 		return append([]byte(mode+" "+name+"\x00"), id...)
 	}
-	output, err := exec.Command("git", "-C", repository, "rev-parse", "HEAD:skills/alpha", "HEAD:skills/alpha/SKILL.md").Output()
+	output, err := gitCommand(t, "-C", repository, "rev-parse", "HEAD:skills/alpha", "HEAD:skills/alpha/SKILL.md").Output()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -564,7 +564,7 @@ func TestGitSourceRejectsDotEntryInTree(t *testing.T) {
 	alpha := object("tree", slices.Concat(entry("40000", ".", inner), entry("100644", "SKILL.md", blob)))
 	skills := object("tree", entry("40000", "alpha", alpha))
 	root := object("tree", entry("40000", "skills", skills))
-	commit, err := exec.Command("git", "-C", repository, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit-tree", hex.EncodeToString(root), "-m", "dot").Output()
+	commit, err := gitCommand(t, "-C", repository, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit-tree", hex.EncodeToString(root), "-m", "dot").Output()
 	if err != nil {
 		t.Fatal(err)
 	}

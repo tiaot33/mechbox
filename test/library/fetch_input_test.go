@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -28,7 +27,7 @@ func githubRemote(t *testing.T) (string, string) {
 	stubHTTP(t, func(*http.Request) (*http.Response, error) {
 		return nil, errors.New("github api unavailable")
 	})
-	output, err := exec.Command("git", "-C", repository, "rev-parse", "HEAD").Output()
+	output, err := gitCommand(t, "-C", repository, "rev-parse", "HEAD").Output()
 	if err != nil {
 		t.Fatal(err)
 	}

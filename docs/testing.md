@@ -46,7 +46,7 @@
    go test ./...
    ```
 
-   全部通过时，每个包输出一行 `ok`。全量运行约 1 min，大部分花在 `test/library` 上（约 35 s）。代码没变的包，`go test` 直接用缓存的结果，输出里带 `(cached)`。
+   全部通过时，每个包输出一行 `ok`。全量运行约 1 min，大部分花在 `test/library` 上。代码没变的包，`go test` 直接用缓存的结果，输出里带 `(cached)`。
 
 2. 运行静态检查：
 
@@ -140,9 +140,9 @@ Windows 本机的目录读不出可执行位，相关的测试也不需要 Windo
 - **打开技能库**用 `openTestLibrary` 或 `openTestLibraryAt`。直接调用 `library.Open` 时带上 `testOptions(t)...`，否则这个技能库会访问真的网络、用进程的主目录和环境变量。
 - **假远端**用 `stubHTTP(t, ...)` 设置，或用建在它上面的 `serveArchive`、`serveSite`、`stubHTTPResponse`。要把自己不管的请求转给原来的假远端时，先用 `testTransport(t)` 取出它。
 - **主目录**用 `setTestHome(t, dir)` 指定；没指定时是一个临时目录。整个测试进程的 `HOME` 在 `TestMain` 里换成了空目录，`git`、`gh` 读不到本机的配置。
-- **`git`、`gh` 的环境变量**用 `setTestEnv(t, key, value)` 设置，用 `testEnv(t, key)` 读取：git 配置文件、改写仓库地址、SSH 命令、超时，假的 `gh` 或 `git` 放进 `PATH`，清掉 `gh` 的令牌，都用它。它只改这个测试里技能库启动的命令，不改进程的环境变量；已经打开的技能库下一次启动命令时就用上。
+- **`git`、`gh` 的环境变量**用 `setTestEnv(t, key, value)` 设置，用 `testEnv(t, key)` 读取：git 配置文件、改写仓库地址、SSH 命令、超时，假的 `gh` 或 `git` 放进 `PATH`，清掉 `gh` 的令牌，都用它。它只改这个测试里技能库启动的命令和构造测试仓库的 `runGit`，不改进程的环境变量；已经打开的技能库下一次读来源或查已提交的文件夹时就用上。
 - **并行**：测试第一行写 `t.Parallel()`。下面几种不能并行：
-  - 改整个测试进程的：调用 `t.Setenv`（核对技能库不读进程的环境变量、换进程的 `HOME` 或 `TMPDIR`）、`t.Chdir`（相对路径），以及用 `platformtest` 模拟 WSL 或读不出可执行位的。`t.Setenv` 和 `t.Chdir` 与 `t.Parallel()` 写在一起时 Go 会直接 panic；`platformtest` 不会，要自己注意。
+  - 改整个测试进程的：调用 `t.Setenv`（核对技能库不读进程的环境变量、换进程的 `HOME` 或 `TMPDIR`）、`t.Chdir`（相对路径），以及用 `platformtest` 模拟 WSL 或读不出可执行位的。这几种与 `t.Parallel()` 写在一起时 Go 会直接 panic（`platformtest` 的两个函数开头也调用了 `t.Setenv`）。
   - 依赖计时的：如 `library_multiprocess_test.go` 里核对等够数据库忙等时间的测试，和别的测试一起跑时计时不准。
 
 ### 新增来源或绑定方法时要改的测试

@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/tiaot33/mechbox/internal/library/internal/process"
 	"github.com/tiaot33/mechbox/internal/library/internal/source"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/download"
@@ -49,7 +50,7 @@ func New(httpClient *http.Client, environ func() []string, maxFiles int, maxByte
 }
 
 func (c *Catalog) Open(ctx context.Context, sourceType string, loc source.Locator, subpath string, hint source.State) (source.Snapshot, error) {
-	snapshot, err := c.kinds.Open(c.context(ctx), sourceType, loc, subpath, hint)
+	snapshot, err := c.kinds.Open(process.WithEnv(ctx, c.environ), sourceType, loc, subpath, hint)
 	return c.wrap(snapshot), err
 }
 
@@ -99,7 +100,7 @@ func classify(input string) inputKind {
 }
 
 func (c *Catalog) Locate(ctx context.Context, in Input, home string) (source.Target, error) {
-	target, err := c.locate(c.context(ctx), in, home)
+	target, err := c.locate(process.WithEnv(ctx, c.environ), in, home)
 	target.Snapshot = c.wrap(target.Snapshot)
 	return target, err
 }
@@ -169,7 +170,7 @@ func (c *Catalog) probe(ctx context.Context, link string, in Input) (source.Targ
 }
 
 func (c *Catalog) Refs(ctx context.Context, input string) (gitcmd.Refs, error) {
-	ctx = c.context(ctx)
+	ctx = process.WithEnv(ctx, c.environ)
 	input = withHTTPS(input)
 	switch classify(input) {
 	case localDirectory, hostedDownload:
