@@ -11,7 +11,7 @@ import {
   type SkillAudit,
 } from "@bindings/internal/library";
 import { configQuery, useLoadedSnapshot } from "@/lib/library";
-import { homePath, sameNameInLibrary, twinNote } from "@/lib/model";
+import { homePath, twinNote } from "@/lib/model";
 import { defaultCandidates } from "@/lib/consent";
 import { permissionNote } from "@/lib/agent-settings";
 import { isWSLPath } from "@/lib/paths";
@@ -28,6 +28,7 @@ import { Notice } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
 import { MARK_DRAWN_MS } from "@/components/ui/status-mark";
 import { AuditBadge } from "./audit";
+import { libraryTwins, toggleCandidates, unpickedMentions } from "./fetch-review-rules";
 import { Diagnostics, WSLBadge } from "@/components/app/parts";
 
 interface FetchReviewProps {
@@ -73,7 +74,7 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
   const fresh = candidates.filter((c) => !c.fetched);
   // 库里已有同名技能(别的来源或没有来源)的候选：标出来，写明库里那个是哪来的、装在哪，默认不勾(见 lib/consent 的 defaultCandidates)。
   const library = s?.skills ?? [];
-  const twinsOf = (c: Candidate) => (c.fetched || !s ? [] : sameNameInLibrary(s, { id: 0, name: c.name }));
+  const twinsOf = (c: Candidate) => libraryTwins(s, c);
   // 默认勾选尚未入库的候选(从新技能提示进来时只勾新技能);已入库的不能再选(整批会因 AlreadyExists 失败)。
   const [selected, setSelected] = useState<Set<string>>(() => defaultCandidates(candidates, new Set(library.map((x) => x.name)), onlyNew));
   // 入库所选：running 时按钮上转圈，入库成功后合成对勾，停一下再关掉弹窗。
@@ -81,17 +82,7 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
 
   const toggle = (name: string) => setSelected((set) => toggled(set, name));
   // 分组的勾选：组里没入库的候选都勾上时取消全组，否则全组勾上。
-  const toggleGroup = (members: Candidate[]) =>
-    setSelected((set) => {
-      const names = members.filter((c) => !c.fetched).map((c) => c.name);
-      const next = new Set(set);
-      const all = names.every((n) => set.has(n));
-      for (const n of names) {
-        if (all) next.delete(n);
-        else next.add(n);
-      }
-      return next;
-    });
+  const toggleGroup = (members: Candidate[]) => setSelected((set) => toggleCandidates(set, members));
 
   const fetchSelected = async () => {
     if (fetching) return;
@@ -114,18 +105,11 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
   for (const c of candidates) groups.set(parentDir(c.path), [...(groups.get(parentDir(c.path)) ?? []), c]);
   const grouped = groups.size > 1;
 
-  // 勾上的候选提到了同一份预览里没勾、也还没入库的候选：行里写出它们，点一下一起勾上(技能库只按 SKILL.md、按规则认出)。
-  // 库里已有同名技能的候选默认不勾、要用户看过提醒自己决定，这里也不算：库里那个就能满足这次提到。
-  const unpickedMentions = (c: Candidate) =>
-    selected.has(c.name)
-      ? (c.mentions ?? []).filter((name) => {
-          const other = fresh.find((x) => x.name === name);
-          return !selected.has(name) && !!other && twinsOf(other).length === 0;
-        })
-      : [];
+  // 勾上的候选提到了同一份预览里没勾、也还没入库的候选：行里写出它们，点一下一起勾上(见 unpickedMentions)。
+  const unpickedOf = (c: Candidate) => unpickedMentions(s, candidates, selected, c);
 
   const row = (c: Candidate, dir: string) => {
-    const unpicked = unpickedMentions(c);
+    const unpicked = unpickedOf(c);
     const permissions = permissionNote(c.agent_settings);
     // 分组时路径只写组目录以下的部分，和技能名一样就不重复写;来源根目录(单个 SKILL.md 是 ".")写作 "/"。
     const rel = grouped && dir ? c.path.slice(dir.length + 1) : c.path && c.path !== "." ? c.path : "/";

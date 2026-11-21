@@ -11,7 +11,8 @@ import { Hint } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
-import { fetchedMessage, itemOf, type Failed } from "./fetch-unmanaged-parts";
+import { fetchedMessage, type Failed } from "./fetch-unmanaged-parts";
+import { itemOf } from "./fetch-unmanaged-rules";
 import { markFresh, useView } from "@/lib/view";
 
 // LeftDialog 是入库之后还有没入库的技能时的那一屏：列出原因，改来源链接后可以逐个重试，清空链接就作为没有来源的技能入库。

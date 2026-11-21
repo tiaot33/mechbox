@@ -15,7 +15,7 @@ import { describeError, unmanagedSourceError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { toLibraryError, useFoundSources, useLoadedSnapshot, withFoundSource } from "@/lib/library";
 import { fetchPlan, sameFolderElsewhere, toggleFetchGroup } from "@/lib/consent";
-import { agentNameIn, homePath, outsideLinkNote, placeOf, repoOwned, scopeLabel, scopeOf, skillFileProblemText } from "@/lib/model";
+import { agentNameIn, homePath, outsideLinkNote, placeOf, scopeLabel, scopeOf, skillFileProblemText } from "@/lib/model";
 import { Modal, ui, useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -25,18 +25,8 @@ import { Notice } from "@/components/ui/notice";
 import { Summary } from "@/components/app/parts";
 import { LeftDialog } from "./fetch-unmanaged-left";
 import { markFresh, useView } from "@/lib/view";
-import {
-  SameNameInLibrary,
-  fetchedMessage,
-  foldersOf,
-  identicalGroup,
-  noSource,
-  outsideTarget,
-  sourceKey,
-  sourceOf,
-  type Failed,
-  fetchInBatches,
-} from "./fetch-unmanaged-parts";
+import { SameNameInLibrary, fetchedMessage, type Failed, fetchInBatches } from "./fetch-unmanaged-parts";
+import { fetchGroups, foldersOf, identicalGroup, noSource, outsideTarget, pickedNotes, sourceOf } from "./fetch-unmanaged-rules";
 import { ConflictRow, PlannedRow, type SourceEdit } from "./fetch-unmanaged-rows";
 
 // Where 是这次看的是哪里，决定标题和开头那句话。
@@ -158,22 +148,8 @@ function FetchUnmanagedDialog({
   const projects = useLoadedSnapshot()?.projects ?? (where.kind === "everywhere" ? where.projects : where.kind === "project" ? [where.project] : []);
   const sameFolder = (planned: PlannedUnmanagedSkill) => sameFolderElsewhere(planned).map((sc) => scopeLabel({ agents, agentsShown, projects }, sc));
 
-  const usable = plan.flatMap((p, i) => (p.error ? [] : [i]));
-  const unusable = plan.filter((p) => p.error);
-  const conflicts = new Map<string, number[]>();
-  const groups = new Map<string, number[]>();
-  for (const i of usable) {
-    const p = plan[i];
-    // 和库里某个技能一样的就是那个技能，单独一组：入库只记下装在哪里。
-    const key = p.skill_id ? identicalGroup : sourceKey(p.source_input, p.source_ref);
-    if (p.conflict)
-      conflicts.set(p.name, [...(conflicts.get(p.name) ?? []), i]);
-    else
-      groups.set(key, [...(groups.get(key) ?? []), i]);
-  }
-  // 有来源的组在前，已经在技能库里的其次，没有来源的在最后。
-  const rank = (key: string) => (key === noSource ? 2 : key === identicalGroup ? 1 : 0);
-  const ordered = [...groups].sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b));
+  // 按来源分组、同名不同内容的单列，见 fetchGroups。
+  const { usable, unusable, conflicts, ordered } = fetchGroups(plan);
 
   const toggle = (i: number) =>
     setPicked((set) => {
@@ -191,11 +167,7 @@ function FetchUnmanagedDialog({
       return next;
     });
 
-  const chosen = [...picked].sort((a, b) => a - b);
-  const team = chosen
-    .map((i) => plan[i])
-    .filter(repoOwned);
-  const outside = chosen.map((i) => plan[i]).filter((p) => p.link_outside);
+  const { chosen, team, outside } = pickedNotes(plan, picked);
 
   const submit = async () => {
     const { done, lost } = await fetchInBatches(

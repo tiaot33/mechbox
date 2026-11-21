@@ -4,7 +4,8 @@ import { useT } from "@/lib/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ListRow } from "@/components/ui/list";
-import { OutsideBadge, SameNameInLibrary, sourceOf } from "./fetch-unmanaged-parts";
+import { OutsideBadge, SameNameInLibrary } from "./fetch-unmanaged-parts";
+import { sourceOf } from "./fetch-unmanaged-rules";
 
 // SourceEdit 是一条的来源链接怎么改：改过的链接(没改过时为 undefined)、是不是正在改，以及改的几个操作。
 export interface SourceEdit {

@@ -5,16 +5,9 @@
 // 可以跳过单个技能的这次改动，也可以跳过整个来源版本。从技能发起时只勾这一个，其余有变化的折叠;改名和删除照样显示，新技能不提。
 import { useEffect, useRef, useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
-import {
-  PlannedChange,
-  type CollectionID,
-  type PlannedSkill,
-  type SkillID,
-  type SkillScopeInspection,
-  type UpdatePlan,
-} from "@bindings/internal/library";
+import { type CollectionID, type PlannedSkill, type SkillID, type UpdatePlan } from "@bindings/internal/library";
 import { rememberPlanRisks } from "@/lib/plan-risks";
-import { canInstall, defaultInstallOn, defaultSkills, plannedInstalls } from "@/lib/consent";
+import { chosenInstallOn, defaultSkills, plannedInstalls } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { changedFiles } from "@/lib/diff";
 import { useT } from "@/lib/i18n";
@@ -32,7 +25,8 @@ import { ChangedRow, DeletedRow, RenameRow } from "./plan-rows";
 import { Commits, NewSkills, Risks, sectionClass } from "./plan-sections";
 import { reportUpdates } from "./report";
 import { SkillDiff } from "./skill-diff";
-import { runUpdate, stalePlan } from "./update";
+import { runUpdate } from "./update";
+import { planSections, plannedName, stalePlan } from "./update-rules";
 
 // usePlan 生成更新计划：打开时读一次来源，重试或计划失效后重新生成(replan);生成时写下的检查结论经 run 的重读带回主界面。
 // 关掉弹窗时取消读取。onLoaded 在每次生成好之后调用，用来定默认勾选;patch 改动已生成的计划里的一个技能(跳过、回答"不是"之后)。
@@ -138,29 +132,16 @@ export function UpdateDialog({
     );
   }
 
-  const skills = plan.skills ?? [];
-  const changed = skills.filter((p) => p.change === PlannedChange.PlannedChanged);
-  const renamed = skills.filter((p) => !!p.renamed_to);
-  const deleted = skills.filter((p) => p.change === PlannedChange.PlannedDeleted && !p.renamed_to && !removed.has(p.skill.id));
-  const unchanged = skills.filter((p) => p.change === PlannedChange.PlannedUnchanged);
-  const shown = expanded ? changed : changed.filter((p) => p.skill.id === focus || checked.has(p.skill.id));
-  const folded = changed.filter((p) => !shown.includes(p));
-  const movable = [...changed, ...renamed];
-  // 还没勾上的有变化或推测出改名的技能会留在旧的来源版本上。更新会换掉用户修改的(edited)默认就不勾，
-  // 来源版本也可能本来就不知道，留着它们是预料之中的，不为此警告。
-  const splitting = skills.length > 1 && checked.size > 0 && movable.some((p) => !checked.has(p.skill.id) && !p.edited);
+  // 各节列哪些、要不要提醒留在旧的来源版本上，见 update-rules 的 planSections。
+  const { skills, renamed, deleted, unchanged, shown, folded, movable, splitting } = planSections(plan, checked, removed, expanded, focus);
   // 一次写操作(更新、跳过、改名、移除、继续保留、不感兴趣)没结束前，其他写操作都不能点：
   // 更新读来源期间跳过成功，随后的更新仍会把这份改动换进库里、装出去。
   const locked = working || busy;
   const risks = movable.flatMap((p) => (p.risks ?? []).map((r) => ({ p, r })));
   const places = plannedInstalls(plan, checked);
   // 几个 Agent 共用一个文件夹时只能一起换，勾选按"技能 + 文件夹"算。
-  const installOn = (p: SkillScopeInspection) => canInstall(p) && (installChoice.get(folderKey(p)) ?? defaultInstallOn(p));
-  const name = (id: SkillID) => {
-    const p = skills.find((x) => x.skill.id === id);
-    if (!p) return `#${id}`;
-    return p.renamed_to && checked.has(id) ? `${p.skill.name} → ${p.renamed_to}` : p.skill.name;
-  };
+  const installOn = chosenInstallOn(installChoice);
+  const name = (id: SkillID) => plannedName(plan, checked, id);
   const from = revisionSummary(skills.map((p) => p.skill));
   const to = plan.revision ? shortRevision(plan.revision) : "";
   const viewItem = viewing ? skills.find((p) => p.skill.id === viewing.id) : undefined;

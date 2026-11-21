@@ -7,13 +7,14 @@ import { FolderPolicy, type Scope, type SkillID } from "@bindings/internal/libra
 import { lostEdits } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, type Snapshot } from "@/lib/library";
-import { mergedScopeKey, mergeProjectPlaces, scopeLabel, skillName, skillScopesOf, skillSourceLabel, twinReplaceScopes } from "@/lib/model";
+import { mergeProjectPlaces, scopeLabel, skillName, skillScopesOf, skillSourceLabel, twinReplaceScopes } from "@/lib/model";
 import { ChoiceList, Modal, ui } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { runEach, showResults } from "@/components/app/results";
 import { inspectedSnapshot, installReplacing, lostMentionLines, lostMentions } from "@/features/install/install";
 import type { MissingMention } from "@bindings/internal/library";
+import { lostAfterTwin, removedPlaces } from "./remove-rules";
 
 export async function removeSkill(id: SkillID) {
   const s = currentSnapshot();
@@ -90,8 +91,7 @@ function RemoveTwinDialog({
   const removing = policy === FolderPolicy.Remove;
   const swapping = removing && swap && replace.length > 0;
   // 换装时，那几处提到这个名字的技能又找得到了(找到的是留下的这个),不再算会找不到的。
-  const swapped = new Set(replace.map((scope) => mergedScopeKey(s, scope)));
-  const lost = swapping ? unfound.filter((m) => m.name !== skill.name || !swapped.has(mergedScopeKey(s, m.scope))) : unfound;
+  const lost = swapping ? lostAfterTwin(s, unfound, skill.name, replace) : unfound;
   const choices = wheres.length ? folderChoices(a.removeTwinFolders(wheres, skill.name, lostEdits(places).length), lost) : undefined;
   return (
     <Modal
@@ -125,9 +125,8 @@ function RemoveTwinDialog({
 // 一批只问一次，写出一共会删几处、其中几处被改过。有失败的才列出结果。返回是否至少移除了一个：取消了、都失败了时是 false。
 export async function removeSkills(ids: SkillID[]): Promise<boolean> {
   const s = currentSnapshot();
-  const places = s.skillScopes.filter((p) => ids.includes(p.skill_id));
   // 几个技能装在同一个作用域只算一个作用域;项目里共用一个目录的几个 Agent 是一个。
-  const scopes = new Set(places.map((p) => mergedScopeKey(s, p.scope))).size;
+  const { places, scopes } = removedPlaces(s, ids);
   const t = messages().actions;
   const unfound = await lostMentions(places);
   const choice = await ui.confirm({
