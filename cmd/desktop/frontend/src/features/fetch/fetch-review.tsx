@@ -11,7 +11,7 @@ import {
   type SkillAudit,
 } from "@bindings/internal/library";
 import { configQuery, useLoadedSnapshot } from "@/lib/library";
-import { homePath, sameNameInLibrary, twinNote } from "@/lib/model";
+import { homePath, twinNote } from "@/lib/model";
 import { defaultCandidates } from "@/lib/consent";
 import { permissionNote } from "@/lib/agent-settings";
 import { isWSLPath } from "@/lib/paths";
@@ -28,7 +28,7 @@ import { Notice } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
 import { MARK_DRAWN_MS } from "@/components/ui/status-mark";
 import { AuditBadge } from "./audit";
-import { toggleCandidates, unpickedMentions } from "./fetch-review-rules";
+import { libraryTwins, toggleCandidates, unpickedMentions } from "./fetch-review-rules";
 import { Diagnostics, WSLBadge } from "@/components/app/parts";
 
 interface FetchReviewProps {
@@ -74,7 +74,7 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
   const fresh = candidates.filter((c) => !c.fetched);
   // 库里已有同名技能(别的来源或没有来源)的候选：标出来，写明库里那个是哪来的、装在哪，默认不勾(见 lib/consent 的 defaultCandidates)。
   const library = s?.skills ?? [];
-  const twinsOf = (c: Candidate) => (c.fetched || !s ? [] : sameNameInLibrary(s, { id: 0, name: c.name }));
+  const twinsOf = (c: Candidate) => libraryTwins(s, c);
   // 默认勾选尚未入库的候选(从新技能提示进来时只勾新技能);已入库的不能再选(整批会因 AlreadyExists 失败)。
   const [selected, setSelected] = useState<Set<string>>(() => defaultCandidates(candidates, new Set(library.map((x) => x.name)), onlyNew));
   // 入库所选：running 时按钮上转圈，入库成功后合成对勾，停一下再关掉弹窗。

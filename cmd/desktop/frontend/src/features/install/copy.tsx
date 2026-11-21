@@ -46,6 +46,7 @@ import { toastInstalled } from "./install";
 import { occupied } from "./install-rules";
 import {
   canCheck,
+  checkedCounts,
   comingNotes,
   copyResults,
   copySteps,
@@ -184,8 +185,7 @@ function CopyDialog({ s, kind, close }: { s: Snapshot; kind: CopyKind; close: ()
     else next.add(key);
     return next;
   };
-  const skillCount = [...checked].filter((k) => k.startsWith("s:")).length;
-  const groupCount = checked.size - skillCount;
+  const { skills: skillCount, groups: groupCount } = checkedCounts(checked);
   // edited、newer 只说勾上的项里会装过来的技能(见 comingNotes)。
   const { edited, newer } = comingNotes(places, checked);
   const overwrites = plans ? copyOverwriteCount(plans, checked, overwrite) : 0;

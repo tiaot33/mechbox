@@ -35,7 +35,7 @@ import {
   skillScopeIn,
   sourceLabel,
 } from "@/lib/model";
-import type { ResultRow } from "@/components/app/result-rows";
+import { placedBy, type ResultRow } from "@/components/app/result-rows";
 
 // occupied 是被占用、装不上的一处:reason 说明原因，同名的另一个技能(或这个技能的另一个作用域)已装在那个文件夹，用来源区分是哪一个;
 // occupier 是占着的另一个技能，界面上能点开它(见 occupierOf)。
@@ -165,7 +165,7 @@ export function groupInstallPlan(members: InstallPlan[]) {
 export function groupInstalled(results: GroupMemberResult[], blocked: InstallPlan[]) {
   const skipped = results.filter((r) => r.outcome === GroupMemberOutcome.MemberSkipped);
   return {
-    placed: results.filter((r) => r.outcome !== GroupMemberOutcome.MemberSkipped),
+    placed: placedBy(results),
     listed: skipped.length > 0 || blocked.length > 0,
   };
 }

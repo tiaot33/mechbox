@@ -17,7 +17,7 @@ import {
 import { messages } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
 import type { CopyPlace } from "@/lib/model";
-import { canCheck, comingNotes, copyResults, copySteps, groupKey, meantPlaces, placeKeys, skillKey, togglePlace, type Plans } from "./copy-rules";
+import { canCheck, checkedCounts, comingNotes, copyResults, copySteps, groupKey, meantPlaces, placeKeys, skillKey, togglePlace, type Plans } from "./copy-rules";
 
 const claude = AgentCode.AgentClaudeCode;
 const global = (agent: AgentCode): Scope => ({ kind: ScopeKind.ScopeGlobal, agent });
@@ -51,6 +51,11 @@ describe("确认框里的勾选", () => {
     expect(canCheck({ plan: plan(InstallPlanStatus.InstallOccupied) })).toBe(false);
     expect(canCheck({ error: err(ErrorCode.Permission) })).toBe(false);
     expect(canCheck(undefined)).toBe(false);
+  });
+
+  it("确认按钮上的技能数、组数按勾上的项算：直接安装的是技能，组安装的是组", () => {
+    expect(checkedCounts(new Set([skillKey(p, 1), skillKey(p, 2), groupKey(p, 5)]))).toEqual({ skills: 2, groups: 1 });
+    expect(checkedCounts(new Set())).toEqual({ skills: 0, groups: 0 });
   });
 
   it("一处标题：有勾上的就整处取消;一个都没勾时按默认规则整处勾上，有同名文件夹的、读不出计划的不勾", () => {

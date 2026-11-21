@@ -16,7 +16,7 @@ import {
 } from "@bindings/internal/library";
 import { messages } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
-import { addedToGroup, groupOnly, inGroup, notInGroup, placedBy } from "./group-rules";
+import { addedToGroup, groupOnly, inGroup, notInGroup } from "./group-rules";
 
 const claude = AgentCode.AgentClaudeCode;
 const codex = AgentCode.AgentCodex;
@@ -95,9 +95,5 @@ describe("逐个加入组之后", () => {
       ["s2 → Claude Code · 全局", t.memberSkipped],
       ["s3", t.memberAdded],
     ]);
-  });
-
-  it("随组安装被跳过的不算装上", () => {
-    expect(placedBy([result(1, GroupMemberOutcome.MemberAlreadyInstalled), result(2, GroupMemberOutcome.MemberSkipped)]).map((x) => x.skill_id)).toEqual([1]);
   });
 });

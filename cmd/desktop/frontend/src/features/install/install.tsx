@@ -41,7 +41,8 @@ import { openDrawer } from "@/lib/view";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { DeleteNotes, SharedFolders } from "@/components/app/link-notes";
-import { memberRows, showResults, summarizeMembers } from "@/components/app/results";
+import { showResults } from "@/components/app/results";
+import { memberRows, summarizeMembers } from "@/components/app/result-rows";
 import {
   asksBeforeUninstall,
   groupInstalled,

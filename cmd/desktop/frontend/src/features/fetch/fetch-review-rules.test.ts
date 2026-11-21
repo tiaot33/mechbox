@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { Candidate, Skill } from "@bindings/internal/library";
 import type { Snapshot } from "@/lib/library";
-import { toggleCandidates, unpickedMentions } from "./fetch-review-rules";
+import { libraryTwins, toggleCandidates, unpickedMentions } from "./fetch-review-rules";
 
 const candidate = (name: string, extra: Partial<Candidate> = {}) => ({ name, path: name, ...extra }) as Candidate;
 
@@ -27,6 +27,12 @@ describe("勾上的候选提到的没勾的候选", () => {
 
   it("只说同一份预览里没勾、还没入库、库里也没有同名的", () => {
     expect(unpickedMentions(s, candidates, new Set(["a", "c"]), candidates[0])).toEqual(["b"]);
+  });
+
+  it("库里的同名技能：还没入库的候选才算，库还没读到时没有", () => {
+    expect(libraryTwins(s, candidates[4]).map((x) => x.id)).toEqual([9]);
+    expect(libraryTwins(s, candidate("lib", { fetched: 9 }))).toEqual([]);
+    expect(libraryTwins(undefined, candidates[4])).toEqual([]);
   });
 
   it("没勾上的候选不说;库里的技能还没读到时不认同名", () => {

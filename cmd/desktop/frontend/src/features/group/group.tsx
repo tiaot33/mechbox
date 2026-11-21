@@ -11,8 +11,9 @@ import { Field, Hint } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
 import { DeleteNotes } from "@/components/app/link-notes";
 import { inspectedSnapshot, LostMentions, lostMentions, toastInstalled } from "@/features/install/install";
-import { memberRows, runEach, showResults } from "@/components/app/results";
-import { addedToGroup, groupOnly, inGroup, notInGroup, placedBy, type AddedToGroup } from "./group-rules";
+import { runEach, showResults } from "@/components/app/results";
+import { memberRows, placedBy } from "@/components/app/result-rows";
+import { addedToGroup, groupOnly, inGroup, notInGroup, type AddedToGroup } from "./group-rules";
 
 export async function addSkillToGroup(groupID: GroupID, id: SkillID) {
   const s = currentSnapshot();

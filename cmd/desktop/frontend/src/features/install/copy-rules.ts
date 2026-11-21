@@ -20,6 +20,11 @@ import { occupied } from "./install-rules";
 // 勾选的 key:一处按装到的作用域区分，再加技能或组。
 export const skillKey = (p: CopyPlace, id: number) => `s:${scopeKey(p.to)}:${id}`;
 export const groupKey = (p: CopyPlace, id: number) => `g:${scopeKey(p.to)}:${id}`;
+// checkedCounts 是勾上的项里直接安装的技能数和组安装数(按键的前缀分),写在确认按钮上。
+export function checkedCounts(checked: ReadonlySet<string>): { skills: number; groups: number } {
+  const skills = [...checked].filter((k) => k.startsWith("s:")).length;
+  return { skills, groups: checked.size - skills };
+}
 export const placeKeys = (p: CopyPlace) => [...p.groups.map((g) => groupKey(p, g.id)), ...p.skills.map((x) => skillKey(p, x.id))];
 
 // Planned 是一项的安装计划(见 consent.ts 的 CopyPlanned),读不出时的错误是技能库错误。Plans 按 skillKey / groupKey 存。

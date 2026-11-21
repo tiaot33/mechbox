@@ -36,6 +36,11 @@ export function memberRows(s: Snapshot, results: GroupMemberResult[]): ResultRow
   }));
 }
 
+// placedBy 是组安装、加进组时随组安装装上(或已经在那里)的各处，装好后的提示按它看提到的技能找不找得到。
+export function placedBy(results: GroupMemberResult[]): GroupMemberResult[] {
+  return results.filter((r) => r.outcome !== GroupMemberOutcome.MemberSkipped);
+}
+
 export function summarizeMembers(results: GroupMemberResult[]): string {
   const count = (o: GroupMemberOutcome) => results.filter((r) => r.outcome === o).length;
   return messages().actions.membersSummary(

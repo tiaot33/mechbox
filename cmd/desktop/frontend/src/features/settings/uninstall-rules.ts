@@ -24,8 +24,7 @@ export function uninstallFolders(places: SkillScopeInspection[], folders: string
     inGlobal,
     inProjects: present.length - inGlobal,
     projects: [...new Set(present.flatMap((p): ProjectID[] => (p.scope.project_id ? [p.scope.project_id] : [])))],
-    moving:
-      folders === UninstallFolders.FoldersTrash ? present.length : folders === UninstallFolders.FoldersKeepModified ? present.length - modified.length : 0,
+    moving: present.filter(moved).length,
     movingInDistro: present.filter((p) => isWSLPath(p.folder) && moved(p)).length,
   };
 }

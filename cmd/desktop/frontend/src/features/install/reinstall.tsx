@@ -31,7 +31,8 @@ import { Button } from "@/components/ui/button";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Segmented } from "@/components/ui/segmented";
 import { Notice } from "@/components/ui/notice";
-import { failedRow, showResults, type ResultRow } from "@/components/app/results";
+import { showResults } from "@/components/app/results";
+import { failedRow, type ResultRow } from "@/components/app/result-rows";
 import { confirmLinkWrites } from "@/components/app/link-notes";
 
 // reinstall 把 filter 范围内不是当前版本的各处换成当前版本。先现查状态：快照可能已落后于磁盘，

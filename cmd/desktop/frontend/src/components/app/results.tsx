@@ -11,8 +11,6 @@ import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import type { ResultRow } from "./result-rows";
 
-export { failedRow, memberRows, summarizeMembers, type ResultRow } from "./result-rows";
-
 export function showResults(title: string, rows: ResultRow[], note?: string) {
   const t = messages().actions;
   return ui.open((close) => (

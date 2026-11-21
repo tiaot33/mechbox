@@ -5,7 +5,7 @@ import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
 import { scopeKey, skillName } from "@/lib/model";
-import { memberRows, type ResultRow } from "@/components/app/result-rows";
+import { memberRows, placedBy, type ResultRow } from "@/components/app/result-rows";
 
 // notInGroup 是勾选的技能里还不在组里的(要加入的),inGroup 是在组里的(要移出的)。
 export function notInGroup(s: Snapshot, groupID: GroupID, picked: SkillID[]): SkillID[] {
@@ -23,11 +23,6 @@ export function groupOnly(s: Snapshot, groupID: GroupID, members: SkillID[]): Sk
   return s.skillScopes.filter(
     (p) => members.includes(p.skill_id) && scopes.has(scopeKey(p.scope)) && !p.direct && (p.groups ?? []).every((g) => g === groupID),
   );
-}
-
-// placedBy 是加进组时随组安装装上(或已经在那里)的各处，装好后的提示按它看提到的技能找不找得到。
-export function placedBy(results: GroupMemberResult[]): GroupMemberResult[] {
-  return results.filter((r) => r.outcome !== GroupMemberOutcome.MemberSkipped);
 }
 
 // AddedToGroup 是把一个技能加入组的结果:results 是随组安装到各作用域的逐个结果;没加成时是 error。
