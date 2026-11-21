@@ -1,26 +1,18 @@
 // 组：新建、重命名、删除，加入(一个技能、整个集合或勾选的几个技能)或移出组;删组、移出组时可选一并卸载只靠这个组装着的技能。
 import { useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
-import {
-  GroupMemberOutcome,
-  MemberRemovalPolicy,
-  type CollectionID,
-  type GroupID,
-  type GroupMemberResult,
-  type SkillID,
-  type SkillScopeInspection,
-} from "@bindings/internal/library";
+import { GroupMemberOutcome, MemberRemovalPolicy, type CollectionID, type GroupID, type SkillID } from "@bindings/internal/library";
 import { messages, useT } from "@/lib/i18n";
-import { describeError } from "@/lib/errors";
-import { currentSnapshot, toLibraryError, useSnapshot, type LibraryError, type Snapshot } from "@/lib/library";
-import { folderPlaces, groupName, missingFromGroup, scopeKey, skillName, sourceLabel } from "@/lib/model";
+import { currentSnapshot, toLibraryError, useSnapshot } from "@/lib/library";
+import { folderPlaces, groupName, missingFromGroup, skillName, sourceLabel } from "@/lib/model";
 import { Modal, ui } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
 import { DeleteNotes } from "@/components/app/link-notes";
 import { inspectedSnapshot, LostMentions, lostMentions, toastInstalled } from "@/features/install/install";
-import { memberRows, runEach, showResults, type ResultRow } from "@/components/app/results";
+import { memberRows, runEach, showResults } from "@/components/app/results";
+import { addedToGroup, groupOnly, inGroup, notInGroup, placedBy, type AddedToGroup } from "./group-rules";
 
 export async function addSkillToGroup(groupID: GroupID, id: SkillID) {
   const s = currentSnapshot();
@@ -35,11 +27,6 @@ export async function addSkillToGroup(groupID: GroupID, id: SkillID) {
     return;
   }
   await toastInstalled(placedBy(results));
-}
-
-// placedBy 是加进组时随组安装装上(或已经在那里)的各处，装好后的提示按它看提到的技能找不找得到。
-function placedBy(results: GroupMemberResult[]): GroupMemberResult[] {
-  return results.filter((r) => r.outcome !== GroupMemberOutcome.MemberSkipped);
 }
 
 // addCollectionToGroup 把集合里还不在组里的技能逐个加入组(集合拖到组上、左栏集合的右键菜单)。每个技能各是一次写操作，
@@ -68,8 +55,7 @@ export async function addSkillsToGroup(groupID: GroupID, picked: SkillID[]): Pro
   const s = currentSnapshot();
   const t = messages().actions;
   const group = groupName(s, groupID);
-  const members = s.groups.find((g) => g.id === groupID)?.members ?? [];
-  const ids = picked.filter((id) => !members.includes(id));
+  const ids = notInGroup(s, groupID, picked);
   if (!ids.length) {
     ui.toast(t.pickedAlreadyInGroup(group));
     return false;
@@ -90,7 +76,7 @@ async function addEachToGroup(
   const s = currentSnapshot();
   const t = messages().actions;
   const outcomes = await ui.run(async () => {
-    const all: { id: SkillID; results: GroupMemberResult[]; error?: LibraryError }[] = [];
+    const all: AddedToGroup[] = [];
     for (const id of ids) {
       try {
         all.push({ id, results: (await LibraryService.AddSkillToGroup(groupID, id)) ?? [] });
@@ -101,21 +87,14 @@ async function addEachToGroup(
     return all;
   }, { failed: (all) => all.some((o) => o.error) });
   if (!outcomes) return false;
-  const added = outcomes.filter((o) => !o.error);
-  const skipped = added.some((o) => o.results.some((r) => r.outcome === GroupMemberOutcome.MemberSkipped));
-  const placed = added.flatMap((o) => placedBy(o.results));
-  if (added.length === ids.length && !skipped) {
+  const { all, skipped, added, placed, rows } = addedToGroup(s, ids, outcomes);
+  if (all) {
     await toastInstalled(placed, text.done(ids.length, s.groupInstalls.filter((a) => a.group_id === groupID).length));
     return true;
   }
-  const rows = outcomes.flatMap((o): ResultRow[] => {
-    if (o.error) return [{ label: skillName(s, o.id), outcome: t.failed, tone: "critical", reason: describeError(o.error) }];
-    if (o.results.length) return memberRows(s, o.results);
-    return [{ label: skillName(s, o.id), outcome: t.memberAdded, tone: "plain" }];
-  });
-  await showResults(text.title(added.length, ids.length), rows, skipped ? t.membersAddedPartly : undefined);
+  await showResults(text.title(added, ids.length), rows, skipped ? t.membersAddedPartly : undefined);
   await toastInstalled(placed);
-  return added.length > 0;
+  return added > 0;
 }
 
 export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {
@@ -158,7 +137,7 @@ export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[])
   let s = currentSnapshot();
   const t = messages().actions;
   const group = groupName(s, groupID);
-  const ids = picked.filter((id) => s.groups.find((g) => g.id === groupID)?.members?.includes(id));
+  const ids = inGroup(s, groupID, picked);
   if (!ids.length) return false;
   const installed = s.groupInstalls.filter((a) => a.group_id === groupID);
   // 选组的弹窗里已经点过"移出";没有组安装时不再问，和移出一个成员一样直接移出。
@@ -265,14 +244,6 @@ function removalChoices() {
     { value: MemberRemovalPolicy.KeepAsDirectInstall, label: t.keep, desc: t.keepDesc },
     { value: MemberRemovalPolicy.UninstallMember, label: t.uninstallToo, desc: t.uninstallTooDesc },
   ];
-}
-
-// groupOnly 是这个组在它装到的各作用域里，只靠它留着的成员(没有直接安装、也没有别的组安装):选了一并卸载时这些文件夹会删。
-function groupOnly(s: Snapshot, groupID: GroupID, members: SkillID[]): SkillScopeInspection[] {
-  const scopes = new Set(s.groupInstalls.filter((g) => g.group_id === groupID).map((g) => scopeKey(g.scope)));
-  return s.skillScopes.filter(
-    (p) => members.includes(p.skill_id) && scopes.has(scopeKey(p.scope)) && !p.direct && (p.groups ?? []).every((g) => g === groupID),
-  );
 }
 
 // pickGroup 是勾选后操作栏的"加入组…""移出组…":选一个组，把勾选的技能加入(也可以新建一个组)或移出。

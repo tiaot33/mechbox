@@ -9,11 +9,11 @@
 // - 一项装不上不影响其余的;全部装上时只提示装了几个，有没装上的才列出结果。
 import { useEffect, useRef, useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
-import { GroupMemberOutcome, InstallPlanStatus, type AgentCode, type Group, type ProjectID, type Skill, type SkillID, type SkillInScope } from "@bindings/internal/library";
-import { copyable, copyDefaults, copyOverwriteCount, copyOverwrites, copyPlaceByDefault, type CopyPlanned } from "@/lib/consent";
+import { InstallPlanStatus, type AgentCode, type Group, type ProjectID, type Skill } from "@bindings/internal/library";
+import { copyable, copyDefaults, copyOverwriteCount, copyOverwrites, copyPlaceByDefault } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
-import { currentSnapshot, toLibraryError, type LibraryError, type Snapshot } from "@/lib/library";
+import { currentSnapshot, toLibraryError, type Snapshot } from "@/lib/library";
 import {
   agentName,
   agentNameIn,
@@ -22,7 +22,6 @@ import {
   copyItems,
   copyProjectSources,
   copySources,
-  errorOccupier,
   placeOf,
   projectName,
   scopeKey,
@@ -42,8 +41,23 @@ import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Notice } from "@/components/ui/notice";
-import { memberRows, showResults, type ResultRow } from "@/components/app/results";
-import { occupied, toastInstalled } from "./install";
+import { showResults } from "@/components/app/results";
+import { toastInstalled } from "./install";
+import { occupied } from "./install-rules";
+import {
+  canCheck,
+  comingNotes,
+  copyResults,
+  copySteps,
+  groupKey,
+  meantPlaces,
+  placeKeys,
+  skillKey,
+  togglePlace as toggledPlace,
+  type CopyOutcome,
+  type Planned,
+  type Plans,
+} from "./copy-rules";
 
 // CopyKind 是一种照装：照着谁(sources 的 key)、装到的那一处的名字(toName)、要装的各处、各处的标题与确认框里另外说的话。
 // 文案都在调用时取，跟随当前界面语言。
@@ -122,15 +136,6 @@ function openCopy(s: Snapshot, kind: CopyKind) {
   void ui.open((close) => <CopyDialog s={s} kind={kind} close={close} />);
 }
 
-// 勾选的 key:一处按装到的作用域区分，再加技能或组。
-const skillKey = (p: CopyPlace, id: number) => `s:${scopeKey(p.to)}:${id}`;
-const groupKey = (p: CopyPlace, id: number) => `g:${scopeKey(p.to)}:${id}`;
-const placeKeys = (p: CopyPlace) => [...p.groups.map((g) => groupKey(p, g.id)), ...p.skills.map((x) => skillKey(p, x.id))];
-
-// Planned 是一项的安装计划(见 consent.ts 的 CopyPlanned),读不出时的错误是技能库错误。Plans 按 skillKey / groupKey 存。
-type Planned = Exclude<CopyPlanned, { error: unknown }> | { error: LibraryError };
-type Plans = Map<string, Planned>;
-
 // CopyDialog 用打开时的快照算要装什么，不随之后的重读变：确认框开着时重读(如自动检查更新)会重算安装计划、
 // 把用户改过的勾选重置掉。
 function CopyDialog({ s, kind, close }: { s: Snapshot; kind: CopyKind; close: () => void }) {
@@ -181,36 +186,15 @@ function CopyDialog({ s, kind, close }: { s: Snapshot; kind: CopyKind; close: ()
   };
   const skillCount = [...checked].filter((k) => k.startsWith("s:")).length;
   const groupCount = checked.size - skillCount;
-  // edited 只说勾上的项里会装过来的改过的技能：直接安装勾上了，或随勾上的组安装装过来。
-  const coming = (p: CopyPlace, id: number) =>
-    checked.has(skillKey(p, id)) || p.groups.some((g) => checked.has(groupKey(p, g.id)) && (g.members ?? []).includes(id));
-  const edited = [...new Set(places.flatMap((p) => p.edited.filter((x) => coming(p, x.id)).map((x) => x.name)))];
-  const newer = [...new Set(places.flatMap((p) => p.newer.filter((x) => coming(p, x.id)).map((x) => x.name)))];
+  // edited、newer 只说勾上的项里会装过来的技能(见 comingNotes)。
+  const { edited, newer } = comingNotes(places, checked);
   const overwrites = plans ? copyOverwriteCount(plans, checked, overwrite) : 0;
-  // togglePlace 是一处标题上的勾选：有勾上的就全部取消;一个都没勾时按 copyDefaults 整处勾上(不管这一处打开时默认勾不勾，
-  // 不替用户勾上要覆盖的)。
-  const togglePlace = (keys: string[]) =>
-    setChecked((set) => {
-      const next = new Set(set);
-      const any = keys.some((k) => next.has(k));
-      const entries = keys.flatMap((k): [string, Planned][] => {
-        const v = plans?.get(k);
-        return v ? [[k, v]] : [];
-      });
-      const defaults = copyDefaults(entries).checked;
-      for (const k of keys) {
-        if (any) next.delete(k);
-        else if (defaults.has(k)) next.add(k);
-      }
-      return next;
-    });
+  const togglePlace = (keys: string[]) => setChecked((set) => toggledPlace(set, keys, plans));
 
   const submit = () => {
     if (!plans) return;
     close();
-    // 结果只列用户这次要装的那几处：默认勾的，和用户勾了东西的;其余各处装不了、读不出计划的不算没装上。
-    const meant = places.filter((p) => kind.byDefault(p) || placeKeys(p).some((k) => checked.has(k)));
-    void runCopy(s, fromName, kind.toName, meant, plans, checked, overwrite);
+    void runCopy(s, fromName, kind.toName, meantPlaces(places, kind.byDefault, checked), plans, checked, overwrite);
   };
 
   return (
@@ -458,7 +442,7 @@ function GroupRow({
   );
 }
 
-// runCopy 按勾选逐处安装：先组安装，再直接安装;一项装不上不影响其余的。
+// runCopy 按勾选逐处安装：先组安装，再直接安装;一项装不上不影响其余的(要做的事与结果的归并见 copy-rules.ts)。
 async function runCopy(
   s: Snapshot,
   fromName: string,
@@ -469,92 +453,32 @@ async function runCopy(
   overwrite: Set<string>,
 ) {
   const t = messages().copy;
-  const a = messages().actions;
-  const rows: ResultRow[] = [];
-  // installed 按"哪一处的哪个技能"记，同一个技能既随组又直接安装时只算一次;groups 是记下的组安装数。
-  const installed = new Set<string>();
-  let groups = 0;
-  const skip = (label: string, reason: string, occupier?: SkillID) => rows.push({ label, outcome: a.memberSkipped, tone: "warn", reason, occupier });
-  let failed = false;
-  // id 是装的那一个技能：执行时才被同一批里先装的同名技能占上的，错误里有占着的那个，照样能点开。
-  const fail = (label: string, e: unknown, id?: SkillID) => {
-    const err = toLibraryError(e);
-    rows.push({ label, outcome: a.failed, tone: "critical", reason: describeError(err), occupier: id && errorOccupier(s, id, err) });
-    failed = true;
-  };
-  const placed: SkillInScope[] = [];
+  const steps = copySteps(s, places, plans, checked, overwrite);
+  const outcomes: (CopyOutcome | undefined)[] = [];
   await ui.run(
     async () => {
-      for (const p of places) {
-        const scope = p.to;
-        const where = scopeLabel(s, scope);
-        if (p.missing) {
-          skip(where, t.missingPlace);
-          continue;
-        }
-        for (const g of p.groups) {
-          const key = groupKey(p, g.id);
-          const planned = plans.get(key);
-          if (planned && "error" in planned) {
-            skip(t.groupFailed(g.name, where), describeError(planned.error));
-            continue;
+      for (const [i, step] of steps.entries()) {
+        if ("skip" in step) continue;
+        try {
+          if ("group" in step) {
+            outcomes[i] = { results: (await LibraryService.InstallGroup(step.group.id, step.scope, { overwrite: step.overwrite })) ?? [] };
+          } else {
+            await LibraryService.Install(step.skill.id, step.scope, { overwrite: step.overwrite });
+            outcomes[i] = {};
           }
-          if (!checked.has(key)) continue;
-          try {
-            const results = (await LibraryService.InstallGroup(g.id, scope, { overwrite: overwrite.has(key) })) ?? [];
-            groups++;
-            for (const r of results) {
-              if (r.outcome !== GroupMemberOutcome.MemberInstalled) continue;
-              installed.add(`${scopeKey(scope)}:${r.skill_id}`);
-              placed.push({ skill_id: r.skill_id, scope });
-            }
-            const skipped = results.filter((r) => r.outcome === GroupMemberOutcome.MemberSkipped);
-            // 有不是库装的同名文件夹而没勾覆盖的，是用户自己选的跳过，不再列出。
-            rows.push(...memberRows(s, skipped.filter((r) => overwrite.has(key) || !untrackedSkip(planned, r.skill_id))));
-          } catch (e) {
-            fail(t.groupFailed(g.name, where), e);
-          }
-        }
-        for (const x of p.skills) {
-          const key = skillKey(p, x.id);
-          const planned = plans.get(key);
-          if (!planned) continue;
-          if ("error" in planned) {
-            skip(`${x.name} → ${where}`, describeError(planned.error));
-            continue;
-          }
-          if (!("plan" in planned)) continue;
-          const { plan } = planned;
-          if (!copyable(plan.status)) {
-            const { reason, occupier } = occupied(s, x.id, plan);
-            skip(`${x.name} → ${where}`, reason, occupier);
-            continue;
-          }
-          if (!checked.has(key)) continue;
-          try {
-            await LibraryService.Install(x.id, scope, { overwrite: copyOverwrites(plan.status) });
-            installed.add(`${scopeKey(scope)}:${x.id}`);
-            placed.push({ skill_id: x.id, scope });
-          } catch (e) {
-            fail(`${x.name} → ${where}`, e, x.id);
-          }
+        } catch (e) {
+          outcomes[i] = { error: toLibraryError(e) };
         }
       }
     },
-    { failed: () => failed },
+    { failed: () => copyResults(s, steps, outcomes).failed },
   );
+  const { rows, installed, groups, placed } = copyResults(s, steps, outcomes);
   // 装好后的提示和别处安装一样，写出装上的技能在那里找不到的被提到技能。
   if (rows.length) {
-    await showResults(t.resultsTitle(fromName, toName), rows, t.summary(installed.size, rows.length));
+    await showResults(t.resultsTitle(fromName, toName), rows, t.summary(installed, rows.length));
     await toastInstalled(placed);
   } else {
-    await toastInstalled(placed, t.done(fromName, toName, installed.size, groups));
+    await toastInstalled(placed, t.done(fromName, toName, installed, groups));
   }
 }
-
-const untrackedSkip = (planned: Planned | undefined, id: number) =>
-  !!planned && "members" in planned && planned.members.some((x) => x.skill_id === id && copyOverwrites(x.status));
-
-// canCheck 是这一项能不能勾：组安装读出计划就能勾，直接安装还要装得了(没被占用)。
-const canCheck = (planned: Planned | undefined) =>
-  !!planned && ("members" in planned || ("plan" in planned && copyable(planned.plan.status)));

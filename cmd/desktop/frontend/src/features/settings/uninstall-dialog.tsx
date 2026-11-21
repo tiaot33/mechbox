@@ -4,12 +4,11 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AppService, LibraryService, UninstallFolders } from "@bindings/cmd/desktop";
-import { SkillScopeStatus, type SkillScopeInspection } from "@bindings/internal/library";
+import type { SkillScopeInspection } from "@bindings/internal/library";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, configQuery, type LibraryError } from "@/lib/library";
-import { folderPresent, mergeProjectPlaces, projectName, scopeLabel, shortPath, wslTitle } from "@/lib/model";
-import { isWSLPath } from "@/lib/paths";
+import { mergeProjectPlaces, projectName, scopeLabel, shortPath, wslTitle } from "@/lib/model";
 import { ChoiceList, Modal, useUI, type Choice } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
@@ -17,6 +16,7 @@ import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
 import { SyncDialog } from "./sync-dialog";
+import { uninstallFolders } from "./uninstall-rules";
 
 type Phase =
   | { kind: "idle" }
@@ -37,19 +37,7 @@ export function UninstallDialog({ onClose }: { onClose: () => void }) {
   const inspect = () => ui.read(() => LibraryService.InspectSkillScopes({})).then((p) => p && setPlaces(p));
   useEffect(() => void inspect(), []);
 
-  const byFolder = new Map<string, SkillScopeInspection>();
-  for (const p of places ?? []) if (!byFolder.has(p.folder)) byFolder.set(p.folder, p);
-  const unique = [...byFolder.values()];
-  const present = unique.filter(folderPresent);
-  const offMachine = unique.filter((p) => p.status === SkillScopeStatus.SkillScopeRootMissing).length;
-  const modified = present.filter((p) => p.status === SkillScopeStatus.SkillScopeModified);
-  const inGlobal = present.filter((p) => !p.scope.project_id).length;
-  const projects = [...new Set(present.flatMap((p) => (p.scope.project_id ? [p.scope.project_id] : [])))];
-  const inProjects = present.length - inGlobal;
-  const moving = folders === UninstallFolders.FoldersTrash ? present.length : folders === UninstallFolders.FoldersKeepModified ? present.length - modified.length : 0;
-  const movingInDistro = present.filter(
-    (p) => isWSLPath(p.folder) && (folders === UninstallFolders.FoldersTrash || (folders === UninstallFolders.FoldersKeepModified && p.status !== SkillScopeStatus.SkillScopeModified)),
-  ).length;
+  const { present, offMachine, modified, inGlobal, inProjects, projects, moving, movingInDistro } = uninstallFolders(places ?? [], folders);
 
   const choices: Choice[] = [
     { value: UninstallFolders.FoldersKeep, label: t.keep, desc: t.keepDesc },

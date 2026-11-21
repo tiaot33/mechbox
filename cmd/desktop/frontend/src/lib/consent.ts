@@ -48,6 +48,11 @@ const edited = editedHere;
 // 在 app 外已经更新到作者新版的照常勾上：库换成这一版之后它就是当前版本，不会被覆盖。
 export const defaultInstallOn = (p: SkillScopeInspection) => canInstall(p) && !edited(p) && p.status !== SkillScopeStatus.SkillScopeMissing;
 
+// chosenInstallOn 是更新计划、用目录里的修改更新的弹窗里一处勾没勾:choice 是用户点过的(按文件夹，几个 Agent 共用一个文件夹时只能一起换),
+// 没点过的按 defaultInstallOn;项目不在这台机器上的装不到，不勾。
+export const chosenInstallOn = (choice: ReadonlyMap<string, boolean>) => (p: SkillScopeInspection) =>
+  canInstall(p) && (choice.get(folderKey(p)) ?? defaultInstallOn(p));
+
 // consented 是勾上即同意的地方：用户改过的覆盖，文件夹不在了的装回去。作者新版的那一处不用同意覆盖。
 export const consented = (p: SkillScopeInspection) => edited(p) || p.status === SkillScopeStatus.SkillScopeMissing;
 

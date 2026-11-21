@@ -16,6 +16,7 @@ import {
   type UpdatePlan,
 } from "@bindings/internal/library";
 import {
+  chosenInstallOn,
   copyable,
   copyByDefault,
   copyDefaults,
@@ -112,6 +113,17 @@ describe("装出去的地方默认勾哪些", () => {
     expect(defaultInstallOn(place(1, global(claude), SkillScopeStatus.SkillScopeModified))).toBe(false);
     expect(defaultInstallOn(place(1, global(claude), SkillScopeStatus.SkillScopeMissing))).toBe(false);
     expect(defaultInstallOn(place(1, project(claude, 7), SkillScopeStatus.SkillScopeRootMissing))).toBe(false);
+  });
+
+  it("弹窗里用户点过的按用户的，按文件夹算(共用一个文件夹的几处一起);没点过的按默认;项目不在这台机器上的点了也不勾", () => {
+    const edited = place(1, project(claude, 7), SkillScopeStatus.SkillScopeModified);
+    const sameFolder = { ...place(1, project(codex, 7), SkillScopeStatus.SkillScopeModified), folder: edited.folder };
+    const current = place(2, global(claude), SkillScopeStatus.SkillScopeCurrent);
+    const off = place(3, project(claude, 8), SkillScopeStatus.SkillScopeRootMissing);
+    const on = chosenInstallOn(new Map([[folderKey(edited), true], [folderKey(current), false], [folderKey(off), true]]));
+    expect([edited, sameFolder, current, off].map(on)).toEqual([true, true, false, false]);
+    expect(chosenInstallOn(new Map())(edited)).toBe(false);
+    expect(chosenInstallOn(new Map())(current)).toBe(true);
   });
 });
 

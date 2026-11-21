@@ -3,17 +3,18 @@
 // 其他地方默认全勾，用户改过的地方默认不勾，项目不在这台机器上的不能勾。
 import { useEffect, useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
-import type { Scope, Skill, SkillScopeInspection, UpdatePlan } from "@bindings/internal/library";
-import { canInstall, defaultInstallOn } from "@/lib/consent";
+import type { Scope, Skill, UpdatePlan } from "@bindings/internal/library";
+import { chosenInstallOn } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { changedFiles } from "@/lib/diff";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, type LibraryError } from "@/lib/library";
-import { folderKey, mergeProjectPlaces, sameMergedScope, scopeKey, scopeLabel, skillScopesOf } from "@/lib/model";
+import { folderKey, mergeProjectPlaces, scopeLabel } from "@/lib/model";
 import { Modal, useBusy, useUI } from "@/lib/ui";
 import { reportUpdates } from "./report";
 import { RiskList } from "./plan-sections";
-import { runUpdate, stalePlan } from "./update";
+import { runUpdate } from "./update";
+import { sameFolderAsSource, stalePlan } from "./update-rules";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
@@ -91,12 +92,10 @@ export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; sco
   const item = plan.skills![0];
   const places = plan.installs ?? [];
   // 计划里不列的其他地方和取内容的这一处是同一个文件夹(共用目录，或符号链接指向同一个文件夹):内容已经是这份修改。
-  const same = skillScopesOf(s, skill.id).filter(
-    (p) => !sameMergedScope(s, p.scope, scope) && !places.some((x) => scopeKey(x.scope) === scopeKey(p.scope)),
-  );
+  const same = sameFolderAsSource(s, skill.id, scope, places);
   const risks = item.risks ?? [];
   // 几个 Agent 共用一个文件夹时只能一起换，勾选按"技能 + 文件夹"算。
-  const installOn = (p: SkillScopeInspection) => canInstall(p) && (installChoice.get(folderKey(p)) ?? defaultInstallOn(p));
+  const installOn = chosenInstallOn(installChoice);
   const locked = working || busy;
 
   const onStale = (err: LibraryError) => {

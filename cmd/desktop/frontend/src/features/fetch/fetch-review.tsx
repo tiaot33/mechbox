@@ -28,6 +28,7 @@ import { Notice } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
 import { MARK_DRAWN_MS } from "@/components/ui/status-mark";
 import { AuditBadge } from "./audit";
+import { toggleCandidates, unpickedMentions } from "./fetch-review-rules";
 import { Diagnostics, WSLBadge } from "@/components/app/parts";
 
 interface FetchReviewProps {
@@ -81,17 +82,7 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
 
   const toggle = (name: string) => setSelected((set) => toggled(set, name));
   // 分组的勾选：组里没入库的候选都勾上时取消全组，否则全组勾上。
-  const toggleGroup = (members: Candidate[]) =>
-    setSelected((set) => {
-      const names = members.filter((c) => !c.fetched).map((c) => c.name);
-      const next = new Set(set);
-      const all = names.every((n) => set.has(n));
-      for (const n of names) {
-        if (all) next.delete(n);
-        else next.add(n);
-      }
-      return next;
-    });
+  const toggleGroup = (members: Candidate[]) => setSelected((set) => toggleCandidates(set, members));
 
   const fetchSelected = async () => {
     if (fetching) return;
@@ -114,18 +105,11 @@ export function FetchReview({ preview, onlyNew = false, onClose, onBack }: Fetch
   for (const c of candidates) groups.set(parentDir(c.path), [...(groups.get(parentDir(c.path)) ?? []), c]);
   const grouped = groups.size > 1;
 
-  // 勾上的候选提到了同一份预览里没勾、也还没入库的候选：行里写出它们，点一下一起勾上(技能库只按 SKILL.md、按规则认出)。
-  // 库里已有同名技能的候选默认不勾、要用户看过提醒自己决定，这里也不算：库里那个就能满足这次提到。
-  const unpickedMentions = (c: Candidate) =>
-    selected.has(c.name)
-      ? (c.mentions ?? []).filter((name) => {
-          const other = fresh.find((x) => x.name === name);
-          return !selected.has(name) && !!other && twinsOf(other).length === 0;
-        })
-      : [];
+  // 勾上的候选提到了同一份预览里没勾、也还没入库的候选：行里写出它们，点一下一起勾上(见 unpickedMentions)。
+  const unpickedOf = (c: Candidate) => unpickedMentions(s, candidates, selected, c);
 
   const row = (c: Candidate, dir: string) => {
-    const unpicked = unpickedMentions(c);
+    const unpicked = unpickedOf(c);
     const permissions = permissionNote(c.agent_settings);
     // 分组时路径只写组目录以下的部分，和技能名一样就不重复写;来源根目录(单个 SKILL.md 是 ".")写作 "/"。
     const rel = grouped && dir ? c.path.slice(dir.length + 1) : c.path && c.path !== "." ? c.path : "/";

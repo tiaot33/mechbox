@@ -1,0 +1,103 @@
+// 组：勾选的技能里加入、移出哪些，一并卸载会删哪些文件夹，逐个加入组之后怎么汇报。
+import { describe, expect, it } from "vitest";
+import {
+  AgentCode,
+  ErrorCode,
+  GroupMemberOutcome,
+  ScopeKind,
+  SkillScopeStatus,
+  type Agent,
+  type Group,
+  type GroupInstall,
+  type GroupMemberResult,
+  type Scope,
+  type Skill,
+  type SkillScopeInspection,
+} from "@bindings/internal/library";
+import { messages } from "@/lib/i18n";
+import type { LibraryError, Snapshot } from "@/lib/library";
+import { addedToGroup, groupOnly, inGroup, notInGroup, placedBy } from "./group-rules";
+
+const claude = AgentCode.AgentClaudeCode;
+const codex = AgentCode.AgentCodex;
+const global = (agent: AgentCode): Scope => ({ kind: ScopeKind.ScopeGlobal, agent });
+const t = messages().actions;
+
+const place = (skill_id: number, scope: Scope, extra: Partial<SkillScopeInspection> = {}): SkillScopeInspection => ({
+  skill_id,
+  scope,
+  folder: `/home/.${scope.agent}/skills/s${skill_id}`,
+  direct: false,
+  status: SkillScopeStatus.SkillScopeCurrent,
+  ...extra,
+});
+
+const snapshot = (s: Partial<Snapshot> = {}) =>
+  ({
+    skills: [1, 2, 3].map((id) => ({ id, name: `s${id}` }) as Skill),
+    groups: [{ id: 5, name: "g5", members: [1, 2] } as Group],
+    groupInstalls: [],
+    skillScopes: [],
+    agents: [{ code: claude, name: "Claude Code" } as Agent, { code: codex, name: "Codex" } as Agent],
+    projects: [],
+    info: { home_dir: "/home" },
+    ...s,
+  }) as unknown as Snapshot;
+
+describe("勾选的技能里加入、移出哪些", () => {
+  it("加入时只加还不在组里的，移出时只移在组里的;组不在了时都不在组里", () => {
+    const s = snapshot();
+    expect(notInGroup(s, 5, [1, 3])).toEqual([3]);
+    expect(inGroup(s, 5, [1, 3])).toEqual([1]);
+    expect(notInGroup(s, 9, [1])).toEqual([1]);
+    expect(inGroup(s, 9, [1])).toEqual([]);
+  });
+});
+
+describe("选一并卸载时删哪些文件夹", () => {
+  it("只算组装到的作用域里、只靠这个组留着的：直接安装的、还有别的组安装的不删", () => {
+    const s = snapshot({
+      groupInstalls: [{ group_id: 5, scope: global(claude) } as GroupInstall],
+      skillScopes: [
+        place(1, global(claude), { groups: [5] }),
+        place(2, global(claude), { groups: [5], direct: true }),
+        place(3, global(claude), { groups: [5, 6] }),
+        place(1, global(codex), { groups: [5] }),
+      ],
+    });
+    expect(groupOnly(s, 5, [1, 2, 3]).map((p) => `${p.skill_id}@${p.scope.agent}`)).toEqual([`1@${claude}`]);
+    expect(groupOnly(snapshot({ skillScopes: s.skillScopes }), 5, [1])).toEqual([]);
+  });
+});
+
+describe("逐个加入组之后", () => {
+  const s = snapshot();
+  const result = (skill_id: number, outcome: GroupMemberOutcome) => ({ skill_id, scope: global(claude), outcome }) as GroupMemberResult;
+
+  it("都加入了、没有作用域被跳过时只提示一句", () => {
+    const r = addedToGroup(s, [1, 3], [
+      { id: 1, results: [result(1, GroupMemberOutcome.MemberInstalled)] },
+      { id: 3, results: [] },
+    ]);
+    expect(r).toMatchObject({ all: true, skipped: false, added: 2 });
+    expect(r.placed.map((x) => x.skill_id)).toEqual([1]);
+  });
+
+  it("有失败、有作用域被跳过时逐个列出：失败的写原因，没有组安装的写已加入", () => {
+    const r = addedToGroup(s, [1, 2, 3], [
+      { id: 1, results: [], error: { code: ErrorCode.Permission, message: "x" } as LibraryError },
+      { id: 2, results: [result(2, GroupMemberOutcome.MemberSkipped)] },
+      { id: 3, results: [] },
+    ]);
+    expect(r).toMatchObject({ all: false, skipped: true, added: 2, placed: [] });
+    expect(r.rows.map((x) => [x.label, x.outcome])).toEqual([
+      ["s1", t.failed],
+      ["s2 → Claude Code · 全局", t.memberSkipped],
+      ["s3", t.memberAdded],
+    ]);
+  });
+
+  it("随组安装被跳过的不算装上", () => {
+    expect(placedBy([result(1, GroupMemberOutcome.MemberAlreadyInstalled), result(2, GroupMemberOutcome.MemberSkipped)]).map((x) => x.skill_id)).toEqual([1]);
+  });
+});

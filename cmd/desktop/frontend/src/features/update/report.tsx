@@ -13,7 +13,8 @@ import { Button } from "@/components/ui/button";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { confirmLinkedRequests } from "@/components/app/link-notes";
-import { failedOnly, placeAgain, type UpdateOutcome } from "./update";
+import { placeAgain } from "./update";
+import { retryBatches, retryRequests, rollbackOffer, stillFailed, type UpdateOutcome } from "./update-rules";
 import { rollbackUpdate } from "./rollback";
 
 function summarize(o: UpdateOutcome): string {
@@ -28,8 +29,8 @@ export async function reportUpdates(outcomes: UpdateOutcome[]) {
   const t = messages().update;
   if (outcomes.every((o) => !o.failed.length)) {
     if (outcomes.length === 1) {
-      const o = outcomes[0];
-      ui.toast(summarize(o), "ok", o.record && o.changed ? { label: t.rollback, onClick: () => void rollbackUpdate(o.record, o.history) } : undefined);
+      const o = rollbackOffer(outcomes);
+      ui.toast(summarize(outcomes[0]), "ok", o ? { label: t.rollback, onClick: () => void rollbackUpdate(o.record, o.history) } : undefined);
     } else {
       ui.toast([...outcomes.map(summarize), t.rollbackInHistory].join("\n"));
     }
@@ -56,24 +57,18 @@ function FailedPlaces({ outcomes, close }: { outcomes: UpdateOutcome[]; close: (
   }, []);
   const left = mergeProjectPlaces(s, failed.flat()).length;
   const retry = async () => {
-    const again = outcomes.flatMap((o, i) => o.requests.filter((r) => failed[i].some((f) => placeKey(f) === placeKey(r))));
+    const again = outcomes.flatMap((o, i) => retryRequests(o, failed[i]));
     if (!(await confirmLinkedRequests(again, t.retryTitle, t.retry))) return;
     if (!alive.current) return;
     setWorking(true);
     const next: ReinstallResult[][] = [];
     for (const [i, o] of outcomes.entries()) {
-      const again = o.requests.filter((r) => failed[i].some((f) => placeKey(f) === placeKey(r)));
-      const viaRecord = o.record ? again.filter((r) => !o.plain.has(placeKey(r))) : [];
       const left: ReinstallResult[] = [];
-      for (const [batch, record] of [
-        [viaRecord, o.record],
-        [again.filter((r) => !viaRecord.includes(r)), 0],
-      ] as const) {
-        if (!batch.length) continue;
-        const results = await placeAgain(record, batch, (c) => (call.current = c));
+      for (const batch of retryBatches(o, failed[i])) {
+        const results = await placeAgain(batch.record, batch.requests, (c) => (call.current = c));
         call.current = null;
         if (!alive.current) return;
-        left.push(...(results ? failedOnly(results) : failed[i].filter((f) => batch.some((r) => placeKey(r) === placeKey(f)))));
+        left.push(...stillFailed(failed[i], batch.requests, results));
       }
       next.push(left);
     }
@@ -85,7 +80,7 @@ function FailedPlaces({ outcomes, close }: { outcomes: UpdateOutcome[]; close: (
     }
   };
   // 只补装、没换版本的(目录没变时的重新读取)不提供回滚：这次没有可退回的改动。
-  const single = outcomes.length === 1 && outcomes[0].record && outcomes[0].changed ? outcomes[0] : undefined;
+  const single = rollbackOffer(outcomes);
   return (
     <Modal
       title={t.failedTitle}

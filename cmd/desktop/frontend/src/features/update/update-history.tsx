@@ -22,7 +22,8 @@ import { queryClient, toLibraryError, useSnapshot, updateHistoryQuery, versionQu
 import { mergeProjectPlaces, scopeLabel, shortRevision } from "@/lib/model";
 import { Modal, useUI } from "@/lib/ui";
 import { openUpdate, placeAgain } from "./update";
-import { putBack, RollbackDialog, rollbackOutcome } from "./rollback";
+import { RollbackDialog, rollbackOutcome } from "./rollback";
+import { putBack } from "./rollback-rules";
 import { compareVersions } from "./version-compare";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";

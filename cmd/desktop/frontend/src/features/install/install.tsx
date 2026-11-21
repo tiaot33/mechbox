@@ -10,43 +10,30 @@
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
   ErrorCode,
-  GroupMemberOutcome,
   InstallPlanStatus,
   type CollectionID,
   type GroupID,
-  type InstallPlan,
   type MissingMention,
   type SkillInScope,
   type Scope,
-  type Skill,
   type SkillID,
   type SkillScopeFilter,
-  type SkillScopeInspection,
 } from "@bindings/internal/library";
-import { detachedBy, lostEdits } from "@/lib/consent";
-import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
-import { currentSnapshot, toLibraryError, useSnapshot, type Snapshot } from "@/lib/library";
-import { installable, mergeMissing, missingAt, missingNames } from "@/lib/mentions";
+import { currentSnapshot, toLibraryError, useSnapshot, type LibraryError, type Snapshot } from "@/lib/library";
+import { mergeMissing, missingAt } from "@/lib/mentions";
 import {
   agentName,
   agentNameIn,
   collectionSkills,
-  folderKey,
   folderPlaces,
   mergeProjectPlaces,
-  noSource,
-  errorOccupier,
-  occupierOf,
   groupName,
   placeOf,
   projectName,
-  scopeKey,
   scopeLabel,
-  sharedWithNote,
   shortPath,
   skillName,
-  skillScopeIn,
   sourceLabel,
 } from "@/lib/model";
 import { ui } from "@/lib/ui";
@@ -54,7 +41,24 @@ import { openDrawer } from "@/lib/view";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { DeleteNotes, SharedFolders } from "@/components/app/link-notes";
-import { memberRows, showResults, summarizeMembers, type ResultRow } from "@/components/app/results";
+import { memberRows, showResults, summarizeMembers } from "@/components/app/results";
+import {
+  asksBeforeUninstall,
+  groupInstalled,
+  groupInstallPlan,
+  installResults,
+  installSteps,
+  mentionedMissing,
+  notDirectIn,
+  occupied,
+  readInstallPlans,
+  uninstalledPicked,
+  uninstallGroupPlaces,
+  uninstallPicked,
+  uninstallPlace,
+  type InstallItem,
+  type PlanRead,
+} from "./install-rules";
 
 export async function installSkill(id: SkillID, scope: Scope) {
   const s = currentSnapshot();
@@ -103,11 +107,7 @@ export async function toastInstalled(placed: SkillInScope[], done?: string) {
     if (done) ui.toast(done);
     return;
   }
-  const s = currentSnapshot();
-  const skills = new Set(missing.map((m) => m.skill_id)).size;
-  const names = missingNames(missing);
-  const targets = installable(missing).filter((p) => !skillScopeIn(s, p.skill_id, scopeKey(p.scope)));
-  const count = new Set(targets.map((p) => p.skill_id)).size;
+  const { skills, names, targets, count } = mentionedMissing(currentSnapshot(), missing);
   ui.toast(
     done ? t.installedMissing(done, skills, names) : t.missingThere(skills, names),
     "ok",
@@ -165,18 +165,6 @@ export function LostMentions({ lost, prefix }: { lost: MissingMention[]; prefix?
   );
 }
 
-// occupied 是被占用、装不上的一处:reason 说明原因，同名的另一个技能(或这个技能的另一个作用域)已装在那个文件夹，用来源区分是哪一个;
-// occupier 是占着的另一个技能，界面上能点开它(见 occupierOf)。
-export function occupied(s: Snapshot, id: SkillID, plan: InstallPlan): { reason: string; occupier?: SkillID } {
-  const t = messages().actions;
-  const folder = shortPath(s, plan.folder);
-  if (plan.occupier_skill_id === id) return { reason: t.occupiedSelf(folder) };
-  const occupier = occupierOf(s, id, plan.occupier_skill_id);
-  const skill = s.skills.find((x) => x.id === occupier);
-  const reason = !skill ? t.occupiedOther(folder) : noSource(skill.source) ? t.occupiedNoSource(folder) : t.occupiedSource(sourceLabel(s, skill.source), folder);
-  return { reason, occupier };
-}
-
 // installCollection 是把集合拖到作用域：集合里还没直接安装在这里的技能逐个直接安装。一次性的，不像组安装那样记下来，
 // 之后入库的新技能不会自动装过去。技能库没有整个集合的安装，先逐个看安装计划：被别的技能占用的跳过并说明原因;
 // 有不是库装的同名文件夹的合成一次询问(跳过或覆盖),不逐个弹。有没装上的才列出结果，否则只提示装了几个。
@@ -187,12 +175,8 @@ export async function installCollection(id: CollectionID, scope: Scope) {
   if (!collection) return;
   const label = sourceLabel(s, collection.source);
   const where = scopeLabel(s, scope);
-  const skills = collectionSkills(s, collection).filter((x) => !skillScopeIn(s, x.id, scopeKey(scope))?.direct);
-  await installEach(
-    skills.map((skill) => ({ skill, scope })),
-    t.collectionInstallTitle(label, where),
-    t.collectionInstalled(label, where, skills.length),
-  );
+  const items = notDirectIn(s, collectionSkills(s, collection), [scope]);
+  await installEach(items, t.collectionInstallTitle(label, where), t.collectionInstalled(label, where, items.length));
 }
 
 // installSkillTo 是详情里的"安装到…":把一个技能装到勾上的几个 Agent(同一个地方)。只勾一个时和开关一样装这一处;
@@ -232,9 +216,7 @@ export async function installSkills(ids: SkillID[], scopes: Scope[]): Promise<bo
   const t = messages().actions;
   if (!scopes.length) return false;
   const where = scopesLabel(s, scopes);
-  const items = scopes.flatMap((scope) =>
-    s.skills.filter((x) => ids.includes(x.id) && !skillScopeIn(s, x.id, scopeKey(scope))?.direct).map((skill) => ({ skill, scope })),
-  );
+  const items = notDirectIn(s, s.skills.filter((x) => ids.includes(x.id)), scopes);
   if (!items.length) {
     ui.toast(t.pickedAllThere(where));
     return false;
@@ -255,7 +237,7 @@ function scopesLabel(s: Snapshot, scopes: Scope[]): string {
 // 有不是库装的同名文件夹的合成一次询问(跳过或覆盖),不逐个弹。一处装不上(含看安装计划就出错)不影响其余的。
 // 有没装上的才列出结果，否则只提示 done。装到几个 Agent 时，询问与结果里每一处写出是哪个 Agent。
 // 返回是否至少装上了一处：取消了、一处都没装上时是 false。
-async function installEach(items: { skill: Skill; scope: Scope }[], title: string, done: string): Promise<boolean> {
+async function installEach(items: InstallItem[], title: string, done: string): Promise<boolean> {
   const s = currentSnapshot();
   const t = messages().actions;
   if (!items.length) return false;
@@ -265,16 +247,12 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
     failed: (results) => results.some((r) => r.status === "rejected"),
   });
   if (!settled) return false;
-  const several = new Set(items.map((x) => scopeKey(x.scope))).size > 1;
-  const label = (skill: Skill, scope: Scope) => (several ? `${skill.name} · ${scopeLabel(s, scope)}` : skill.name);
-  const rows: ResultRow[] = [];
-  const planned = items.flatMap((x, i) => {
-    const r = settled[i];
-    if (r.status === "fulfilled") return [{ ...x, plan: r.value }];
-    rows.push({ label: label(x.skill, x.scope), outcome: t.failed, tone: "critical", reason: describeError(toLibraryError(r.reason)) });
-    return [];
-  });
-  const untracked = planned.filter((x) => x.plan.status === InstallPlanStatus.InstallUntracked);
+  const plans = readInstallPlans(
+    s,
+    items,
+    settled.map((r): PlanRead => (r.status === "fulfilled" ? { plan: r.value } : { error: toLibraryError(r.reason) })),
+  );
+  const { several, label, untracked } = plans;
   let overwrite = false;
   if (untracked.length) {
     const choice = await ui.confirm({
@@ -282,7 +260,7 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
       body: (
         <Notice alert>
           {several
-            ? t.untrackedPlaces(untracked.length, untracked.map((x) => label(x.skill, x.scope)))
+            ? t.untrackedPlaces(untracked.length, untracked.map(label))
             : t.untrackedSkills(untracked.length, untracked.map((x) => x.plan.name))}
         </Notice>
       ),
@@ -295,34 +273,20 @@ async function installEach(items: { skill: Skill; scope: Scope }[], title: strin
     if (!choice) return false;
     overwrite = choice === "overwrite";
   }
-  let installed = 0;
-  const placed: SkillInScope[] = [];
-  let failed = planned.length < items.length;
+  const steps = installSteps(s, plans, overwrite);
+  const errors: (LibraryError | null | undefined)[] = [];
   await ui.run(async () => {
-    for (const { skill, scope, plan } of planned) {
-      const isUntracked = plan.status === InstallPlanStatus.InstallUntracked;
-      const row = label(skill, scope);
-      if (plan.status === InstallPlanStatus.InstallOccupied) {
-        rows.push({ label: row, outcome: t.memberSkipped, tone: "warn", ...occupied(s, skill.id, plan) });
-        continue;
-      }
-      if (isUntracked && !overwrite) {
-        rows.push({ label: row, outcome: t.memberSkipped, tone: "warn", reason: t.untrackedBody(shortPath(s, plan.folder), plan.name) });
-        continue;
-      }
+    for (const [i, step] of steps.entries()) {
+      if ("skip" in step) continue;
       try {
-        await LibraryService.Install(skill.id, scope, { overwrite: isUntracked });
-        rows.push({ label: row, outcome: t.memberInstalled, tone: "plain" });
-        placed.push({ skill_id: skill.id, scope });
-        installed++;
+        await LibraryService.Install(step.item.skill.id, step.item.scope, { overwrite: step.overwrite });
+        errors[i] = null;
       } catch (e) {
-        // 计划算的时候还没被占、这时被同一批里先装的同名技能占上了：错误里有占着的那个，照样能点开。
-        const err = toLibraryError(e);
-        rows.push({ label: row, outcome: t.failed, tone: "critical", reason: describeError(err), occupier: errorOccupier(s, skill.id, err) });
-        failed = true;
+        errors[i] = toLibraryError(e);
       }
     }
-  }, { failed: () => failed });
+  }, { failed: () => installResults(s, plans, steps, errors).failed });
+  const { rows, placed, installed } = installResults(s, plans, steps, errors);
   if (installed < rows.length) {
     const rest = rows.length - installed;
     await showResults(title, rows, several ? t.installedPlaces(installed, rest) : t.installedSummary(installed, rest));
@@ -349,13 +313,10 @@ export async function uninstallSkill(id: SkillID, scope: Scope) {
   // 项目里共用目录的几个 Agent 在界面上本来就是一处、名字里写着它们，不再另说。
   // 别处的符号链接指着这个文件夹时，删之前库先给那几处换上独立的一份，也先说明。
   // 文件夹被手动改过时，卸载会把修改一起删掉，先列出是哪几处。没有组安装留着时文件夹才删。
-  const place = skillScopeIn(s, id, scopeKey(scope));
-  const shared = place ? sharedWithNote(place) : [];
-  const deleted = place?.direct && !place.groups?.length ? folderPlaces(s, [place]) : [];
-  const detached = detachedBy(deleted);
-  const lost = lostEdits(deleted);
+  const plan = uninstallPlace(s, id, scope);
+  const { place, shared, deleted } = plan;
   const unfound = await lostMentions(deleted);
-  if (place && (shared.length || detached.length || lost.length || unfound.length)) {
+  if (place && asksBeforeUninstall(plan, unfound)) {
     const ok = await ui.confirm({
       title: t.uninstallTitle(skillName(s, id)),
       body: (
@@ -396,24 +357,19 @@ export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: st
   const s = await inspectedSnapshot({});
   if (!s) return false;
   const t = messages().actions;
-  const places = scopes.flatMap((sc) => ids.map((id) => skillScopeIn(s, id, scopeKey(sc))).filter((p): p is SkillScopeInspection => !!p));
-  const direct = places.filter((p) => p.direct);
-  const viaGroup = places.filter((p) => !p.direct);
+  const picked = uninstallPicked(s, ids, scopes);
+  const { direct, viaGroup, deleted, shared } = picked;
   if (!direct.length) {
     ui.toast(t.pickedNothingDirect(where), "error");
     return false;
   }
-  // 还有组安装留着的只撤直接安装，文件夹不删。
-  const deleted = folderPlaces(s, direct.filter((p) => !p.groups?.length));
-  // 全局共用的文件夹：只说会被删掉的那些(没有组安装留着);还有组安装留着的文件夹不删，各 Agent 照样算已装。
-  const shared = direct.filter((p) => sharedWithNote(p).length && !p.groups?.length);
-  const title = t.uninstallPickedTitle(new Set(direct.map((p) => p.skill_id)).size, where);
+  const title = t.uninstallPickedTitle(picked.skills, where);
   const unfound = await lostMentions(deleted);
   const ok = await ui.confirm({
     title,
     body: (
       <>
-        <Hint>{t.uninstallPickedHint(new Set(deleted.map(folderKey)).size, viaGroup.length)}</Hint>
+        <Hint>{t.uninstallPickedHint(picked.folders, viaGroup.length)}</Hint>
         {shared.length > 0 && (
           <>
             <Notice alert>{t.uninstallPickedShared}</Notice>
@@ -428,28 +384,18 @@ export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: st
     danger: true,
   });
   if (!ok) return false;
-  const rows: ResultRow[] = viaGroup.map((p) => ({
-    label: `${skillName(s, p.skill_id)} · ${scopeLabel(s, p.scope)}`,
-    outcome: t.memberSkipped,
-    tone: "warn",
-    reason: t.onlyViaGroup,
-  }));
-  let done = 0;
-  let failed = false;
+  const errors: (LibraryError | null | undefined)[] = [];
   await ui.run(async () => {
-    for (const p of direct) {
+    for (const [i, p] of direct.entries()) {
       try {
         await LibraryService.Uninstall(p.skill_id, p.scope);
-        done++;
+        errors[i] = null;
       } catch (e) {
-        const err = toLibraryError(e);
-        // 全局共用一个文件夹的几处：卸载其中一处时其余几处的直接安装一起撤了。
-        if (err.code === ErrorCode.NotFound) continue;
-        rows.push({ label: `${skillName(s, p.skill_id)} · ${scopeLabel(s, p.scope)}`, outcome: t.failed, tone: "critical", reason: describeError(err) });
-        failed = true;
+        errors[i] = toLibraryError(e);
       }
     }
-  }, { failed: () => failed });
+  }, { failed: () => uninstalledPicked(s, picked, errors).failed });
+  const { rows, done } = uninstalledPicked(s, picked, errors);
   if (rows.length) await showResults(title, rows, t.uninstallPickedSummary(done, rows.length));
   else ui.toast(t.uninstalledPicked(done, where));
   return done > 0;
@@ -460,11 +406,7 @@ export async function installGroup(groupID: GroupID, scope: Scope) {
   const t = messages().actions;
   const plan = await ui.read(() => LibraryService.PlanGroupInstall(groupID, scope));
   if (!plan) return;
-  const members = plan.members ?? [];
-  const untracked = members.filter((m) => m.status === InstallPlanStatus.InstallUntracked);
-  const blocked = members.filter(
-    (m) => m.status === InstallPlanStatus.InstallOccupied || m.status === InstallPlanStatus.InstallDuplicate,
-  );
+  const { untracked, blocked } = groupInstallPlan(plan.members ?? []);
   let overwrite = false;
   if (untracked.length) {
     const choice = await ui.confirm({
@@ -488,9 +430,8 @@ export async function installGroup(groupID: GroupID, scope: Scope) {
   }
   const results = await ui.run(() => LibraryService.InstallGroup(groupID, scope, { overwrite }));
   if (!results) return;
-  const skipped = results.filter((r) => r.outcome === GroupMemberOutcome.MemberSkipped);
-  const placed = results.filter((r) => r.outcome !== GroupMemberOutcome.MemberSkipped);
-  if (skipped.length || blocked.length) {
+  const { placed, listed } = groupInstalled(results, blocked);
+  if (listed) {
     await showResults(t.groupInstallResults(groupName(s, groupID)), memberRows(s, results), summarizeMembers(results));
     await toastInstalled(placed);
   } else {
@@ -504,22 +445,8 @@ export async function uninstallGroup(groupID: GroupID, scope: Scope) {
   if (!s) return;
   const t = messages().actions;
   // 共用目录：只靠这个组安装留着的成员，卸载后文件夹删除，共用的几个 Agent 都不再算已装，先说明还有哪些 Agent 在用。
-  const memberOf = (id: GroupID, skill: SkillID) => !!s.groups.find((g) => g.id === id)?.members?.includes(skill);
   // 别处的符号链接指着要删的文件夹时，删之前库先给那几处换上独立的一份，也先说明。
-  const gone = (s.groups.find((g) => g.id === groupID)?.members ?? [])
-    .map((id) => skillScopeIn(s, id, scopeKey(scope)))
-    .filter((p): p is SkillScopeInspection => !!p && !p.direct)
-    .filter((p) => {
-      const readers = [scope.agent, ...(p.shared_with ?? [])];
-      const others = s.groupInstalls.filter(
-        (g) =>
-          readers.includes(g.scope.agent) &&
-          placeOf(g.scope) === placeOf(scope) &&
-          !(g.group_id === groupID && g.scope.agent === scope.agent),
-      );
-      return !others.some((g) => memberOf(g.group_id, p.skill_id));
-    });
-  const removed = gone.filter((p) => sharedWithNote(p).length);
+  const { gone, shared: removed } = uninstallGroupPlaces(s, groupID, scope);
   // 要删的文件夹被别处的符号链接指着、被手动改过时，确认里一并列出(DeleteNotes)。
   const deleted = folderPlaces(s, gone);
   const unfound = await lostMentions(deleted);

@@ -6,7 +6,6 @@ import { useQueries } from "@tanstack/react-query";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
   ErrorCode,
-  ReinstallOutcome,
   RollbackOutcome,
   type RecordedSkill,
   type RollbackResult,
@@ -32,6 +31,7 @@ import { Notice } from "@/components/ui/notice";
 import { Spinner } from "@/components/ui/spinner";
 import { LinkWriteNotes } from "@/components/app/link-notes";
 import { sectionClass } from "./plan-sections";
+import { putBack, recordChanged, recordPlaced, rolledBackFully } from "./rollback-rules";
 
 export function rollbackOutcome(outcome: string): { text: string; tone: Tone } {
   const t = messages().update;
@@ -48,8 +48,6 @@ export function rollbackOutcome(outcome: string): { text: string; tone: Tone } {
   };
   return known[outcome] ?? { text: t.rollbackUnknown, tone: "info" };
 }
-
-export const putBack = (r: { outcome: string }) => r.outcome === RollbackOutcome.RollbackReinstalled || r.outcome === RollbackOutcome.RollbackCurrent;
 
 // rollbackUpdate 从更新完成的提示(或没换上的地方的弹窗)里回滚刚才那次更新：按 history 读出那条记录，单独开一个回滚弹窗。
 export async function rollbackUpdate(record: UpdateRecordID, history: UpdateHistoryFilter) {
@@ -79,7 +77,7 @@ export function RollbackDialog({ record, onClose }: { record: UpdateRecord; onCl
           (result.skills ?? []).map((x) => x.name),
           mergeProjectPlaces(s, installs.filter(putBack)).length,
         );
-        if (installs.every(putBack) && !(result.removed ?? []).length) {
+        if (rolledBackFully(result)) {
           ui.toast(head);
           onClose();
         } else setLeft({ result, head });
@@ -87,10 +85,6 @@ export function RollbackDialog({ record, onClose }: { record: UpdateRecord; onCl
     />
   );
 }
-
-// 那次更新换上了的地方：回滚时要装回旧版的就是这些(之后又重新安装过、被改过的由回滚核对后不动)。
-const placedBy = (record: UpdateRecord) =>
-  (record.installs ?? []).filter((i) => i.outcome === ReinstallOutcome.Reinstalled || i.outcome === ReinstallOutcome.ReinstallCurrent);
 
 function RollbackConfirm({
   record,
@@ -106,8 +100,8 @@ function RollbackConfirm({
   const tt = useT();
   const t = tt.update;
   const [working, setWorking] = useState(false);
-  const places = placedBy(record);
-  const skills = (record.skills ?? []).filter((x) => x.from_version_id !== x.to_version_id);
+  const places = recordPlaced(record);
+  const skills = recordChanged(record);
   // 「现在」是技能库里这个技能当前的版本(之后又更新过的，回滚也一样换回那次之前);已从库里移除的写那次换上的版本。
   const current = (x: RecordedSkill) => s.skills.find((k) => k.id === x.skill_id);
   const versions = useQueries({
