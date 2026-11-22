@@ -545,9 +545,9 @@ function DirectoryInput({
             className="directory-options absolute inset-y-0 right-0 flex w-6 items-center justify-center text-muted-foreground hover:text-foreground"
             title={t.knownDirectories}
             aria-label={t.knownDirectories}
-            onMouseDown={(e) => {
-              // 不让输入框失去焦点;再点一次收起。
-              e.preventDefault();
+            // 按下时不让输入框失去焦点;点一下展开，再点一下收起。
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
               anchor.current?.querySelector("input")?.focus();
               show(!open);
             }}

@@ -1424,7 +1424,7 @@ export const zh = {
     resetKeepDesc: "手填 Agent 装的文件夹留在原处，技能库从此不再管",
     resetNothing: "Agent 设置已经和内置的默认一样",
     resetDone: (changed: number, removed: number) =>
-      ["已恢复默认", changed && `${changed} 个 Agent 换回内置值`, removed && `移除了 ${removed} 个手填的 Agent`].filter(Boolean).join("："),
+      ["已恢复默认", [changed && `${changed} 个 Agent 换回内置值`, removed && `移除了 ${removed} 个手填的 Agent`].filter(Boolean).join("，")].filter(Boolean).join("："),
     defaultDirectories: "这个 Agent 的默认目录",
     otherDirectories: "其他 Agent 用到的目录",
     knownDirectories: "已知的目录",

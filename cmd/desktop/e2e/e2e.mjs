@@ -3799,7 +3799,7 @@ await step("目录输入框能从下拉里选也能自己填;恢复默认先说�
   // 编辑 Claude Code:点箭头列出候选，先列它的默认目录(内置的值),再列其他 Agent 用到的;输入时按文字过滤。只改名字。
   await btn(row("Claude Code"), "编辑").click();
   const global = modal().locator(".agent-directories.global_directories");
-  await global.locator(".directory-options").first().dispatchEvent("mousedown");
+  await global.locator(".directory-options").first().click();
   await menu().waitFor();
   const groups = await menu().locator('[role="group"]').evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")));
   assert.deepEqual(groups, ["这个 Agent 的默认目录", "其他 Agent 用到的目录"], `下拉应先列默认目录再列其他 Agent 的:${groups}`);
