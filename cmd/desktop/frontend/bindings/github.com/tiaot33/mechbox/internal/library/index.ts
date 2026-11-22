@@ -34,6 +34,7 @@ export type {
     Agent,
     AgentMigration,
     AgentSettings,
+    AttachSourceRequest,
     AuditEntry,
     Candidate,
     ClaudeCodeHook,

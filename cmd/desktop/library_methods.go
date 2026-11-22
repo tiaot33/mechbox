@@ -321,6 +321,10 @@ func (s *LibraryService) FetchUnmanaged(ctx context.Context, req library.FetchUn
 	return settle(s.lib.FetchUnmanaged(ctx, req))(ctx)
 }
 
+func (s *LibraryService) AttachSource(ctx context.Context, req library.AttachSourceRequest) (library.Skill, error) {
+	return settle(s.lib.AttachSource(ctx, req))(ctx)
+}
+
 func (s *LibraryService) PlanFetchUnmanaged(ctx context.Context, req library.PlanFetchUnmanagedRequest) ([]library.PlannedUnmanagedSkill, error) {
 	return settle(s.lib.PlanFetchUnmanaged(ctx, req))(ctx)
 }

@@ -1,8 +1,8 @@
 // 来源与集合：左栏折叠技能少的来源，技能行里的来源短名，更新页与更新计划里集合叫什么。
 import { describe, expect, it } from "vitest";
-import { SourceType, type Collection, type Skill } from "@bindings/internal/library";
+import { SourceType, type Collection, type Scope, type Skill, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { collectionName, foldCollections, sourceShort } from "./source";
+import { collectionName, foldCollections, recordedSources, sourceShort } from "./source";
 
 const collection = (id: number, label: string, skills: number[] = []) => ({ id, skills, source: { type: SourceType.SourceGitHub, label } }) as Collection;
 const snapshot = (s: Partial<Snapshot>) =>
@@ -49,5 +49,30 @@ describe("collectionName", () => {
   it("只有一个技能的集合用技能名称呼，否则是来源名", () => {
     expect(collectionName(s, 1)).toBe("matt/skills");
     expect(collectionName(s, 2)).toBe("review");
+  });
+});
+
+describe("recordedSources", () => {
+  const claude = { kind: "global", agent: "claude-code" } as Scope;
+  const codex = { kind: "global", agent: "codex" } as Scope;
+  const project = { kind: "project", agent: "claude-code", project_id: 1 } as Scope;
+  const sourceless = { id: 7, name: "pdf", source: { type: SourceType.$zero, label: "" } } as Skill;
+  const installed = (scope: Scope, input?: string, ref?: string) => ({ skill_id: 7, scope, source_input: input, source_ref: ref }) as SkillScopeInspection;
+  const shown = (scope: Scope, input?: string, ref?: string) => ({ skill_id: 7, scope, name: "pdf", source_input: input, source_ref: ref }) as UnmanagedSkill;
+
+  it("装着的和显示在技能下面的都算，同一个来源连同分支合成一条", () => {
+    const s = {
+      skillScopes: [installed(claude), installed(codex, "owner/repo", "main"), { ...installed(claude, "other/repo"), skill_id: 8 }],
+      unmanaged: [shown(project, "owner/repo", "main"), shown(project, "owner/repo")],
+    };
+    expect(recordedSources(s, sourceless)).toEqual([
+      { input: "owner/repo", ref: "main", places: [codex, project] },
+      { input: "owner/repo", ref: undefined, places: [project] },
+    ]);
+  });
+
+  it("技能有来源时没有", () => {
+    const s = { skillScopes: [installed(codex, "owner/repo")], unmanaged: [] };
+    expect(recordedSources(s, { ...sourceless, source: { type: SourceType.SourceGitHub, label: "owner/repo" } } as Skill)).toEqual([]);
   });
 });

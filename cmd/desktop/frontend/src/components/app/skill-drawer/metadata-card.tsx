@@ -4,7 +4,9 @@ import { SourceType, type Skill, type SkillVersion } from "@bindings/internal/li
 import { formatDate } from "@/lib/content";
 import { messages, useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import { collectionSkills, isLocal, noSource, revisionSummary, revisionText, sourceKindLabel, sourceLabel } from "@/lib/source";
+import { collectionSkills, isLocal, noSource, recordedSources, revisionSummary, revisionText, sourceKindLabel, sourceLabel } from "@/lib/source";
+import { placeNames } from "@/lib/places";
+import { attachSource } from "@/features/skill/attach-source";
 import { twinNote, sameNameInLibrary } from "@/lib/same-name";
 import { sourceChanges, sourceState, type SourceState } from "@/lib/source-state";
 import { wslTitle } from "@/lib/paths";
@@ -31,6 +33,7 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
   const collection = c ? collectionSkills(s, c) : [];
   const sameName = sameNameInLibrary(s, skill);
   const source = sourceState(skill);
+  const recorded = recordedSources(s, skill);
   return (
     <Card>
       <CardHeader title={d.metadata} />
@@ -49,6 +52,27 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
             </span>{" "}
             <span className="text-muted-foreground">{sourceKindLabel(skill.source.type)}</span>
           </dd>
+        )}
+        {/* 没有来源的技能：装着的地方或显示在它下面的文件夹在 npx skills 的来源记录里记着来源时，写出来，可以接上。 */}
+        {recorded.length > 0 && (
+          <>
+            <dt className="self-start">{d.recordedSource}</dt>
+            <dd className="recorded-sources flex min-w-0 flex-col gap-1">
+              {recorded.map((r) => {
+                const label = r.ref ? `${r.input} · ${r.ref}` : r.input;
+                return (
+                  <span key={label} className="recorded-source flex min-w-0 items-center gap-2">
+                    <Truncated always tip={d.recordedSourceTitle(placeNames(s, r.places), label)}>
+                      <span className="min-w-0 truncate">{label}</span>
+                    </Truncated>
+                    <Button size="sm" className="attach-source shrink-0" onClick={() => void attachSource(skill, r)}>
+                      {d.attachSource}
+                    </Button>
+                  </span>
+                );
+              })}
+            </dd>
+          </>
         )}
         {collection.length > 1 && (
           <>

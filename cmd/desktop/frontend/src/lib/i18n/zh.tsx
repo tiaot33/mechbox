@@ -75,6 +75,9 @@ export const zh = {
     sourceUnreachableRetry: (clear: string) => `连不上这个来源，可以稍后重试或改链接。${clear}`,
     sourceMissing: (name: string, clear: string, message: string) => `来源里找不到「${name}」，可以改链接。${clear}\n${message}`,
     sourceUnrecognized: (clear: string, message: string) => `认不出这个来源链接，可以改一下。${clear}\n${message}`,
+    attachExists: (name: string) => `这个来源的集合里已经有「${name}」，接不上。`,
+    attachMissing: (name: string, message: string) => `来源里找不到「${name}」，接不上。\n${message}`,
+    attachUnreachable: "连不上这个来源，可以稍后重试。",
   },
 
   paths: {
@@ -600,6 +603,14 @@ export const zh = {
     metadata: "元数据",
     collection: "集合",
     noSourceHint: "从作用域入库，作者就是你自己；在装出去的地方改了以后，用那里的修改更新",
+    recordedSource: "来源记录",
+    recordedSourceTitle: (places: string[], source: string) =>
+      `${places.join("、")} 的 npx skills 来源记录里写着它来自 ${source}。接上这个来源，之后它跟着来源检查更新、更新；版本历史、各处安装和组都不变，文件夹不动`,
+    attachSource: "接上来源",
+    attachSourceTitle: (name: string, source: string) => `把「${name}」接上 ${source}？`,
+    attachSourceBody: "之后它和从这个来源入库的技能一样，检查更新、更新、回滚照常。版本历史、各处安装和组都不变，文件夹不动。库里的内容和来源里的不一样时，第一次检查更新就报有新版本。",
+    attachingSource: (name: string) => `接上「${name}」的来源`,
+    attachedSource: (name: string, source: string) => `「${name}」已接上 ${source}`,
     sameSource: "同一来源",
     revision: "来源版本",
     sameName: "同名技能",

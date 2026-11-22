@@ -154,6 +154,24 @@ export interface AgentSettings {
 }
 
 /**
+ * AttachSourceRequest 指定给库里一个没有来源的技能接上哪个来源。
+ */
+export interface AttachSourceRequest {
+    "skill_id": SkillID;
+
+    /**
+     * SourceInput 是来源,格式与识别规则同 PreviewFetchRequest.Input;界面预填 npx skills 的来源记录认出的来源
+     * (SkillScopeInspection.SourceInput,或显示在这个技能下的未纳管技能的 UnmanagedSkill.SourceInput)。来源里按技能名找这个技能。
+     */
+    "source_input": string;
+
+    /**
+     * SourceRef 是来源的分支或 tag,同 PreviewFetchRequest.Ref,只对 Git 类来源有意义;预填同上的 SourceRef。
+     */
+    "source_ref"?: string;
+}
+
+/**
  * AuditAvailability 说明一个候选在 skills.sh 上的审计查询结果处于哪种状态。
  */
 export enum AuditAvailability {
@@ -2155,6 +2173,13 @@ export interface SkillScopeInspection {
      * 先换上独立的一份(当时它们读到的内容),它们照常装着,Agent 在那里用的不变;确认据此说明。没有时为空。
      */
     "linked_by"?: Scope[] | null;
+
+    /**
+     * SourceInput、SourceRef 只在技能没有来源、这一处的文件夹还在时可能不为空:npx skills 的来源记录里记着这一处来自哪个来源,
+     * 规则与格式同 UnmanagedSkill.SourceInput、SourceRef(按技能名、再按文件夹名对上记录)。界面据此提示可以把这个来源接到技能上(AttachSource)。
+     */
+    "source_input"?: string;
+    "source_ref"?: string;
 }
 
 /**
@@ -2610,7 +2635,8 @@ export interface UnmanagedSkill {
      * 全局作用域读 ~/.agents/.skill-lock.json(不跟随 XDG_STATE_HOME,只认 version 3 及以上),
      * 项目作用域读项目根目录的 skills-lock.json;记录按技能名对上文件夹:先比 SKILL.md 里的 name,再比文件夹名。
      * 记录里的来源类型为 github、gitlab、git、well-known、download 与 local(项目里记录的相对路径按项目根解析)时认得出,其他的认不出。
-     * SkillID 不为 0 时为空:它就是库里的那个技能,跟着那个技能的来源,来源记录让位于它。
+     * SkillID 不为 0 时,那个技能有来源则为空:它就是库里的那个技能,跟着那个技能的来源,来源记录让位于它;
+     * 那个技能没有来源时照样给出,入库不读它(只补记安装),界面据此提示可以把这个来源接到那个技能上(AttachSource)。
      */
     "source_input"?: string;
 

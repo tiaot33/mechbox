@@ -35,6 +35,10 @@ export function AppSettings(): $CancellablePromise<{ [_ in string]?: string } | 
     return $Call.ByID(1008065512);
 }
 
+export function AttachSource(req: library$0.AttachSourceRequest): $CancellablePromise<library$0.Skill> {
+    return $Call.ByID(2682774338, req);
+}
+
 export function CheckUpdates(collections: library$0.CollectionID[] | null): $CancellablePromise<library$0.CollectionUpdateCheck[] | null> {
     return $Call.ByID(1899244476, collections);
 }

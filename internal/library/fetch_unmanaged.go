@@ -546,9 +546,13 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 		}
 		byContent[key] = append(byContent[key], len(plan))
 		disks = append(disks, disk)
+		input, ref := entry.SourceInput, entry.SourceRef
+		if entry.SkillID != 0 {
+			input, ref = "", ""
+		}
 		plan = append(plan, PlannedUnmanagedSkill{
 			Name: parsed.Name, Description: parsed.Description, Folders: []UnmanagedSkill{entry.UnmanagedSkill},
-			SourceInput: entry.SourceInput, SourceRef: entry.SourceRef,
+			SourceInput: input, SourceRef: ref,
 			SkillID: entry.SkillID, VersionID: entry.VersionID, SourceLatestOf: entry.SourceLatestOf,
 			InRepository: entry.InRepository, InProjectLock: entry.InProjectLock, LinkOutside: entry.LinkOutside, ModifiedAt: modified,
 		})
