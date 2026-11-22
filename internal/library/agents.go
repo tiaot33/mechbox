@@ -106,6 +106,10 @@ type EditAgentResult struct {
 type DeleteAgentOptions struct {
 	// Folders 默认删除技能文件夹,只有显式 Keep 保留。还有别的 Agent 在读的文件夹不受它影响,总是保留(见 DeleteAgent)。
 	Folders FolderPolicy `json:"folders"`
+	// DiscardEdits 是确认时告诉用户被改过、修改会丢掉的技能文件夹(SkillScope.Folder)。动磁盘之前核对这次要删的每个文件夹:
+	// 有被改过的(SkillScopeModified,不算 SkillScopeInspection.SourceLatest,也不算是符号链接的那一处,删的只是链接)却不在这里,
+	// 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
+	DiscardEdits []string `json:"discard_edits,omitempty"`
 }
 
 // DeleteAgentResult 是 DeleteAgent 的结果。
@@ -346,6 +350,7 @@ func (l *Library) migrationBlocked(ctx context.Context, code AgentCode, changed 
 // 同时删除库为它装的技能文件夹;显式 Keep 时文件夹留在磁盘上,库从此不再管理它们。还有别的 Agent 在读的文件夹,
 // 即使选了 Remove 也保留,这个 Agent 在那里的安装记录转给还在读的 Agent,它们照常算已装;保留了哪些、还有哪些 Agent 在读,
 // 见 DeleteAgentResult.Kept。删除前的确认框用 ListSkillScopes 按这个 Agent 的作用域筛选,SharedWith 非空的就是会保留的。
+// 删之前核对要删的文件夹有没有被改过,确认之后才被改过的返回 Conflict,不删除(见 DeleteAgentOptions)。
 // 未知代码返回 NotFound,内置 Agent 返回 FailedPrecondition。失败时磁盘和库都保持原样。
 func (l *Library) DeleteAgent(ctx context.Context, code AgentCode, opts DeleteAgentOptions) (result DeleteAgentResult, err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
@@ -365,6 +370,7 @@ func (l *Library) DeleteAgent(ctx context.Context, code AgentCode, opts DeleteAg
 	var change agentdir.Change
 	defer func() { err = errors.Join(err, change.Rollback()) }()
 	var handOver []agentInstall
+	var removals []removal
 	result.Kept = []SkillScope{}
 	for _, item := range installs {
 		switch {
@@ -374,10 +380,13 @@ func (l *Library) DeleteAgent(ctx context.Context, code AgentCode, opts DeleteAg
 				handOver = append(handOver, item)
 			}
 		case opts.Folders != Keep:
-			change.Remove(item.Folder)
+			removals = append(removals, removal{skillID: item.SkillID, folder: item.Folder})
 		}
 	}
 	err = l.applyChange(ctx, &change, func(tx *store.Tx) error {
+		if err := l.removeFolders(ctx, tx, &change, operation, removals, opts.DiscardEdits); err != nil {
+			return err
+		}
 		for _, item := range handOver {
 			if err := tx.HandOverSkillScope(ctx, item.own.ID, string(item.receiver)); err != nil {
 				return err

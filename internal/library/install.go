@@ -18,6 +18,14 @@ type InstallOptions struct {
 	Overwrite bool `json:"overwrite"`
 }
 
+// UninstallOptions 是 Uninstall、UninstallSkills 与 UninstallGroup 的选项。
+type UninstallOptions struct {
+	// DiscardEdits 是确认时告诉用户被改过、修改会丢掉的技能文件夹(SkillScope.Folder)。动磁盘之前核对这次要删的每个文件夹:
+	// 有被改过的(SkillScopeModified,不算 SkillScopeInspection.SourceLatest,也不算是符号链接的那一处,删的只是链接)却不在这里,
+	// 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
+	DiscardEdits []string `json:"discard_edits,omitempty"`
+}
+
 // InstallPlanStatus 是安装前,一个技能在所选作用域的情况。和执行时的判定一致,与是否同意覆盖无关。
 type InstallPlanStatus string
 
@@ -235,54 +243,83 @@ func (l *Library) Install(ctx context.Context, id SkillID, scope Scope, opts Ins
 // FailedPrecondition(Details.Name 为组名;界面可按 SkillScope.Direct 提前得知),没装在这里返回 NotFound。
 // 几个 Agent 共用这个文件夹时(见 SkillScope.SharedWith),从其中任何一个卸载都撤销它们各自的直接安装,
 // 文件夹随之删除,它们都不再算已装;只有组安装还留着其中某一处时文件夹才留下。
-// 不检查文件夹是否被改过:确认前用 InspectSkillScopes 查出 modified 的地方,告诉用户这些修改会丢掉。
+// 删之前核对文件夹有没有被改过:确认框按界面上已有的巡检结果说明哪几处的修改会丢掉,把它们放进 opts.DiscardEdits;
+// 确认之后才被改过的,返回 Conflict,不删(见 UninstallOptions)。
 // 要删的文件夹(或链接)被这个技能装出去的其他地方用符号链接指着时(SkillScopeInspection.LinkedBy),先给那几处换上
 // 独立的一份(它们当时读到的内容),它们照常装着,再删;确认前据此说明。
-func (l *Library) Uninstall(ctx context.Context, id SkillID, scope Scope) (err error) {
+func (l *Library) Uninstall(ctx context.Context, id SkillID, scope Scope, opts UninstallOptions) (err error) {
+	defer func() { err = typedError(err) }()
+	return l.uninstall(ctx, "uninstall", []SkillInScope{{SkillID: id, Scope: scope}}, opts)
+}
+
+// UninstallSkills 是一次卸载几处(勾选几个技能后从这里卸载):每一处的规则与 Uninstall 相同,整批一次提交,
+// 全成或全不成。有一处没装在那里、只靠组安装留着,或要删的文件夹里有确认之后才被改过的,整次返回与 Uninstall 相同的错误,
+// 一处都不动。共用一个文件夹的几处列了几次只卸载一次。空列表什么都不做。
+func (l *Library) UninstallSkills(ctx context.Context, places []SkillInScope, opts UninstallOptions) (err error) {
+	defer func() { err = typedError(err) }()
+	return l.uninstall(ctx, "uninstall skills", places, opts)
+}
+
+func (l *Library) uninstall(ctx context.Context, operation string, places []SkillInScope, opts UninstallOptions) (err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
-	defer func() { err = typedError(err) }()
-	target, err := l.resolveScope(ctx, "uninstall", scope)
-	if err != nil {
-		return err
+	type planned struct {
+		skillID SkillID
+		target  resolvedScope
+		place   []store.PlaceSkillScope
 	}
-	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.Scope)
-	if err != nil {
-		return err
-	}
-	if len(place) == 0 {
-		return &Error{Code: NotFound, Message: "uninstall skill: skill is not installed in scope"}
-	}
-	if !slices.ContainsFunc(place, func(row store.PlaceSkillScope) bool { return row.Direct }) {
-		covered := target.Scope
-		covered.Agent = place[0].Agent
-		name, err := l.store.CoveringGroupName(ctx, int64(id), covered)
+	var plans []planned
+	seen := map[int64]bool{}
+	for _, item := range places {
+		target, err := l.resolveScope(ctx, operation, item.Scope)
 		if err != nil {
 			return err
 		}
-		return preconditionError("uninstall skill", "skill is only installed here by a group install", ErrorDetails{Name: name})
+		place, err := l.store.PlaceSkillScopes(ctx, int64(item.SkillID), target.Scope)
+		if err != nil {
+			return err
+		}
+		if len(place) == 0 {
+			return &Error{Code: NotFound, Message: operation + ": skill is not installed in scope"}
+		}
+		if !slices.ContainsFunc(place, func(row store.PlaceSkillScope) bool { return row.Direct }) {
+			covered := target.Scope
+			covered.Agent = place[0].Agent
+			name, err := l.store.CoveringGroupName(ctx, int64(item.SkillID), covered)
+			if err != nil {
+				return err
+			}
+			return preconditionError(operation, "skill is only installed here by a group install", ErrorDetails{Name: name})
+		}
+		if seen[place[0].ID] {
+			continue
+		}
+		for _, row := range place {
+			seen[row.ID] = true
+		}
+		plans = append(plans, planned{skillID: item.SkillID, target: target, place: place})
 	}
 	var change agentdir.Change
 	defer func() { err = errors.Join(err, change.Rollback()) }()
 	return l.applyChange(ctx, &change, func(tx *store.Tx) error {
-		kept := false
-		for _, row := range place {
-			removed, err := tx.Uninstall(ctx, row.ID)
-			if err != nil {
-				return err
-			}
-			kept = kept || !removed
-		}
-		if !kept {
-			var folders []string
-			for _, row := range place {
-				if !slices.Contains(folders, row.Folder) {
-					folders = append(folders, row.Folder)
-					change.Remove(agentdir.FolderPath(target.directory, row.Folder))
+		var removals []removal
+		for _, plan := range plans {
+			kept := false
+			for _, row := range plan.place {
+				removed, err := tx.Uninstall(ctx, row.ID)
+				if err != nil {
+					return err
 				}
+				kept = kept || !removed
+			}
+			if kept {
+				continue
+			}
+			for _, row := range plan.place {
+				removals = append(removals, removal{skillID: plan.skillID, folder: agentdir.FolderPath(plan.target.directory, row.Folder)})
 			}
 		}
-		return nil
+		return l.removeFolders(ctx, tx, &change, operation, removals, opts.DiscardEdits)
 	})
 }
 
@@ -416,8 +453,8 @@ func (l *Library) InstallGroup(ctx context.Context, groupID GroupID, scope Scope
 
 // UninstallGroup 撤销该组在 scope 的组安装;不再有直接安装或别的组安装留着的成员随之卸载,失败时磁盘和库都保持原样。
 // 共用目录的另一个 Agent 还装着某个成员时,它的文件夹留着。
-// 该组没有组安装到这里返回 NotFound。和 Uninstall 一样不检查文件夹是否被改过。
-func (l *Library) UninstallGroup(ctx context.Context, groupID GroupID, scope Scope) (err error) {
+// 该组没有组安装到这里返回 NotFound。和 Uninstall 一样删之前核对文件夹有没有被改过(见 UninstallOptions)。
+func (l *Library) UninstallGroup(ctx context.Context, groupID GroupID, scope Scope, opts UninstallOptions) (err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
@@ -445,6 +482,7 @@ func (l *Library) UninstallGroup(ctx context.Context, groupID GroupID, scope Sco
 		if err := tx.RemoveGroupInstall(ctx, groupInstallID); err != nil {
 			return err
 		}
+		var removals []removal
 		for _, member := range members {
 			removed, err := tx.UninstallMember(ctx, member.ID)
 			if err != nil {
@@ -458,10 +496,10 @@ func (l *Library) UninstallGroup(ctx context.Context, groupID GroupID, scope Sco
 				return err
 			}
 			if len(place) == 0 {
-				change.Remove(agentdir.FolderPath(target.directory, member.Name))
+				removals = append(removals, removal{skillID: SkillID(member.SkillID), folder: agentdir.FolderPath(target.directory, member.Name)})
 			}
 		}
-		return nil
+		return l.removeFolders(ctx, tx, &change, "uninstall group", removals, opts.DiscardEdits)
 	})
 }
 

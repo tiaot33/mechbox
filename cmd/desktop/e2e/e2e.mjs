@@ -2627,11 +2627,11 @@ await step("库里同名的技能：入库确认时说出来，写出各装在�
     await page.waitForFunction((id) => document.querySelector(".same-name-twin")?.dataset.skillId === id, inCodex);
 
     // 留下 Claude Code 里那个，在它的详情里移除 Codex 里那个，并在 Codex 全局装上留下的这个。
-    // 窗口一直开着时 Codex 里那一份在后台被改了：移除前现查磁盘，确认里写出改动会丢掉。
+    // 窗口一直开着时 Codex 里那一份在后台被改了：确认框照界面上已有的状态写，删之前核对出来再问一次。
     fs.appendFileSync(path.join(codex, "SKILL.md"), "edited in background\n");
     await btn(twin, "移除").click();
     const confirm = await modal().textContent();
-    assert(confirm.includes("从 Codex · 全局 删除文件夹，这几处不再有这个「review」；其中 1 处被改过，改动会丢掉"), `确认里写出装在哪、移除后那里不再有它、改动会丢掉:${confirm}`);
+    assert(confirm.includes("从 Codex · 全局 删除文件夹，这几处不再有这个「review」") && !confirm.includes("被改过"), `确认里写出装在哪、移除后那里不再有它，不先现查磁盘:${confirm}`);
     const swap = modal().locator(".replace-twin input[type=checkbox]");
     assert(!(await swap.isChecked()), "在这几处装上留下的这个，默认不勾");
     assert((await modal().locator(".replace-twin").textContent()).includes("装到 Codex · 全局"), "写出装到哪几处");
@@ -2642,6 +2642,7 @@ await step("库里同名的技能：入库确认时说出来，写出各装在�
     await swap.check();
     await page.screenshot({ path: path.join(SHOTS, "same-name-remove-twin.png") });
     await btn(modal(), "移除").click();
+    await btn(await justEdited(["review"], "移除同名技能"), "仍然删掉").click();
     await toast("已移除，并在原来的几处装上「review」");
     await settle();
     assert.equal(await cards.count(), 1, "库里只剩一个 review");
@@ -4362,14 +4363,23 @@ await step("照着另一个项目装：在项目页照着它，各 Agent 装到�
 
 // ============ 卸载会丢掉的修改 ============
 group("uninstall-edited", []);
-await step("卸载被手动改过的文件夹：单个卸载、勾选几个一起卸载、整组卸载，先现查磁盘，确认里都列出修改会丢的那几处，取消则不动", async () => {
-  for (const name of ["ue-a", "ue-b", "ue-c"]) {
+// justEdited 等技能库删之前核对出确认之后才被改过的文件夹、再问一次的弹窗，核对它列出的技能(按顺序)。
+async function justEdited(names, what) {
+  const dialog = modal().filter({ has: page.locator('[data-slot="dialog-title"]', { hasText: "有技能文件夹刚被改过" }) });
+  await dialog.waitFor({ timeout: 5000 }).catch(async () => assert.fail(`${what}:删之前应核对出刚被改过的文件夹再问一次`));
+  const rows = await dialog.locator(".just-edited").allTextContents();
+  assert.deepEqual(rows.map((r) => r.split(" · ")[0]), names, `${what}:再问时列出刚被改过的几处:${rows}`);
+  return dialog;
+}
+
+await step("卸载被手动改过的文件夹：单个卸载、勾选几个一起卸载、整组卸载，确认框按界面上已有的状态弹出;确认之后才被改过的，删之前核对出来再问一次，不同意就一个都不删", async () => {
+  for (const name of ["ue-a", "ue-b", "ue-c", "ue-d"]) {
     fs.mkdirSync(`${HOME}/code/uninstall-edited/${name}`, { recursive: true });
     fs.writeFileSync(`${HOME}/code/uninstall-edited/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name}"\n---\n`);
   }
   await clearScope();
   await fetchLocal(`${HOME}/code/uninstall-edited`);
-  await toast("已入库 3 个技能");
+  await toast("已入库 4 个技能");
   await settle();
   await page.locator(".a-left .nav-sec", { hasText: "组" }).locator("button[title='新建组']").click();
   await modal().locator('[data-slot="input"]').fill("改过的组");
@@ -4382,7 +4392,7 @@ await step("卸载被手动改过的文件夹：单个卸载、勾选几个一�
   await settle();
   await closeDrawer();
   await selectScope("Claude Code");
-  for (const name of ["ue-a", "ue-b"]) {
+  for (const name of ["ue-a", "ue-b", "ue-d"]) {
     await card(name).locator('[role="switch"]').click();
     await toast(`已安装「${name}」`);
     await settle();
@@ -4390,47 +4400,59 @@ await step("卸载被手动改过的文件夹：单个卸载、勾选几个一�
   await page.locator(".gchip", { hasText: "改过的组" }).click();
   await toast("已把「改过的组」组安装到");
   await settle();
-  // 窗口一直在前台时在磁盘上改：快照里还是当前版本，卸载前要现查出来。
+  // 窗口一直在前台时在磁盘上改：快照里还是当前版本，确认框照快照写，删之前由技能库核对出来。
+  // 每次核对之后界面会重读，所以每一处都在要删它之前才改。
   const skillsDir = `${HOME}/.claude/skills`;
-  for (const name of ["ue-a", "ue-b", "ue-c"]) fs.appendFileSync(`${skillsDir}/${name}/SKILL.md`, "\nedited by hand\n");
-  assert.equal(await card("ue-a").getByText("被手动改过").count(), 0, "快照里还没看到修改");
-  const lost = (name) => modal().locator(".lost-edits", { hasText: `${name} · Claude Code · 全局` });
+  const edit = (name) => fs.appendFileSync(`${skillsDir}/${name}/SKILL.md`, "\nedited by hand\n");
+  const kept = (name) => assert(fs.readFileSync(`${skillsDir}/${name}/SKILL.md`, "utf8").includes("edited by hand"), `不同意后被改过的 ${name} 应原样留着`);
 
-  // 单个卸载：只有 Claude Code 用这个文件夹、也没有链接指着它，以前直接删掉。
+  // 单个卸载：快照里没有要说的，不弹确认直接卸载;技能库核对出被改过，再问一次。不同意就不删。
+  edit("ue-a");
+  assert.equal(await card("ue-a").getByText("被手动改过").count(), 0, "快照里还没看到修改");
   await card("ue-a").locator('[role="switch"]').click();
-  await lost("ue-a").waitFor({ timeout: 5000 }).catch(() => assert.fail("单个卸载被改过的技能，确认里应列出这一处"));
-  await btn(modal(), "取消").click();
+  await btn(await justEdited(["ue-a"], "单个卸载"), "取消").click();
   await settle();
-  assert(fs.readFileSync(`${skillsDir}/ue-a/SKILL.md`, "utf8").includes("edited by hand"), "取消后被改过的 ue-a 应原样留着");
+  kept("ue-a");
+  assert.equal(await card("ue-a").locator('[role="switch"][aria-checked="true"]').count(), 1, "不同意后 ue-a 还装着");
+  // 刚才那次核对之后界面已经重读，再卸载时确认框里就写出这一处被改过，确认后直接删。
   await card("ue-a").locator('[role="switch"]').click();
-  await lost("ue-a").waitFor();
+  await modal().locator(".lost-edits", { hasText: "ue-a · Claude Code · 全局" }).waitFor();
   await btn(modal(), "卸载").click();
   await toast("已卸载「ue-a」");
   await settle();
   assert(!fs.existsSync(`${skillsDir}/ue-a`), "确认后才删掉 ue-a");
 
-  // 勾选几个一起卸载
+  // 勾选几个一起卸载：没被改过的 ue-d 也一起留着，一个都不删。
   const bar = page.locator(".pick-bar");
+  edit("ue-b");
   await card("ue-b").locator(".pick-box").click();
-  await bar.locator("span", { hasText: "已选 1 个" }).waitFor();
+  await card("ue-d").locator(".pick-box").click();
+  await bar.locator("span", { hasText: "已选 2 个" }).waitFor();
   await btn(bar, "从这里卸载").click();
-  await lost("ue-b").waitFor({ timeout: 5000 }).catch(() => assert.fail("勾选卸载时，确认里应列出被改过的 ue-b"));
-  await btn(modal(), "取消").click();
+  assert.equal(await modal().locator(".lost-edits").count(), 0, "确认框照快照写，不先现查磁盘");
+  await btn(modal(), "卸载").click();
+  await btn(await justEdited(["ue-b"], "勾选卸载"), "取消").click();
   await modal().waitFor({ state: "detached" });
-  await page.keyboard.press("Escape");
-  assert(fs.existsSync(`${skillsDir}/ue-b/SKILL.md`), "取消后 ue-b 应留着");
-
-  // 整组卸载
-  await page.locator(".gchip", { hasText: "改过的组" }).click();
-  await lost("ue-c").waitFor({ timeout: 5000 }).catch(() => assert.fail("整组卸载时，确认里应列出被改过的成员 ue-c"));
-  await btn(modal(), "取消").click();
   await settle();
-  assert(fs.readFileSync(`${skillsDir}/ue-c/SKILL.md`, "utf8").includes("edited by hand"), "取消后 ue-c 应原样留着");
-  assert.equal(await page.locator('.gchip[data-state="on"]', { hasText: "改过的组" }).count(), 1, "取消后组安装还在");
+  await page.keyboard.press("Escape");
+  kept("ue-b");
+  assert(fs.existsSync(`${skillsDir}/ue-d/SKILL.md`), "不同意后没被改过的 ue-d 也留着");
+
+  // 整组卸载：再问时同意丢掉修改，照常删。
+  edit("ue-c");
+  await page.locator(".gchip", { hasText: "改过的组" }).click();
+  assert.equal(await modal().locator(".lost-edits").count(), 0, "确认框照快照写，不先现查磁盘");
+  await btn(modal(), "卸载").click();
+  const again = await justEdited(["ue-c"], "整组卸载");
+  assert(fs.existsSync(`${skillsDir}/ue-c/SKILL.md`), "再问之前不删");
+  await btn(again, "仍然删掉").click();
+  await toast("已卸载「改过的组」");
+  await settle();
+  assert(!fs.existsSync(`${skillsDir}/ue-c`), "同意后才删掉 ue-c");
   await clearScope();
 });
 
-await step("删掉被手动改过的文件夹：移除技能、勾选几个移除、注销项目、删除自定义 Agent,先现查磁盘，确认里写出几处被改过，取消则不动", async () => {
+await step("删掉被手动改过的文件夹：移除技能、勾选几个移除、注销项目、删除自定义 Agent,确认框按界面上已有的状态弹出;确认之后才被改过的，删之前核对出来再问一次，不同意就不动", async () => {
   for (const name of ["re-a", "re-b", "re-c", "re-d"]) {
     fs.mkdirSync(`${HOME}/code/remove-edited/${name}`, { recursive: true });
     fs.writeFileSync(`${HOME}/code/remove-edited/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name}"\n---\n`);
@@ -4489,9 +4511,11 @@ await step("删掉被手动改过的文件夹：移除技能、勾选几个移�
     "re-d": `${HOME}/.re-agent/skills/re-d`,
   };
   for (const dir of Object.values(folders)) assert(fs.existsSync(`${dir}/SKILL.md`), `应已装到 ${dir}`);
-  // 窗口一直在前台时在磁盘上改：快照里还是当前版本，确认前要现查出来。
+  // 窗口一直在前台时在磁盘上改：快照里还是当前版本，确认框照快照写，删之前由技能库核对出来再问一次。
+  // 每次核对之后界面会重读，所以每一处都在要删它之前才改。
   const edit = (name) => fs.appendFileSync(`${folders[name]}/SKILL.md`, "\nedited by hand\n");
-  const kept = (name) => assert(fs.readFileSync(`${folders[name]}/SKILL.md`, "utf8").includes("edited by hand"), `取消后被改过的 ${name} 应原样留着`);
+  const kept = (name) => assert(fs.readFileSync(`${folders[name]}/SKILL.md`, "utf8").includes("edited by hand"), `不同意后被改过的 ${name} 应原样留着`);
+  const saidEdited = () => modal().locator('[data-slot="choice"]', { hasText: "处被改过，改动会丢掉" }).count();
   const lostOne = async (what) => {
     await modal().locator('[data-slot="choice"]', { hasText: "其中 1 处被改过，改动会丢掉" }).waitFor({ timeout: 5000 }).catch(async () => assert.fail(`${what}，确认里应写出 1 处被改过:${await modal().textContent()}`));
   };
@@ -4500,9 +4524,11 @@ await step("删掉被手动改过的文件夹：移除技能、勾选几个移�
   await openDrawer("re-a");
   edit("re-a");
   await btn(drawer(), "移除技能").click();
-  await lostOne("移除技能");
-  await btn(modal(), "取消").click();
+  assert.equal(await saidEdited(), 0, "移除技能：确认框照快照写，不先现查磁盘");
+  await btn(modal(), "移除").click();
+  await btn(await justEdited(["re-a"], "移除技能"), "取消").click();
   await modal().waitFor({ state: "detached" });
+  await settle();
   kept("re-a");
   await closeDrawer();
 
@@ -4512,9 +4538,11 @@ await step("删掉被手动改过的文件夹：移除技能、勾选几个移�
   await card("re-b").locator(".pick-box").click();
   await bar.locator("span", { hasText: "已选 1 个" }).waitFor();
   await btn(bar, "移除技能").click();
-  await lostOne("勾选移除技能");
-  await btn(modal(), "取消").click();
+  assert.equal(await saidEdited(), 0, "勾选移除技能：确认框照快照写，不先现查磁盘");
+  await btn(modal(), "移除").click();
+  await btn(await justEdited(["re-b"], "勾选移除技能"), "取消").click();
   await modal().waitFor({ state: "detached" });
+  await settle();
   await page.keyboard.press("Escape");
   kept("re-b");
 
@@ -4523,30 +4551,33 @@ await step("删掉被手动改过的文件夹：移除技能、勾选几个移�
   const projRow = page.locator(".a-right .nav-item.proj", { hasText: "re-proj" });
   await projRow.hover();
   await projRow.locator(".row-actions button[title='注销项目']").click();
-  await lostOne("注销项目");
-  await btn(modal(), "取消").click();
+  assert.equal(await saidEdited(), 0, "注销项目：确认框照快照写，不先现查磁盘");
+  await btn(modal(), "注销").click();
+  await btn(await justEdited(["re-c"], "注销项目"), "取消").click();
   await modal().waitFor({ state: "detached" });
+  await settle();
   kept("re-c");
+  assert.equal(await projRow.count(), 1, "不同意后项目还登记着");
 
-  // 删除自定义 Agent:设置页先开着，再在磁盘上改。
+  // 删除自定义 Agent:设置页先开着，再在磁盘上改;再问时同意丢掉修改，照常删。
   await openSettings();
   edit("re-d");
   await btn(agentRow(), "删除").click();
-  await lostOne("删除自定义 Agent");
-  await btn(modal(), "取消").click();
-  await modal().waitFor({ state: "detached" });
-  kept("re-d");
-
-  // 收尾：都删掉，确认后才动磁盘。
-  await btn(agentRow(), "删除").click();
   await modal().locator('[data-slot="choice"]', { hasText: "同时删除已安装的文件夹" }).click();
+  assert.equal(await saidEdited(), 0, "删除自定义 Agent:确认框照快照写，不先现查磁盘");
   await btn(modal(), "删除").click();
+  const again = await justEdited(["re-d"], "删除自定义 Agent");
+  assert(fs.existsSync(`${folders["re-d"]}/SKILL.md`), "再问之前不删");
+  await btn(again, "仍然删掉").click();
   await toast("已删除 Agent「Edited Agent」");
   await settle();
-  assert(!fs.existsSync(folders["re-d"]), "确认删除 Agent 后才删掉 re-d");
+  assert(!fs.existsSync(folders["re-d"]), "同意后才删掉 re-d");
   await back();
+
+  // 收尾：前面每次核对之后界面都重读过，确认框里写出被改过的几处，确认后直接删。
   await projRow.hover();
   await projRow.locator(".row-actions button[title='注销项目']").click();
+  await lostOne("注销项目");
   await btn(modal(), "注销").click();
   await toast("已注销项目");
   await settle();

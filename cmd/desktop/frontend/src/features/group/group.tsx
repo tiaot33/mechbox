@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
 import { GroupMemberOutcome, MemberRemovalPolicy, type CollectionID, type GroupID, type SkillID } from "@bindings/internal/library";
+import { discardedEdits } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, useSnapshot } from "@/lib/library";
 import { folderPlaces } from "@/lib/installs";
@@ -13,9 +14,10 @@ import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
 import { DeleteNotes } from "@/components/app/link-notes";
-import { inspectedSnapshot, LostMentions, lostMentions, toastInstalled } from "@/features/install/install";
+import { runDiscardingEdits } from "@/components/app/discard-edits";
+import { LostMentions, lostMentions, toastInstalled } from "@/features/install/install";
 import { runEach, showResults } from "@/components/app/results";
-import { failedAttemptRows, memberRows, placedBy } from "@/components/app/result-rows";
+import { memberRows, placedBy } from "@/components/app/result-rows";
 import { addedToGroup, groupOnly, inGroup, notInGroup } from "./group-rules";
 
 export async function addSkillToGroup(groupID: GroupID, id: SkillID) {
@@ -92,16 +94,14 @@ async function addEachToGroup(
 }
 
 export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {
-  let s = currentSnapshot();
+  const s = currentSnapshot();
   const t = messages().actions;
   // 该组安装到的作用域上，这个技能可能只随本组安装;有组安装时让用户决定去留。
-  // 选「一并卸载」会删掉的文件夹里哪几处被手动改过，先现查磁盘再说。
+  // 选「一并卸载」会删掉的文件夹里哪几处被手动改过，按界面上已经读到的状态说;确认之后才改过的，删之前由技能库核对出来再问一次。
   const installed = s.groupInstalls.filter((a) => a.group_id === groupID);
   let policy = MemberRemovalPolicy.KeepAsDirectInstall;
+  let discard: string[] = [];
   if (installed.length) {
-    const inspected = await inspectedSnapshot({ skill_id: id });
-    if (!inspected) return;
-    s = inspected;
     const gone = folderPlaces(s, groupOnly(s, groupID, [id]));
     const unfound = await lostMentions(gone);
     const choice = await ui.confirm({
@@ -118,17 +118,18 @@ export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {
     });
     if (!choice) return;
     policy = choice as MemberRemovalPolicy;
+    discard = discardedEdits(gone);
   }
-  await ui.run(() => LibraryService.RemoveSkillFromGroup(groupID, id, { if_no_other_install: policy }), {
+  await runDiscardingEdits(discard, (discard) => LibraryService.RemoveSkillFromGroup(groupID, id, { if_no_other_install: policy, discard_edits: discard }), {
     success: t.removedFromGroup(skillName(s, id), groupName(s, groupID)),
   });
 }
 
 // removeSkillsFromGroup 把勾选的技能里在组里的移出组(底部操作栏的"移出组…"):组有组安装时和移出一个成员一样，
-// 先问只随本组安装的留着(改为直接安装)还是一并卸载，一批只问一次。有失败的才列出结果。
-// 返回是否至少移出了一个：都不在组里、取消了、都失败了时是 false。
+// 先问只随本组安装的留着(改为直接安装)还是一并卸载，一批只问一次。一次移出，全成或全不成;
+// 确认之后才被改过的，技能库删之前核对出来再问一次。返回是否移出了：都不在组里、取消了、失败了时是 false。
 export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[]): Promise<boolean> {
-  let s = currentSnapshot();
+  const s = currentSnapshot();
   const t = messages().actions;
   const group = groupName(s, groupID);
   const ids = inGroup(s, groupID, picked);
@@ -136,10 +137,8 @@ export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[])
   const installed = s.groupInstalls.filter((a) => a.group_id === groupID);
   // 选组的弹窗里已经点过"移出";没有组安装时不再问，和移出一个成员一样直接移出。
   let policy = MemberRemovalPolicy.KeepAsDirectInstall;
+  let discard: string[] = [];
   if (installed.length) {
-    const inspected = await inspectedSnapshot({});
-    if (!inspected) return false;
-    s = inspected;
     const gone = folderPlaces(s, groupOnly(s, groupID, ids));
     const unfound = await lostMentions(gone);
     const choice = await ui.confirm({
@@ -156,13 +155,14 @@ export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[])
     });
     if (!choice) return false;
     policy = choice as MemberRemovalPolicy;
+    discard = discardedEdits(gone);
   }
-  const results = await runEach(ids, (id) => LibraryService.RemoveSkillFromGroup(groupID, id, { if_no_other_install: policy }));
-  if (!results) return false;
-  const rows = failedAttemptRows(results, (i) => skillName(s, ids[i]));
-  if (rows.length) await showResults(t.pickedRemoveFromGroupTitle(ids.length, group), rows);
-  else ui.toast(t.pickedRemovedFromGroup(ids.length, group));
-  return rows.length < ids.length;
+  const done = await runDiscardingEdits(
+    discard,
+    (discard) => LibraryService.RemoveSkillsFromGroup(groupID, ids, { if_no_other_install: policy, discard_edits: discard }).then(() => true),
+    { success: t.pickedRemovedFromGroup(ids.length, group) },
+  );
+  return !!done;
 }
 
 // createGroup 新建组;withSkills 是建好后一并加入的技能(详情里的"新建组…"、左栏集合右键菜单的"加入组 → 新建组…")。
@@ -199,14 +199,9 @@ export async function renameGroup(groupID: GroupID) {
 }
 
 export async function deleteGroup(groupID: GroupID) {
-  let s = currentSnapshot();
-  // 有组安装时，只随本组安装的技能由用户决定去留，与移出成员一致;选「一并卸载」会删掉的文件夹先现查磁盘。
+  const s = currentSnapshot();
+  // 有组安装时，只随本组安装的技能由用户决定去留，与移出成员一致;选「一并卸载」会删掉的文件夹里哪几处被改过按界面上已经读到的状态说。
   const installs = s.groupInstalls.filter((a) => a.group_id === groupID).length;
-  if (installs) {
-    const inspected = await inspectedSnapshot({});
-    if (!inspected) return;
-    s = inspected;
-  }
   const t = messages().actions;
   const gone = folderPlaces(s, groupOnly(s, groupID, s.groups.find((g) => g.id === groupID)?.members ?? []));
   const unfound = await lostMentions(gone);
@@ -225,7 +220,9 @@ export async function deleteGroup(groupID: GroupID) {
   });
   if (!choice) return;
   const policy = installs ? (choice as MemberRemovalPolicy) : MemberRemovalPolicy.KeepAsDirectInstall;
-  await ui.run(() => LibraryService.DeleteGroup(groupID, { if_no_other_install: policy }), { success: t.groupDeleted });
+  await runDiscardingEdits(discardedEdits(gone), (discard) => LibraryService.DeleteGroup(groupID, { if_no_other_install: policy, discard_edits: discard }), {
+    success: t.groupDeleted,
+  });
 }
 
 

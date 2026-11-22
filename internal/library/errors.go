@@ -36,8 +36,9 @@ const (
 	// 不可重试,但可提供"打开已有"或"覆盖"。UI:按 Details.SkillID / ProjectID / Name / Path 跳转或展示路径。
 	AlreadyExists ErrorCode = "already_exists"
 	// Conflict 计划到执行之间状态已变(拉回时选中的备份在列出之后被删掉或改写;更新计划生成后勾选的技能在来源里又变了、或在库里被改过;
-	// 检查更新、跳过、更新期间整个库被同步拉回替换;单独重试时技能在那次更新之后又换了版本)。
-	// 可重新列出备份、生成同步计划 / 重新发起后再执行。
+	// 检查更新、跳过、更新期间整个库被同步拉回替换;单独重试时技能在那次更新之后又换了版本;
+	// 卸载、移除技能这类会删技能文件夹的操作里,要删的文件夹被改过、却不在选项的 DiscardEdits 里,即确认时没告诉用户,一个都不删)。
+	// 可重新列出备份、生成同步计划 / 重新发起后再执行;删文件夹时按 Details.Paths 告诉用户这几处的修改会丢掉,同意后把它们加进 DiscardEdits 再调用。
 	Conflict ErrorCode = "conflict"
 	// FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
 	// (安装目标被另一个技能占用;作用域根目录不存在;对只由组安装留着的技能单独卸载;修改或删除内置 Agent;同一入库预览句柄的入库正在进行;
@@ -91,6 +92,7 @@ type ErrorDetails struct {
 	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字(更新时为来源里已没有的技能名;入库预览时为没有技能的链接路径);AlreadyExists 的 skill 名;FailedPrecondition 的组内同名、留着该技能的 Group 名或占用目标的技能名;SourceInvalid / SourceUnreachable / Permission:内容取不全的技能名
 	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用安装目标的 skill;NotFound:不存在的 skill,或更新时来源里已没有、读取期间被移除的技能,或更新计划里没有、来源里已删除的技能;InvalidArgument:更新时不在更新计划里的技能、勾选的地方不属于勾选的技能,或跳过时在更新计划里没有变化的技能;Conflict:更新计划生成后又变了的技能
 	ProjectID ProjectID `json:"project_id,omitzero"` // AlreadyExists:已登记该路径的项目(登记项目、改项目位置时);FailedPrecondition:根目录不存在的项目
+	Paths     []string  `json:"paths,omitempty"`     // Conflict:要删的技能文件夹里被改过、却不在 DiscardEdits 里的那几个(SkillScope.Folder)
 }
 
 // Error 返回 Message。

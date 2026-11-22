@@ -2,7 +2,6 @@
 // 卸载时哪几个文件夹会删、哪些是全局共用的，要不要先确认。都是不碰界面、不调技能库的纯函数，单元测试见 install-rules.test.ts。
 // 默认勾选与写之前的说明(别处链接指着、被手动改过)见 lib/consent.ts。
 import {
-  ErrorCode,
   GroupMemberOutcome,
   InstallPlanStatus,
   type GroupID,
@@ -197,27 +196,10 @@ export function uninstallPicked(s: Snapshot, ids: SkillID[], scopes: Scope[]) {
   };
 }
 
-// uninstalledPicked 归并逐处卸载的结果:results 与 picked.direct 一一对应(runEach 的结果)。
-// 只随组安装的跳过并写明;全局共用一个文件夹的几处，卸载其中一处时其余几处的直接安装已一起撤了(NotFound),不算失败。
-// done 是卸载了几处，failed 是有卸不掉的(顶栏画叉)。
-export function uninstalledPicked(s: Snapshot, picked: ReturnType<typeof uninstallPicked>, results: readonly (Attempt<unknown> | undefined)[]) {
+// skippedPicked 是勾选卸载里只随组安装、跳过了的几处，写明原因;其余几处一次卸载，全成或全不成。
+export function skippedPicked(s: Snapshot, picked: ReturnType<typeof uninstallPicked>): ResultRow[] {
   const t = messages().actions;
-  const label = (p: SkillScopeInspection) => `${skillName(s, p.skill_id)} · ${scopeLabel(s, p.scope)}`;
-  const rows: ResultRow[] = picked.viaGroup.map((p) => ({ label: label(p), outcome: t.memberSkipped, tone: "warn", reason: t.onlyViaGroup }));
-  let done = 0;
-  let failed = false;
-  picked.direct.forEach((p, i) => {
-    const r = results[i];
-    if (!r) return;
-    if ("value" in r) {
-      done++;
-      return;
-    }
-    if (r.error.code === ErrorCode.NotFound) return;
-    rows.push({ label: label(p), outcome: t.failed, tone: "critical", reason: describeError(r.error) });
-    failed = true;
-  });
-  return { rows, done, failed };
+  return picked.viaGroup.map((p) => ({ label: `${skillName(s, p.skill_id)} · ${scopeLabel(s, p.scope)}`, outcome: t.memberSkipped, tone: "warn", reason: t.onlyViaGroup }));
 }
 
 // uninstallGroupPlaces 是从 scope 卸载整组的组安装会删掉文件夹的成员(gone):只靠这个组安装留着的(没有直接安装，

@@ -61,7 +61,7 @@ export async function reinstall(filter: SkillScopeFilter, what: string) {
   if (requests.length && !(await confirmLinkWrites(inspected ?? [], written, t.reinstallTitle(what), t.reinstall, explained))) return;
   const done = await ui.run(async () => {
     const results = requests.length ? ((await LibraryService.Reinstall(requests)) ?? []) : [];
-    const removed = await eachCall(uninstalls, (p) => LibraryService.Uninstall(p.skill_id, p.scope));
+    const removed = await eachCall(uninstalls, (p) => LibraryService.Uninstall(p.skill_id, p.scope, {}));
     const rows = failedAttemptRows(removed, (i) => `${skillName(s, uninstalls[i].skill_id)} · ${scopeLabel(s, uninstalls[i].scope)}`, t.notUninstalled);
     return { results, rows, uninstalled: removed.length - rows.length };
   }, { failed: (d) => d.rows.length > 0 || d.results.some((r) => r.outcome === ReinstallOutcome.ReinstallFailed) });

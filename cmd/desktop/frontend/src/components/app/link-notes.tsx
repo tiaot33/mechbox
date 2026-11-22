@@ -1,6 +1,6 @@
 // 写之前关于符号链接与共用文件夹的说明(要说明哪些见 lib/consent.ts):写到链接那一处会换成独立的一份，
 // 删掉或覆盖被别处链接指着的文件夹前先给那一处换上独立的一份，共用一个文件夹的几个 Agent 一起受影响;
-// 删掉被手动改过的文件夹前说出是哪几处，修改会跟着丢掉。
+// 删掉被手动改过的文件夹前说出是哪几处，修改会跟着丢掉;确认之后才被改过的见 discard-edits.tsx。
 import { LibraryService } from "@bindings/cmd/desktop";
 import type { Scope, SkillID, SkillScopeInspection } from "@bindings/internal/library";
 import { detachedBy, linkWrites, lostEdits, placeKey, type Detached } from "@/lib/consent";

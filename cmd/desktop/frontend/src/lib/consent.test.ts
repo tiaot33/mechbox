@@ -33,6 +33,7 @@ import {
   defaultSkills,
   detachedBy,
   linkWrites,
+  discardedEdits,
   lostEdits,
   overwriteKey,
   planReinstall,
@@ -322,6 +323,13 @@ describe("删掉文件夹之前说明会丢的修改", () => {
     const a = place(1, project(claude, 1), SkillScopeStatus.SkillScopeModified);
     const b = { ...place(1, project(codex, 1), SkillScopeStatus.SkillScopeModified), folder: a.folder };
     expect(lostEdits([a, b])).toEqual([a]);
+  });
+
+  it("交给技能库放过的就是确认里说过修改会丢的那几个文件夹", () => {
+    const edited = place(1, global(claude), SkillScopeStatus.SkillScopeModified);
+    const current = place(2, global(claude), SkillScopeStatus.SkillScopeCurrent);
+    const shared = { ...place(1, global(codex), SkillScopeStatus.SkillScopeModified), folder: edited.folder };
+    expect(discardedEdits([edited, current, shared])).toEqual([edited.folder]);
   });
 });
 

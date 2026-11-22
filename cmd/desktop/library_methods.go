@@ -95,6 +95,10 @@ func (s *LibraryService) RemoveSkill(ctx context.Context, id library.SkillID, op
 	return settleErr(ctx, s.lib.RemoveSkill(ctx, id, opts))
 }
 
+func (s *LibraryService) RemoveSkills(ctx context.Context, ids []library.SkillID, opts library.RemoveSkillOptions) error {
+	return settleErr(ctx, s.lib.RemoveSkills(ctx, ids, opts))
+}
+
 func (s *LibraryService) SetSkillNote(ctx context.Context, id library.SkillID, note string) error {
 	return settleErr(ctx, s.lib.SetSkillNote(ctx, id, note))
 }
@@ -221,6 +225,10 @@ func (s *LibraryService) RemoveSkillFromGroup(ctx context.Context, groupID libra
 	return settleErr(ctx, s.lib.RemoveSkillFromGroup(ctx, groupID, skillID, opts))
 }
 
+func (s *LibraryService) RemoveSkillsFromGroup(ctx context.Context, groupID library.GroupID, skillIDs []library.SkillID, opts library.RemoveFromGroupOptions) error {
+	return settleErr(ctx, s.lib.RemoveSkillsFromGroup(ctx, groupID, skillIDs, opts))
+}
+
 // ---------- 项目与 Scope ----------
 
 func (s *LibraryService) ListAgents(ctx context.Context) ([]library.Agent, error) {
@@ -285,8 +293,12 @@ func (s *LibraryService) Install(ctx context.Context, id library.SkillID, scope 
 	return settleErr(ctx, s.lib.Install(ctx, id, scope, opts))
 }
 
-func (s *LibraryService) Uninstall(ctx context.Context, id library.SkillID, scope library.Scope) error {
-	return settleErr(ctx, s.lib.Uninstall(ctx, id, scope))
+func (s *LibraryService) Uninstall(ctx context.Context, id library.SkillID, scope library.Scope, opts library.UninstallOptions) error {
+	return settleErr(ctx, s.lib.Uninstall(ctx, id, scope, opts))
+}
+
+func (s *LibraryService) UninstallSkills(ctx context.Context, places []library.SkillInScope, opts library.UninstallOptions) error {
+	return settleErr(ctx, s.lib.UninstallSkills(ctx, places, opts))
 }
 
 func (s *LibraryService) PlanGroupInstall(ctx context.Context, groupID library.GroupID, scope library.Scope) (library.GroupInstallPlan, error) {
@@ -297,8 +309,8 @@ func (s *LibraryService) InstallGroup(ctx context.Context, groupID library.Group
 	return settle(s.lib.InstallGroup(ctx, groupID, scope, opts))(ctx)
 }
 
-func (s *LibraryService) UninstallGroup(ctx context.Context, groupID library.GroupID, scope library.Scope) error {
-	return settleErr(ctx, s.lib.UninstallGroup(ctx, groupID, scope))
+func (s *LibraryService) UninstallGroup(ctx context.Context, groupID library.GroupID, scope library.Scope, opts library.UninstallOptions) error {
+	return settleErr(ctx, s.lib.UninstallGroup(ctx, groupID, scope, opts))
 }
 
 func (s *LibraryService) ListGroupInstalls(ctx context.Context) ([]library.GroupInstall, error) {

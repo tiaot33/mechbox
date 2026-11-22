@@ -282,7 +282,7 @@ func TestListSourceRefsFailsLikePreviewFetch(t *testing.T) {
 			_, err := lib.ListSourceRefs(t.Context(), tc.input)
 			preview := requireLibraryError(t, previewErr, tc.code)
 			got := requireLibraryError(t, err, tc.code)
-			if got.Details != preview.Details {
+			if !reflect.DeepEqual(got.Details, preview.Details) {
 				t.Fatalf("details = %#v; preview %#v", got.Details, preview.Details)
 			}
 		})

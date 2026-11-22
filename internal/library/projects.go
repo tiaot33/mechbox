@@ -60,6 +60,10 @@ func ProjectScope(agent AgentCode, projectID ProjectID) Scope {
 // UnregisterProjectOptions 是 UnregisterProject 的选项。
 type UnregisterProjectOptions struct {
 	Folders FolderPolicy `json:"folders"` // 默认删除技能文件夹,只有显式 Keep 保留
+	// DiscardEdits 是确认时告诉用户被改过、修改会丢掉的技能文件夹(SkillScope.Folder)。动磁盘之前核对这次要删的每个文件夹:
+	// 有被改过的(SkillScopeModified,不算 SkillScopeInspection.SourceLatest,也不算是符号链接的那一处,删的只是链接)却不在这里,
+	// 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
+	DiscardEdits []string `json:"discard_edits,omitempty"`
 }
 
 func scopeOf(operation string, scope Scope) (store.Scope, error) {
@@ -209,7 +213,8 @@ func (l *Library) RelocateProject(ctx context.Context, id ProjectID, path string
 // UnregisterProject 注销一个已登记项目:它从项目列表里消失,在各 Agent 下的直接安装与组安装都撤掉。
 // 默认(opts.Folders 为零值或 Remove)同时删除库装进这个项目的技能文件夹;显式 Keep 时文件夹留在磁盘上,
 // 但库从此不再管理它们。项目目录本身、库没装的文件夹都不动。项目不在这台机器上时也能注销:
-// 要删的文件夹本来就不在,算成功。未登记的 id 返回 NotFound。
+// 要删的文件夹本来就不在,算成功。删之前核对文件夹有没有被改过,确认之后才被改过的返回 Conflict,不注销(见 UnregisterProjectOptions)。
+// 未登记的 id 返回 NotFound。
 func (l *Library) UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) (err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
@@ -220,8 +225,7 @@ func (l *Library) UnregisterProject(ctx context.Context, id ProjectID, opts Unre
 	if _, err := l.store.GetProject(ctx, int64(id)); err != nil {
 		return err
 	}
-	var change agentdir.Change
-	defer func() { err = errors.Join(err, change.Rollback()) }()
+	var removals []removal
 	if opts.Folders != Keep {
 		skillScopes, err := l.listSkillScopes(ctx, 0, nil)
 		if err != nil {
@@ -229,11 +233,16 @@ func (l *Library) UnregisterProject(ctx context.Context, id ProjectID, opts Unre
 		}
 		for _, skillScope := range skillScopes {
 			if skillScope.Scope.Kind == ScopeProject && skillScope.Scope.ProjectID == id {
-				change.Remove(skillScope.Folder)
+				removals = append(removals, removal{skillID: skillScope.SkillID, folder: skillScope.Folder})
 			}
 		}
 	}
+	var change agentdir.Change
+	defer func() { err = errors.Join(err, change.Rollback()) }()
 	return l.applyChange(ctx, &change, func(tx *store.Tx) error {
+		if err := l.removeFolders(ctx, tx, &change, "unregister project", removals, opts.DiscardEdits); err != nil {
+			return err
+		}
 		return tx.UnregisterProject(ctx, int64(id))
 	})
 }

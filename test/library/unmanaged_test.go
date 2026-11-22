@@ -247,7 +247,7 @@ func TestInspectSkillScopesFollowsSymlinkedInstalledFolder(t *testing.T) {
 	codex := library.GlobalScope(library.AgentCodex)
 	requireScopeStatus(t, lib, skill.ID, codex, library.SkillScopeCurrent)
 	// 从 Codex 卸载时,链着它的 Claude Code 那一处先换上独立的一份,照旧是当前版本。
-	if err := lib.Uninstall(ctx, skill.ID, codex); err != nil {
+	if err := lib.Uninstall(ctx, skill.ID, codex, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if info, err := os.Lstat(folder); err != nil || !info.IsDir() {

@@ -370,7 +370,7 @@ func TestSyncPushAndPullPlanNetworkPhasesDoNotBlockLibrary(t *testing.T) {
 	wg.Go(func() { _, planErr = lib.PlanSyncPull(t.Context(), backup.ID) })
 	getGate.awaitEntered(t)
 	mustFinishBeforeRelease(t, getGate, "Uninstall during pull plan", func(ctx context.Context) error {
-		return lib.Uninstall(ctx, local.ID, library.GlobalScope(library.AgentCodex))
+		return lib.Uninstall(ctx, local.ID, library.GlobalScope(library.AgentCodex), library.UninstallOptions{})
 	})
 	getGate.open()
 	wg.Wait()

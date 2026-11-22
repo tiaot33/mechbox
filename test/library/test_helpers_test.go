@@ -108,7 +108,7 @@ func requireLibraryError(t *testing.T, err error, code library.ErrorCode) *libra
 func requireErrorDetails(t *testing.T, err error, code library.ErrorCode, want library.ErrorDetails) *library.Error {
 	t.Helper()
 	typed := requireLibraryError(t, err, code)
-	if typed.Details != want {
+	if !reflect.DeepEqual(typed.Details, want) {
 		t.Fatalf("details = %#v, want %#v", typed.Details, want)
 	}
 	return typed

@@ -121,6 +121,7 @@ export type {
     SystemProxy,
     TranslateDescriptionsResult,
     TranslationFailure,
+    UninstallOptions,
     UnmanagedFetchItem,
     UnmanagedSkill,
     UnregisterProjectOptions,

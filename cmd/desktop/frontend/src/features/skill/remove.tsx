@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
 import { FolderPolicy, type Scope, type SkillID } from "@bindings/internal/library";
-import { lostEdits } from "@/lib/consent";
+import { discardedEdits, lostEdits } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, type Snapshot } from "@/lib/library";
 import { placeCount, placeNames } from "@/lib/places";
@@ -15,17 +15,15 @@ import { twinReplaceScopes } from "@/features/skill/remove-rules";
 import { ChoiceList, Modal, ui } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
-import { runEach, showResults } from "@/components/app/results";
-import { failedAttemptRows } from "@/components/app/result-rows";
-import { inspectedSnapshot, installReplacing, lostMentionLines, lostMentions } from "@/features/install/install";
+import { runDiscardingEdits } from "@/components/app/discard-edits";
+import { installReplacing, lostMentionLines, lostMentions } from "@/features/install/install";
 import type { MissingMention } from "@bindings/internal/library";
 import { lostAfterTwin, removedPlaces } from "./remove-rules";
 
-// removeSkill 移除技能(技能详情里的「移除技能」)。先现查磁盘(inspectedSnapshot):快照里上一次巡检的结果可能落后，
-// 会漏掉「改动会丢掉」;读不成时不移除。返回是否移除了。
+// removeSkill 移除技能(技能详情里的「移除技能」)。确认里几处被改过按界面上已经读到的状态写;
+// 确认之后才被改过的，技能库删之前核对出来再问一次(runDiscardingEdits)。返回是否移除了。
 export async function removeSkill(id: SkillID) {
-  const s = await inspectedSnapshot({ skill_id: id });
-  if (!s) return false;
+  const s = currentSnapshot();
   const places = skillScopesOf(s, id);
   const installed = placeCount(s, places);
   const t = messages().actions;
@@ -39,7 +37,7 @@ export async function removeSkill(id: SkillID) {
   });
   if (!choice) return false;
   const policy = choice === FolderPolicy.Keep ? FolderPolicy.Keep : FolderPolicy.Remove;
-  const done = await ui.run(() => LibraryService.RemoveSkill(id, { folders: policy }).then(() => true), {
+  const done = await runDiscardingEdits(discardedEdits(places), (discard) => LibraryService.RemoveSkill(id, { folders: policy, discard_edits: discard }).then(() => true), {
     success: t.removed,
     label: t.removeLabel(skillName(s, id)),
   });
@@ -49,12 +47,12 @@ export async function removeSkill(id: SkillID) {
 // removeTwin 是在技能详情的同名技能里移除不要的那个(id),留下正在看的这个(keep)。和移除技能一样问已安装的文件夹删掉还是保留，
 // 删掉时写出是哪几处、那几处不再有这个技能(被改过的照样写出改动会丢掉);还可以勾「在这几处装上留下的这个」,默认不勾：
 // 装上以后那几处的 Agent 用的就换成了留下的这个，要用户看过自己勾上。保留文件夹时文件夹还在那里，装不上，不给这个选项。
-// 先现查磁盘(inspectedSnapshot):快照里上一次巡检的结果可能落后，会漏掉「改动会丢掉」;读不成时不移除。
+// 确认之后才被改过的，技能库删之前核对出来再问一次(runDiscardingEdits)。
 // 能装上的几处见 twinReplaceScopes。返回是否移除了。
 export async function removeTwin(id: SkillID, keep: SkillID) {
-  const s = await inspectedSnapshot({});
-  const skill = s?.skills.find((x) => x.id === id);
-  if (!s || !skill || !s.skills.some((x) => x.id === keep)) return false;
+  const s = currentSnapshot();
+  const skill = s.skills.find((x) => x.id === id);
+  if (!skill || !s.skills.some((x) => x.id === keep)) return false;
   const places = skillScopesOf(s, id);
   const replace = twinReplaceScopes(s, id, keep);
   const unfound = places.length ? await lostMentions(places) : [];
@@ -63,7 +61,7 @@ export async function removeTwin(id: SkillID, keep: SkillID) {
   ));
   if (!picked) return false;
   const t = messages().actions;
-  const done = await ui.run(() => LibraryService.RemoveSkill(id, { folders: picked.policy }).then(() => true), {
+  const done = await runDiscardingEdits(discardedEdits(places), (discard) => LibraryService.RemoveSkill(id, { folders: picked.policy, discard_edits: discard }).then(() => true), {
     success: picked.replace ? undefined : t.removed,
     label: t.removeLabel(skill.name),
   });
@@ -130,11 +128,10 @@ function RemoveTwinDialog({
 }
 
 // removeSkills 从库里移除勾选的技能(底部操作栏的"移除技能"):和移除一个一样问一次已安装的文件夹删掉还是保留，
-// 一批只问一次，写出一共会删几处、其中几处被改过(先现查磁盘，读不成时不移除)。有失败的才列出结果。
-// 返回是否至少移除了一个：取消了、都失败了、读不成时是 false。
+// 一批只问一次，写出一共会删几处、其中几处被改过(按界面上已经读到的状态)。一次移除，全成或全不成;
+// 确认之后才被改过的，技能库删之前核对出来再问一次(runDiscardingEdits)。返回是否移除了：取消了、失败了时是 false。
 export async function removeSkills(ids: SkillID[]): Promise<boolean> {
-  const s = await inspectedSnapshot({});
-  if (!s) return false;
+  const s = currentSnapshot();
   // 几个技能装在同一个作用域只算一个作用域;项目里共用一个目录的几个 Agent 是一个。
   const { places, scopes } = removedPlaces(s, ids);
   const t = messages().actions;
@@ -148,12 +145,10 @@ export async function removeSkills(ids: SkillID[]): Promise<boolean> {
   });
   if (!choice) return false;
   const policy = choice === FolderPolicy.Keep ? FolderPolicy.Keep : FolderPolicy.Remove;
-  const results = await runEach(ids, (id) => LibraryService.RemoveSkill(id, { folders: policy }));
-  if (!results) return false;
-  const rows = failedAttemptRows(results, (i) => skillName(s, ids[i]));
-  if (rows.length) await showResults(t.removeSkillsTitle(ids.length), rows);
-  else ui.toast(t.removedSkills(ids.length));
-  return rows.length < ids.length;
+  const done = await runDiscardingEdits(discardedEdits(places), (discard) => LibraryService.RemoveSkills(ids, { folders: policy, discard_edits: discard }).then(() => true), {
+    success: t.removedSkills(ids.length),
+  });
+  return !!done;
 }
 
 // folderChoices 是移除技能时已安装的文件夹删掉还是保留;removeDesc 写出删掉会涉及几处，lost 是删掉后会找不到它的技能。

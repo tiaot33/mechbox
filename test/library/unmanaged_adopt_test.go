@@ -46,7 +46,7 @@ func TestCopyOfALibrarySkillIsAdoptedWithoutFetching(t *testing.T) {
 	}
 
 	// 移除 alpha 时这一处和其他安装一样一并删除。
-	if err := f.lib.RemoveSkill(ctx, alpha.ID, library.RemoveSkillOptions{}); err != nil {
+	if err := f.lib.RemoveSkill(ctx, alpha.ID, library.RemoveSkillOptions{DiscardEdits: []string{folder}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(folder); !os.IsNotExist(err) {
@@ -223,7 +223,7 @@ func TestOnlyOneCopyIsAdoptedPerScope(t *testing.T) {
 		t.Fatalf("skills = %#v, %v, want only alpha", skills, err)
 	}
 	// 只记了一处:从 Claude Code 卸载后,共用目录的 Agent 也不再算已装。
-	if err := f.lib.Uninstall(ctx, alpha.ID, f.claude); err != nil {
+	if err := f.lib.Uninstall(ctx, alpha.ID, f.claude, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if scopes, err := f.lib.ListSkillScopes(ctx, library.SkillScopeFilter{SkillID: alpha.ID}); err != nil || len(scopes) != 0 {
@@ -265,7 +265,7 @@ func TestExtraCopyInASharedDirectoryIsNotRecordedAgain(t *testing.T) {
 			t.Fatalf("skill scopes = %#v, want every one at the folder named alpha", scopes)
 		}
 	}
-	if err := f.lib.Uninstall(ctx, alpha.ID, shared); err != nil {
+	if err := f.lib.Uninstall(ctx, alpha.ID, shared, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, "a-copy")); err != nil {

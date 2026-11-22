@@ -1,7 +1,7 @@
 // 自定义 Agent:添加、编辑(改目录时可选把装着的技能搬过去)、删除。
 import { LibraryService } from "@bindings/cmd/desktop";
 import { FolderPolicy, MigrationOutcome, type Agent, type CustomAgent } from "@bindings/internal/library";
-import { detachedBy, lostEdits } from "@/lib/consent";
+import { detachedBy, discardedEdits, lostEdits } from "@/lib/consent";
 import { messages } from "@/lib/i18n";
 import { currentSnapshot, type LibraryError } from "@/lib/library";
 import { folderPlaces } from "@/lib/installs";
@@ -11,8 +11,8 @@ import { ui } from "@/lib/ui";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { DetachNotice, SharedFolders } from "@/components/app/link-notes";
+import { runDiscardingEdits } from "@/components/app/discard-edits";
 import { showResults } from "@/components/app/results";
-import { inspectedSnapshot } from "@/features/install/install";
 import { agentDelete, agentEdit } from "./agents-rules";
 
 export async function addAgent(input: CustomAgent, onInvalid: (err: LibraryError) => boolean): Promise<boolean> {
@@ -76,10 +76,10 @@ export async function editAgent(agent: Agent, input: CustomAgent, onInvalid: (er
   return true;
 }
 
-// deleteAgent 删除自定义 Agent,和注销项目一样让用户选文件夹的去留(先现查磁盘，读不成时不删除);还有别的 Agent 在读的文件夹不管怎么选都保留。
+// deleteAgent 删除自定义 Agent,和注销项目一样让用户选文件夹的去留(被改过的几处按界面上已经读到的状态说，
+// 确认之后才被改过的由技能库删之前核对出来再问一次);还有别的 Agent 在读的文件夹不管怎么选都保留。
 export async function deleteAgent(agent: Agent) {
-  const s = await inspectedSnapshot({});
-  if (!s) return;
+  const s = currentSnapshot();
   const { kept, own } = agentDelete(s, agent.code);
   const t = messages().actions;
   const choice = await ui.confirm({
@@ -111,7 +111,7 @@ export async function deleteAgent(agent: Agent) {
   });
   if (!choice) return;
   const policy = choice === FolderPolicy.Keep ? FolderPolicy.Keep : FolderPolicy.Remove;
-  await ui.run(() => LibraryService.DeleteAgent(agent.code, { folders: policy }), {
+  await runDiscardingEdits(discardedEdits(own), (discard) => LibraryService.DeleteAgent(agent.code, { folders: policy, discard_edits: discard }), {
     success: t.agentDeleted(agent.name),
   });
 }

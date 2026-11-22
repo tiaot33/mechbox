@@ -181,6 +181,10 @@ export const en = {
     uninstall: "Uninstall",
     losesEdits: (n: number) =>
       `${n === 1 ? "The place below was" : `The ${n} places below were`} edited by hand: uninstalling deletes ${n === 1 ? "the folder" : "the folders"}, and those edits will be lost for good.`,
+    justEditedTitle: "Skill folders were just edited",
+    justEdited: (n: number) =>
+      `${n === 1 ? "The place below was" : `The ${n} places below were`} edited by hand after you confirmed, so nothing has been deleted yet. Deleting ${n === 1 ? "the folder" : "the folders"} loses those edits for good.`,
+    deleteAnyway: "Delete anyway",
     uninstalled: (name: string, scope: string) => `Removed the direct install of “${name}” in ${scope}`,
     onlyViaGroup: "This skill is only installed through a Group, so there's no direct install to uninstall. Uninstall it on the Group instead",
     groupInstallTitle: (group: string, scope: string) => `Group install “${group}” in ${scope}`,
