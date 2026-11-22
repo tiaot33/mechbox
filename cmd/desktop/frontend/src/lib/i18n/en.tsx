@@ -1483,6 +1483,27 @@ export const en = {
     choose: "Choose…",
     chooseGlobal: "Choose the global skill directory",
     chooseDetect: "Choose a detection directory",
+    resetAgents: "Restore Defaults",
+    resetAgentsTitle: "Put the Agent settings back to this version's built-in defaults: built-in Agents get their built-in names and directories back, and Agents you added by hand are removed",
+    resetTitle: "Restore the Agent settings to defaults",
+    resetLead: "Built-in Agents get this version's built-in names and directories back; every Agent you added by hand is removed so it doesn't duplicate a built-in one. Which Agents are added stays the same.",
+    resetChanged: (n: number) => `Agents restored to built-in settings (${n})`,
+    resetChangedPooled: (names: string[]) => `${names.join(", ")} in the pool ${names.length === 1 ? "is" : "are"} restored too.`,
+    resetRemoved: (n: number) => `Agents added by hand that are removed (${n}); they don't go back to the pool`,
+    resetRemovedPooled: (names: string[]) => `${names.join(", ")}, added by hand and in the pool, ${names.length === 1 ? "is" : "are"} deleted too.`,
+    resetMigrations: (n: number) =>
+      `Skills migrated (${n}): their directory isn't a built-in one, so they move to the first built-in directory; where the new directory already has the same skill, the Agent uses that one`,
+    resetMigrateTo: (from: string, to: string) => `${from} → ${to}`,
+    resetField: (field: string, from: string, to: string) =>
+      `${{ name: "Name", global_directories: "Global", project_directories: "In projects", detect_directories: "Detection" }[field] ?? field}: ${from || "(none)"} → ${to || "(none)"}`,
+    resetKeepDesc: "Folders installed for the hand-added Agents stay where they are; the Library no longer manages them",
+    resetNothing: "The Agent settings already match the built-in defaults",
+    resetDone: (changed: number, removed: number) =>
+      ["Restored defaults", [changed && `${count(changed, "Agent")} restored`, removed && `${count(removed, "hand-added Agent")} removed`].filter(Boolean).join(", ")].filter(Boolean).join(": "),
+    defaultDirectories: "This Agent's default directories",
+    otherDirectories: "Directories other Agents use",
+    knownDirectories: "Known directories",
+    noDirectoryMatch: "No matching directory; you can type your own",
   },
 
   scopes: {

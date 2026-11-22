@@ -12,7 +12,7 @@ import {
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import type { Snapshot } from "@/lib/library";
-import { agentDelete, agentEdit, alreadyRead, detectedPicks, migrationReport, poolMatches, sortPool, undetected } from "./agents-rules";
+import { agentDelete, agentEdit, agentReset, alreadyRead, detectedPicks, directoryOptions, filterDirectoryOptions, migrationReport, opensWhileTyping, poolMatches, sortPool, undetected } from "./agents-rules";
 
 const mine = "my-agent" as AgentCode;
 const claude = AgentCode.AgentClaudeCode;
@@ -187,5 +187,79 @@ describe("改目录并迁移之后", () => {
     expect(r.rows[1].reason).toContain("~/.agents/skills/s2");
     expect(r.rows[1].reason).toContain("照常算已装");
     expect(r.rows[1].reason).not.toContain("不再算已装");
+  });
+});
+
+describe("目录输入框的下拉候选", () => {
+  const catalog = [
+    { code: "cursor", global_directories: ["/home/.agents/skills", "/home/.cursor/skills"], project_directories: [".agents/skills"], detect_directories: ["/home/.cursor"] },
+    { code: "codex", global_directories: ["/home/.agents/skills"], project_directories: [".agents/skills"], detect_directories: ["/home/.codex"] },
+    { code: "claude-code", global_directories: ["/home/.claude/skills"], project_directories: [".claude/skills"], detect_directories: ["/home/.claude"] },
+  ] as unknown as Agent[];
+  const short = (d: string) => d.replace(/^\/home/, "~");
+  it("先列这个 Agent 的默认目录(内置的值),再列其他 Agent 用到的，去掉重复", () => {
+    expect(directoryOptions(catalog, "cursor", "global_directories", short)).toEqual({
+      defaults: ["~/.agents/skills", "~/.cursor/skills"],
+      others: ["~/.claude/skills"],
+    });
+    expect(directoryOptions(catalog, "cursor", "detect_directories", short)).toEqual({ defaults: ["~/.cursor"], others: ["~/.claude", "~/.codex"] });
+  });
+  it("手填添加的 Agent 没有默认目录那一组，照样能从全部已知目录里挑", () => {
+    expect(directoryOptions(catalog, undefined, "project_directories", (d) => d)).toEqual({ defaults: [], others: [".agents/skills", ".claude/skills"] });
+    expect(directoryOptions(catalog, "custom-1", "global_directories", short).defaults).toEqual([]);
+  });
+  it("输入时按文字过滤;这组里别的行已经填了的不再列", () => {
+    const options = directoryOptions(catalog, "cursor", "global_directories", short);
+    expect(filterDirectoryOptions(options, "CLAUDE", [])).toEqual({ defaults: [], others: ["~/.claude/skills"] });
+    expect(filterDirectoryOptions(options, "", ["~/.agents/skills/"])).toEqual({ defaults: ["~/.cursor/skills"], others: ["~/.claude/skills"] });
+  });
+  it("收着时输入：有别的候选才自己展开;没有匹配的、填的正是唯一的候选时不展开", () => {
+    const options = directoryOptions(catalog, "cursor", "global_directories", short);
+    expect(opensWhileTyping(options, "~/.c", [])).toBe(true);
+    expect(opensWhileTyping(options, "~/.claude/skills", [])).toBe(false);
+    expect(opensWhileTyping(options, "/opt/my-agent/skills", [])).toBe(false);
+  });
+});
+
+describe("恢复默认", () => {
+  const custom = "custom-ag" as AgentCode;
+  const cursor = "cursor" as AgentCode;
+  const defaults = [
+    { code: claude, name: "Claude Code", global_directories: ["/home/.claude/skills"], project_directories: [".claude/skills"], detect_directories: ["/home/.claude"] },
+    { code: cursor, name: "Cursor", global_directories: ["/home/.agents/skills", "/home/.cursor/skills"], project_directories: [".agents/skills"], detect_directories: ["/home/.cursor"] },
+    { code: AgentCode.AgentCodex, name: "Codex", global_directories: ["/home/.agents/skills"], project_directories: [".agents/skills"], detect_directories: ["/home/.codex"] },
+  ] as unknown as Agent[];
+  const added = [
+    { ...defaults[0], global_directories: ["/home/.claude-work/skills"] },
+    { ...defaults[2], detect_directories: ["/home/.codex/"] },
+    { code: custom, name: "antigravity-cli", global_directories: ["/home/.gemini/antigravity-cli/skills"], project_directories: [".agents/skills"], detect_directories: [] },
+  ] as unknown as Agent[];
+  const pool = [{ ...defaults[1], name: "My Cursor" }, { code: "custom-old", name: "Old", global_directories: ["/home/.old"], project_directories: [".old"] }] as unknown as Agent[];
+  const s = {
+    agents: added,
+    skillScopes: [
+      place(1, global(claude), { directory: "/home/.claude-work/skills", folder: "/home/.claude-work/skills/s1" }),
+      place(2, global(custom), { directory: "/home/.gemini/antigravity-cli/skills" }),
+      place(3, project(custom, 7), { directory: ".agents/skills", shared_with: [AgentCode.AgentCodex] }),
+    ],
+    groupInstalls: [],
+  } as unknown as Snapshot;
+
+  it("手填的都移除(候选池里的也算);收录的只算和内置值不一样的，写法不同的同一个目录不算改了", () => {
+    const r = agentReset(s, defaults, pool);
+    expect(r.removed.map((a) => a.code)).toEqual([custom]);
+    expect(r.removedPooled.map((a) => a.code)).toEqual(["custom-old"]);
+    expect(r.changed.map((c) => [c.agent.code, c.fields])).toEqual([[claude, ["global_directories"]]]);
+    expect(r.changedPooled.map((c) => [c.agent.code, c.fields])).toEqual([[cursor, ["name"]]]);
+    expect(r.nothing).toBe(false);
+  });
+  it("手填 Agent 只有它读的文件夹按用户选的处理，还有别的 Agent 在读的保留;收录 Agent 去掉的目录里的安装迁移到内置的第 1 个目录", () => {
+    const r = agentReset(s, defaults, pool);
+    expect(r.own.map((p) => p.skill_id)).toEqual([2]);
+    expect(r.kept.map((p) => p.skill_id)).toEqual([3]);
+    expect(r.migrations.map((m) => [m.place.skill_id, m.to])).toEqual([[1, "/home/.claude/skills"]]);
+  });
+  it("已经和内置的一样时什么都不做", () => {
+    expect(agentReset({ agents: [defaults[0]], skillScopes: [], groupInstalls: [] } as unknown as Snapshot, defaults, [defaults[1]]).nothing).toBe(true);
   });
 });
