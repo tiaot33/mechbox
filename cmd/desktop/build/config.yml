@@ -40,6 +40,9 @@ dev_mode:
       - .git
       - node_modules
       - frontend
+      # 开发数据(dev:seed)与调试用数据库都在 .dev/ 下，安装时往里写的技能文件夹带 .js 文件。
+      # 下面的 git_ignore 把 .gitignore 里的 .dev/ 变成 *.dev/,只匹配以 .dev/ 结尾的路径，管不到目录里的文件，所以这里单独写。
+      - .dev
       - bin
     file:
       - .DS_Store
