@@ -21,8 +21,8 @@ import { shortPath } from "@/lib/paths";
 import { placeOf, projectName, scopeKey, skillName, type Place } from "@/lib/scope";
 import type { ResultRow } from "@/components/app/result-rows";
 
-// cleanPath 是比较目录时去掉开头的 ./ 和末尾的 /:写法不同的同一个目录不算改了。
-const cleanPath = (path: string) => path.replace(/^\.\//, "").replace(/\/+$/, "");
+// cleanPath 是比较目录时去掉开头的 ./ 和末尾的 /(Windows 上也去掉 .\ 和末尾的 \):写法不同的同一个目录不算改了。
+const cleanPath = (path: string) => path.replace(/^\.[\\/]/, "").replace(/[\\/]+$/, "");
 
 const inputDirectories = (input: AgentInput, place: Place) => ((place ? input.project_directories : input.global_directories) ?? []).map(cleanPath);
 

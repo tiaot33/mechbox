@@ -40,6 +40,11 @@ describe("改 Agent 的第 1 个目录", () => {
     [{ group_id: 5, scope: project(mine, 7) } as GroupInstall],
   );
 
+  it("Windows 上全局目录末尾带反斜杠也是同一个目录，不问", () => {
+    const windows = { ...agent, global_directories: ["C:\\Users\\me\\.mine\\skills"] } as Agent;
+    expect(agentEdit(s, windows, input({ global_directories: ["C:\\Users\\me\\.mine\\skills\\"] })).asks).toBe(false);
+  });
+
   it("写法不同的同一个目录不算改了，不问", () => {
     expect(agentEdit(s, agent, input({ global_directories: ["/home/.mine/skills/"], project_directories: ["./.mine/skills" ]}))).toMatchObject({ affected: [], groupInstalls: 0, asks: false });
   });
