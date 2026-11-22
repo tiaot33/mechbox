@@ -2,14 +2,18 @@ package library_test
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/tiaot33/mechbox/internal/library"
 )
@@ -28,10 +32,13 @@ type fakeGitHubMirror struct {
 	authorized []string
 }
 
+// serveGitHubMirror 之后，这个测试里发往镜像的 git 命令都连不上(改写到不存在的本地仓库),除非测试用 mapGitRemotes 另外指定，
+// 所以测试从不访问真的 gh-proxy.org。
 func serveGitHubMirror(t *testing.T) *fakeGitHubMirror {
 	t.Helper()
 	m := &fakeGitHubMirror{next: testTransport(t)}
 	stubHTTP(t, m.roundTrip)
+	addGitConfig(t, "url.file://"+filepath.Join(t.TempDir(), "unreachable-mirror")+"/.insteadOf", mirrorPrefix)
 	return m
 }
 
@@ -90,12 +97,29 @@ func setGitHubMirror(t *testing.T, lib *library.Library, on bool) {
 func mapGitRemotes(t *testing.T, remotes map[string]string) {
 	t.Helper()
 	stubGitHubCLI(t, "exit 1\n")
-	config := filepath.Join(t.TempDir(), "gitconfig")
-	setTestEnv(t, "GIT_CONFIG_GLOBAL", config)
-	setTestEnv(t, "GIT_CONFIG_NOSYSTEM", "1")
 	for from, to := range remotes {
-		runGit(t, t.TempDir(), "config", "--file", config, "--add", "url."+to+".insteadOf", from)
+		addGitConfig(t, "url."+to+".insteadOf", from)
 	}
+}
+
+// addGitConfig 往这个测试里 git 读的全局配置文件里加一项;还没有配置文件时建一个。
+func addGitConfig(t *testing.T, key, value string) {
+	t.Helper()
+	world := worldOf(t)
+	world.mu.Lock()
+	var config string
+	for _, pair := range world.env {
+		if value, ok := strings.CutPrefix(pair, "GIT_CONFIG_GLOBAL="); ok {
+			config = value
+		}
+	}
+	world.mu.Unlock()
+	if config == "" {
+		config = filepath.Join(t.TempDir(), "gitconfig")
+		setTestEnv(t, "GIT_CONFIG_GLOBAL", config)
+		setTestEnv(t, "GIT_CONFIG_NOSYSTEM", "1")
+	}
+	runGit(t, t.TempDir(), "config", "--file", config, "--add", key, value)
 }
 
 func TestGitHubMirrorIsOffByDefaultAndSurvivesReopen(t *testing.T) {
@@ -340,5 +364,130 @@ func TestGitHubMirrorDownloadsGitHubLinks(t *testing.T) {
 	}
 	if mirrored, direct, _ := mirror.take(); !slices.Contains(mirrored, link) || len(direct) != 0 {
 		t.Fatalf("mirrored %q, direct %q; want the link downloaded through the mirror", mirrored, direct)
+	}
+}
+
+// 带查询串的 GitHub 链接(如私有仓库 Raw 按钮给出的 ?token=...)可能带着临时令牌，不发给镜像。
+func TestGitHubMirrorSendsLinksWithQueryDirect(t *testing.T) {
+	t.Parallel()
+	const link = "https://raw.githubusercontent.com/owner/private/main/skills.zip?token=GHSAT0secret"
+	archive := zipArchive(t, map[string]string{"demo/SKILL.md": skillDocument("demo", "private")})
+	stubHTTP(t, func(r *http.Request) (*http.Response, error) {
+		if r.URL.String() != link {
+			return &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody, Header: make(http.Header)}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(bytes.NewReader(archive)), Header: make(http.Header)}, nil
+	})
+	mirror := serveGitHubMirror(t)
+	lib := openTestLibrary(t)
+	setGitHubMirror(t, lib, true)
+	fetchURLSkill(t, lib, link, "demo")
+	if mirrored, direct, _ := mirror.take(); len(mirrored) != 0 || !slices.Contains(direct, link) {
+		t.Fatalf("mirrored %q, direct %q; want the tokened link sent straight to GitHub", mirrored, direct)
+	}
+}
+
+// 镜像已经给出准确的错误(分支不存在)时直接报出来，不再改走直连。
+func TestGitHubMirrorKeepsMirrorAnswerForMissingRef(t *testing.T) {
+	t.Parallel()
+	mirrored := writeGitHubRepo(t, map[string]repoFile{"demo/SKILL.md": {content: []byte(skillDocument("demo", "main")), mode: 0o644}})
+	direct := writeGitHubRepo(t, map[string]repoFile{"demo/SKILL.md": {content: []byte(skillDocument("demo", "main")), mode: 0o644}})
+	runGit(t, direct, "branch", "dev")
+	stubHTTPResponse(t, http.StatusInternalServerError, strings.NewReader("boom"))
+	serveGitHubMirror(t)
+	mapGitRemotes(t, map[string]string{
+		mirrorPrefix + "https://github.com/owner/repo.git": "file://" + mirrored,
+		"https://github.com/owner/repo.git":                "file://" + direct,
+		"git@github.com:owner/repo.git":                    "file://" + direct,
+	})
+	lib := openTestLibrary(t)
+	setGitHubMirror(t, lib, true)
+	_, err := lib.PreviewFetch(t.Context(), library.PreviewFetchRequest{Input: "owner/repo", Ref: "dev"})
+	requireLibraryError(t, err, library.NotFound)
+}
+
+// 试镜像的 git 命令清掉用户全局配置里的 http.extraHeader 与凭据助手；直连照常带上。
+func TestGitHubMirrorGitDropsConfiguredCredentials(t *testing.T) {
+	t.Parallel()
+	repo := writeGitHubRepo(t, map[string]repoFile{"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644}})
+	var mu sync.Mutex
+	seen := map[string]string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		seen[strings.Split(strings.TrimPrefix(r.URL.Path, "/"), "/")[0]] = r.Header.Get("Authorization")
+		mu.Unlock()
+		http.Error(w, "unavailable", http.StatusBadGateway)
+	}))
+	t.Cleanup(server.Close)
+	stubHTTPResponse(t, http.StatusInternalServerError, strings.NewReader("boom"))
+	serveGitHubMirror(t)
+	mapGitRemotes(t, map[string]string{
+		mirrorPrefix + "https://github.com/owner/repo.git": server.URL + "/mirror/repo.git",
+		"https://github.com/owner/repo.git":                server.URL + "/direct/repo.git",
+		"git@github.com:owner/repo.git":                    "file://" + repo,
+	})
+	addGitConfig(t, "http.extraHeader", "Authorization: Bearer configured-secret")
+	lib := openTestLibrary(t)
+	setGitHubMirror(t, lib, true)
+	if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	mirrorAuth, mirrorSeen := seen["mirror"]
+	if !mirrorSeen || mirrorAuth != "" || seen["direct"] != "Bearer configured-secret" {
+		t.Fatalf("Authorization seen = %q; want none to the mirror, the configured header on the direct remote", seen)
+	}
+}
+
+// 镜像连得上但卡着不回时，只占一半时限，剩下的留给直连。
+func TestGitHubMirrorStalledGitFallsBackInTime(t *testing.T) {
+	t.Parallel()
+	repo := writeGitHubRepo(t, map[string]repoFile{"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644}})
+	stalled := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	t.Cleanup(stalled.Close)
+	stubHTTPResponse(t, http.StatusInternalServerError, strings.NewReader("boom"))
+	serveGitHubMirror(t)
+	mapGitRemotes(t, map[string]string{
+		mirrorPrefix + "https://github.com/owner/repo.git": stalled.URL + "/repo.git",
+		"https://github.com/owner/repo.git":                "file://" + repo,
+	})
+	lib := openTestLibrary(t)
+	setGitHubMirror(t, lib, true)
+	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Second)
+	defer cancel()
+	if _, err := lib.ListSourceRefs(ctx, "owner/repo"); err != nil {
+		t.Fatalf("refs with a stalled mirror: %v", err)
+	}
+}
+
+// 关着镜像时被 GitHub 限流，记下的冷却时间不该拦住打开镜像后的请求。
+func TestGitHubMirrorTurningOnClearsRateLimitCooldown(t *testing.T) {
+	t.Parallel()
+	fx := inspectGitHubRepo(t, writeGitHubRepo(t, map[string]repoFile{
+		"demo/SKILL.md": {content: []byte(skillDocument("demo", "body")), mode: 0o644},
+	}))
+	api := serveGitHubAPI(t, fx)
+	api.mu.Lock()
+	api.anonymousStatus, api.rateLimitRemaining, api.rateLimitReset = http.StatusForbidden, "0", strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
+	api.mu.Unlock()
+	blockGitHubClone(t)
+	mirror := serveGitHubMirror(t)
+	lib := openTestLibrary(t)
+	if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err == nil {
+		t.Fatal("preview while rate limited succeeded")
+	}
+	api.mu.Lock()
+	api.anonymousStatus = 0
+	api.mu.Unlock()
+	mirror.take()
+	setGitHubMirror(t, lib, true)
+	if _, err := lib.PreviewFetch(t.Context(), gitHubRequest()); err != nil {
+		t.Fatalf("preview through the mirror after the direct rate limit: %v", err)
+	}
+	if mirrored, _, _ := mirror.take(); len(mirrored) == 0 {
+		t.Fatal("no request went through the mirror")
 	}
 }

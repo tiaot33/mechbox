@@ -52,15 +52,14 @@ func (s *githubSnapshot) Commits(ctx context.Context, since string) ([]source.Co
 	if !gitcmd.FullCommit.MatchString(since) || since == s.ref {
 		return nil, nil
 	}
-	if s.client == nil {
-		return viaMirror(ctx, s.mirror, s.locator.Repository, func(remotes []string) ([]source.Commit, error) {
-			return gitcmd.Commits(ctx, remotes, since, s.ref)
-		})
+	gitCommits := func(ctx context.Context, remotes []string) ([]source.Commit, error) {
+		return gitcmd.Commits(ctx, remotes, since, s.ref)
 	}
-	if mirrored, ok := s.mirror.URL(s.locator.Repository); ok {
-		if commits, err := gitcmd.Commits(ctx, []string{mirrored}, since, s.ref); err == nil || ctx.Err() != nil {
-			return commits, err
-		}
+	if commits, done, err := tryMirror(ctx, s.mirror, s.locator.Repository, gitCommits); done && (err == nil || ctx.Err() != nil || s.client == nil) {
+		return commits, err
+	}
+	if s.client == nil {
+		return gitCommits(ctx, remotes(s.locator.Repository))
 	}
 	var commits []source.Commit
 	for page := 1; ; page++ {

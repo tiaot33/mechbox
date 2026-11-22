@@ -151,6 +151,13 @@ func (m *githubObjectMemo) withLock(fn func()) bool {
 	return true
 }
 
+func (m *githubObjectMemo) forget() {
+	fresh := newGitHubMemo()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.trees, m.commits, m.blobs, m.inFlight = fresh.trees, fresh.commits, fresh.blobs, nil
+}
+
 func (m *githubObjectMemo) release() {
 	m.mu.Lock()
 	defer m.mu.Unlock()

@@ -34,6 +34,11 @@ func (c *Client) SetToken(token string) {
 	}
 }
 
+func (c *Client) Forget() {
+	c.auth.anonymousReset.Store(0)
+	c.memo.forget()
+}
+
 func (c *Client) Close() {
 	c.auth.anonymousReset.Store(0)
 	c.auth.current.Store(&githubCredentials{token: c.auth.current.Load().token})

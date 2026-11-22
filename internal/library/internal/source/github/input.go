@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -127,7 +128,7 @@ func resolveGitHubInput(ctx context.Context, mirror *ghproxy.Switch, github Inpu
 	if err != nil {
 		return locator, "", "", err
 	}
-	resolved, err := viaMirror(ctx, mirror, parsed.repository, func(remotes []string) ([2]string, error) {
+	resolved, err := viaMirror(ctx, mirror, parsed.repository, func(ctx context.Context, remotes []string) ([2]string, error) {
 		ref, subpath, err := gitcmd.Resolve(ctx, remotes, parsed.ref, parsed.tree, parsed.subpath)
 		return [2]string{ref, subpath}, err
 	})
@@ -145,7 +146,7 @@ func (c *Client) InputRefs(ctx context.Context, input string) (gitcmd.Refs, erro
 	if err != nil {
 		return gitcmd.Refs{}, err
 	}
-	return viaMirror(ctx, c.mirror, parsed.repository, func(remotes []string) (gitcmd.Refs, error) {
+	return viaMirror(ctx, c.mirror, parsed.repository, func(ctx context.Context, remotes []string) (gitcmd.Refs, error) {
 		return gitcmd.ListRefs(ctx, remotes, parsed.ref, parsed.tree)
 	})
 }
@@ -157,13 +158,28 @@ func remotes(repository string) []string {
 	return []string{repository}
 }
 
-func viaMirror[T any](ctx context.Context, mirror *ghproxy.Switch, repository string, run func(remotes []string) (T, error)) (T, error) {
-	if mirrored, ok := mirror.URL(repository); ok {
-		if got, err := run([]string{mirrored}); err == nil || ctx.Err() != nil {
-			return got, err
-		}
+func viaMirror[T any](ctx context.Context, mirror *ghproxy.Switch, repository string, run func(context.Context, []string) (T, error)) (T, error) {
+	if got, done, err := tryMirror(ctx, mirror, repository, run); done {
+		return got, err
 	}
-	return run(remotes(repository))
+	return run(ctx, remotes(repository))
+}
+
+func tryMirror[T any](ctx context.Context, mirror *ghproxy.Switch, repository string, run func(context.Context, []string) (T, error)) (got T, done bool, err error) {
+	mirrored, ok := mirror.URL(repository)
+	if !ok {
+		return got, false, nil
+	}
+	attempt, cancel := ghproxy.Attempt(ctx)
+	defer cancel()
+	got, err = run(gitcmd.ThroughMirror(attempt), []string{mirrored})
+	if err == nil || ctx.Err() != nil {
+		return got, true, err
+	}
+	if errors.Is(err, source.ErrUnreachable) || errors.Is(err, source.ErrPermission) || errors.Is(err, context.DeadlineExceeded) {
+		return got, false, nil
+	}
+	return got, true, err
 }
 
 func Matches(input string) bool {

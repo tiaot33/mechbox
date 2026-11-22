@@ -1166,6 +1166,7 @@ export const en = {
     proxyShow: "Show proxy URL",
     proxyHide: "Hide proxy URL",
     githubMirror: "GitHub mirror",
+    githubMirrorReadFailed: (message: string) => `Couldn't read the GitHub mirror setting: ${message}`,
     githubMirrorDesc:
       "Turn on when GitHub is slow or unreachable: public GitHub repositories, files downloaded from GitHub, and Mechbox update checks go through the third-party site gh-proxy.org. Skill content read this way is relayed by that site, and Mechbox can't verify it wasn't changed. Your GitHub token is never sent to it, and Mechbox installers are still verified against checksums from GitHub. Takes effect on the next request. Stored only on this machine and not synced.",
     wslDistro: "Global directories",

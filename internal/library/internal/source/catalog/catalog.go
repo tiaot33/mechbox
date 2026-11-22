@@ -69,6 +69,10 @@ func (c *Catalog) SetToken(token string) {
 	c.github.SetToken(token)
 }
 
+func (c *Catalog) ForgetGitHub() {
+	c.github.Forget()
+}
+
 func (c *Catalog) Close() {
 	c.github.Close()
 }

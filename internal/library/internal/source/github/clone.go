@@ -45,7 +45,7 @@ type discoveredSource struct {
 }
 
 func fetchGitHubClone(ctx context.Context, mirror *ghproxy.Switch, locator repoLocator, subpath string) (discoveredSource, error) {
-	checkout, err := viaMirror(ctx, mirror, locator.Repository, func(remotes []string) (gitcmd.Checkout, error) {
+	checkout, err := viaMirror(ctx, mirror, locator.Repository, func(ctx context.Context, remotes []string) (gitcmd.Checkout, error) {
 		return gitcmd.Clone(ctx, remotes, locator.Branch, subpath)
 	})
 	if err != nil {

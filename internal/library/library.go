@@ -24,6 +24,7 @@ type Library struct {
 	client   *http.Client
 	proxy    *proxy.State
 	mirror   *ghproxy.Switch
+	mirrorMu sync.Mutex
 	environ  func() []string
 	userHome string
 	home     agentdir.Home

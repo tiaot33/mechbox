@@ -8,13 +8,13 @@ import (
 )
 
 const (
-	githubTokenKey = "github_token"
-	wslDistroKey   = "wsl_distro"
-	syncPrefix     = "sync."
-	proxyPrefix    = "proxy."
-	githubMirror   = proxyPrefix + "github_mirror"
-	appPrefix      = "app."
-	aiPrefix       = "ai."
+	githubTokenKey  = "github_token"
+	wslDistroKey    = "wsl_distro"
+	syncPrefix      = "sync."
+	proxyPrefix     = "proxy."
+	githubMirrorKey = proxyPrefix + "github_mirror"
+	appPrefix       = "app."
+	aiPrefix        = "ai."
 )
 
 const machineConfigWhere = `substr(key, 1, length(?)) = ? OR substr(key, 1, length(?)) = ? OR key = ?`
@@ -206,7 +206,7 @@ func (s *Store) SetProxySettings(ctx context.Context, settings ProxySettings) er
 }
 
 func (q queries) GitHubMirror(ctx context.Context) (bool, error) {
-	value, err := q.config(ctx, githubMirror)
+	value, err := q.config(ctx, githubMirrorKey)
 	return value == "on", err
 }
 
@@ -215,7 +215,7 @@ func (q queries) SetGitHubMirror(ctx context.Context, on bool) error {
 	if on {
 		value = "on"
 	}
-	return q.setConfig(ctx, githubMirror, value)
+	return q.setConfig(ctx, githubMirrorKey, value)
 }
 
 func (q queries) AppSettings(ctx context.Context) (map[string]string, error) {

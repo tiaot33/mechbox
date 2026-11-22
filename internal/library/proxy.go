@@ -135,8 +135,11 @@ func (l *Library) GitHubMirror(ctx context.Context) (on bool, err error) {
 // SetGitHubMirror 打开或关闭 GitHub 镜像加速并立即生效,下一次联网就用新设置。
 // 打开后,在原始 GitHub 地址前加 https://gh-proxy.org/ 再发出这些请求:GitHub 来源匿名的 API 请求、raw 文件与源码归档包下载、
 // 用 HTTPS 地址的 git 命令,以及直接下载来源里指向 GitHub 的链接([GitHubMirrorTransport] 让应用自己的请求也这样走)。
-// 下面这些照常直连 GitHub:带令牌的请求、gh 命令、SSH 地址的 git 命令,以及重定向后的请求;
-// 镜像连不上、返回 5xx、403 或 429 时,这一次请求改为直连;经镜像的 git 命令失败时,按原来的顺序改用直连的 HTTPS 与 SSH。
+// 下面这些照常直连 GitHub:带令牌或 Cookie 的请求、带查询串的链接(如私有仓库 Raw 链接里的 ?token=,库自己拼的分页与 recursive 参数除外)、
+// gh 命令、SSH 地址的 git 命令,以及重定向后的请求;经镜像的 git 命令不带用户 git 配置里的 http.extraHeader 与凭据助手。
+// 镜像连不上、返回 5xx、403 或 429,或者卡着不回(HTTP 请求等响应头最多 10 秒,git 命令最多用掉这一步时限的一半)时,这一次请求改为直连;
+// 经镜像的 git 命令连不上或被拒时,按原来的顺序改用直连的 HTTPS 与 SSH,镜像已经给出的分支不存在这类结果照样报出。
+// 切换开关时丢掉之前读到的 GitHub 内容缓存与匿名请求的限流冷却。
 // 数据库里记的来源地址与 [Source] 的 Label、ViewURL 始终是原始的 GitHub 地址,开关怎么切都不影响已入库的技能与同步。
 // 与网络代理([Library.SetProxySettings])互不影响:发往镜像的请求照常按代理设置走。
 // 设置只属于这台机器:推送出去的库里不带,拉回时保留本机的。
@@ -144,16 +147,21 @@ func (l *Library) SetGitHubMirror(ctx context.Context, on bool) (err error) {
 	defer func() { err = typedError(err) }()
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
+	l.mirrorMu.Lock()
+	defer l.mirrorMu.Unlock()
 	if err := l.store.SetGitHubMirror(ctx, on); err != nil {
 		return err
 	}
-	l.mirror.Set(on)
+	if l.mirror.On() != on {
+		l.mirror.Set(on)
+		l.sources.ForgetGitHub()
+	}
 	return nil
 }
 
 // GitHubMirrorTransport 返回经 next 发出请求的 [http.RoundTripper]:lib 打开了 GitHub 镜像加速([Library.SetGitHubMirror])时,
-// 不带 Authorization 头的 GET、HEAD 请求若发往 GitHub(github.com、api.github.com、raw.githubusercontent.com、codeload.github.com、
-// gist.github.com、gist.githubusercontent.com),先改发到 gh-proxy,镜像连不上或返回 5xx、403、429 时再直连原地址;
+// 不带 Authorization、Cookie 头的 GET、HEAD 请求若发往 GitHub(github.com、api.github.com、raw.githubusercontent.com、codeload.github.com、
+// gist.github.com、gist.githubusercontent.com)且不带查询串,先改发到 gh-proxy,镜像连不上、返回 5xx、403、429 或 10 秒内没给响应头时再直连原地址;
 // 重定向后的请求与其余请求照常经 next 发出。每个请求发出时现读开关。供应用自己发出的请求(如检查和下载应用新版本)共用这个开关;
 // lib 或 next 为 nil 时分别当作没打开与 [http.DefaultTransport]。
 func GitHubMirrorTransport(lib *Library, next http.RoundTripper) http.RoundTripper {

@@ -1,12 +1,14 @@
 package ghproxy
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 type recorder struct {
@@ -140,5 +142,80 @@ func TestTransportFallsBackToDirectWhenMirrorUnavailable(t *testing.T) {
 				t.Fatalf("sent %v, status %d; want %v, %d", next.seen, resp.StatusCode, want, tc.status)
 			}
 		})
+	}
+}
+
+func TestURLKeepsLinksWithUnknownQueryDirect(t *testing.T) {
+	var mirror Switch
+	mirror.Set(true)
+	for _, location := range []string{
+		"https://raw.githubusercontent.com/o/private/main/SKILL.md?token=GHSAT0secret",
+		"https://codeload.github.com/o/r/tar.gz/main?token=secret",
+		"https://api.github.com/repos/o/r/git/trees/sha?recursive=1&access_token=secret",
+		"https://github.com/o/r/archive/main.zip?%zz",
+	} {
+		if got, ok := mirror.URL(location); ok {
+			t.Errorf("URL(%q) = %q; want direct", location, got)
+		}
+	}
+	for _, location := range []string{
+		"https://api.github.com/repos/o/r/git/trees/sha?recursive=1",
+		"https://api.github.com/repos/o/r/compare/a...b?per_page=100&page=2",
+	} {
+		if _, ok := mirror.URL(location); !ok {
+			t.Errorf("URL(%q) not mirrored", location)
+		}
+	}
+}
+
+func TestTransportSendsCookieRequestsDirect(t *testing.T) {
+	next := &recorder{}
+	var mirror Switch
+	mirror.Set(true)
+	send(t, mirror.Transport(next), http.MethodGet, "https://raw.githubusercontent.com/o/r/main/SKILL.md", http.Header{"Cookie": {"session=secret"}}, false)
+	if len(next.seen) != 1 || next.seen[0] != "https://raw.githubusercontent.com/o/r/main/SKILL.md" {
+		t.Fatalf("sent %v; want direct only", next.seen)
+	}
+}
+
+func TestTransportFallsBackWhenMirrorStallsOrHasNoBody(t *testing.T) {
+	previous := headerWait
+	headerWait = 50 * time.Millisecond
+	t.Cleanup(func() { headerWait = previous })
+	cases := map[string]func(*http.Request) (*http.Response, error){
+		"stalled": func(r *http.Request) (*http.Response, error) {
+			<-r.Context().Done()
+			return nil, r.Context().Err()
+		},
+		"nil body": func(*http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusForbidden, Header: http.Header{}}, nil
+		},
+	}
+	for name, mirrorResponse := range cases {
+		t.Run(name, func(t *testing.T) {
+			next := &recorder{mirror: mirrorResponse}
+			var mirror Switch
+			mirror.Set(true)
+			resp := send(t, mirror.Transport(next), http.MethodGet, "https://raw.githubusercontent.com/o/r/main/SKILL.md", nil, false)
+			if resp.StatusCode != http.StatusOK || len(next.seen) != 2 || next.seen[1] != "https://raw.githubusercontent.com/o/r/main/SKILL.md" {
+				t.Fatalf("sent %v, status %d; want the mirror then direct", next.seen, resp.StatusCode)
+			}
+		})
+	}
+}
+
+func TestAttemptLeavesHalfTheDeadline(t *testing.T) {
+	parent, cancel := context.WithTimeout(t.Context(), time.Hour)
+	defer cancel()
+	attempt, cancelAttempt := Attempt(parent)
+	defer cancelAttempt()
+	deadline, ok := attempt.Deadline()
+	if remaining := time.Until(deadline); !ok || remaining > 31*time.Minute || remaining < 29*time.Minute {
+		t.Fatalf("attempt deadline in %v, %v; want about half an hour", remaining, ok)
+	}
+	unbounded, cancelUnbounded := Attempt(t.Context())
+	defer cancelUnbounded()
+	if _, ok := unbounded.Deadline(); ok {
+		t.Fatal("attempt without a parent deadline got one")
 	}
 }

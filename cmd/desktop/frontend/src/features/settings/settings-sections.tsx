@@ -10,6 +10,7 @@ import { ui } from "@/lib/ui";
 import { useT } from "@/lib/i18n";
 import {
   githubMirrorQuery,
+  invalidateGitHubMirror,
   invalidateProxySettings,
   invalidateSystemProxy,
   proxySettingsQuery,
@@ -321,25 +322,35 @@ function ProxyControl({ saved, sysProxy }: { saved: ProxySettings; sysProxy?: Sy
   );
 }
 
-// GitHubMirrorSetting 是 GitHub 镜像加速的开关：一点就存，下一次联网生效;读不出设置时不显示(网络代理那一行已给出重试)。
+// GitHubMirrorSetting 是 GitHub 镜像加速的开关：一点就存，下一次联网生效;保存期间先显示要切到的状态，存好后重读。
 function GitHubMirrorSetting() {
-  const t = useT().settings;
-  const { data: on } = useQuery(githubMirrorQuery);
-  const [saving, setSaving] = useState(false);
+  const { settings: t, credentials } = useT();
+  const { data: on, error, refetch } = useQuery(githubMirrorQuery);
+  const [pending, setPending] = useState<boolean>();
+  if (error) {
+    return (
+      <SetRow className="h-auto min-h-10 py-2">
+        <Hint className="grow">{t.githubMirrorReadFailed(describeError(toLibraryError(error)))}</Hint>
+        <Button onClick={() => void refetch()}>{credentials.retry}</Button>
+      </SetRow>
+    );
+  }
   if (on === undefined) return null;
   const toggle = async (next: boolean) => {
-    setSaving(true);
+    setPending(next);
     const ok = await ui.run(() => LibraryService.SetGitHubMirror(next).then(() => true), { reload: false });
-    setSaving(false);
-    if (ok) queryClient.setQueryData(githubMirrorQuery.queryKey, next);
+    if (ok) await invalidateGitHubMirror();
+    setPending(undefined);
   };
   return (
-    <SetRow className="github-mirror-row">
-      <Tipped className="grow" tip={t.githubMirrorDesc}>
-        {t.githubMirror}
-      </Tipped>
-      <Switch checked={on} disabled={saving} aria-label={t.githubMirror} onCheckedChange={(v) => void toggle(v)} />
-    </SetRow>
+    <SettingRow
+      className="github-mirror-row"
+      label={t.githubMirror}
+      desc={t.githubMirrorDesc}
+      on={pending ?? on}
+      disabled={pending !== undefined}
+      onChange={(v) => void toggle(v)}
+    />
   );
 }
 
@@ -443,13 +454,27 @@ export function AboutSection() {
 }
 
 
-function SettingRow({ label, desc, on, onChange }: { label: string; desc: string; on: boolean; onChange: (on: boolean) => void }) {
+function SettingRow({
+  label,
+  desc,
+  on,
+  onChange,
+  className,
+  disabled,
+}: {
+  label: string;
+  desc: string;
+  on: boolean;
+  onChange: (on: boolean) => void;
+  className?: string;
+  disabled?: boolean;
+}) {
   return (
-    <SetRow>
+    <SetRow className={className}>
       <Tipped className="grow" tip={desc}>
         {label}
       </Tipped>
-      <Switch checked={on} onCheckedChange={onChange} />
+      <Switch checked={on} disabled={disabled} aria-label={label} onCheckedChange={onChange} />
     </SetRow>
   );
 }

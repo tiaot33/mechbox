@@ -15,7 +15,7 @@ Go module。后端核心是 `internal/library` 中的 `library` 包 —— 完�
   - `ai` — 调用 AI 服务:OpenAI 兼容的接口用 OpenAI SDK,Anthropic 的接口用 Anthropic SDK;两个 SDK 都不读环境变量。
   - `s3` — 同步用的 S3 对象读写。
   - `proxy` — 网络代理:读取 macOS / Windows / Linux 的静态系统代理,管理代理模式(跟随系统、手动 HTTP / SOCKS5、不用代理)、HTTP 客户端与给 `git`、`gh` 子进程注入的代理环境变量。
-  - `ghproxy` — GitHub 镜像加速(gh-proxy):判断哪些地址可以改写成 `https://gh-proxy.org/<原地址>`,给 GitHub 来源与直接下载用的 HTTP transport(只改写不带令牌的首个请求,镜像不可用时改直连);经镜像的 `git` 命令由 `source/github` 先试一次镜像地址。
+  - `ghproxy` — GitHub 镜像加速(gh-proxy):判断哪些地址可以改写成 `https://gh-proxy.org/<原地址>`,给 GitHub 来源与直接下载用的 HTTP transport(只改写不带令牌、Cookie 与查询串的首个请求,镜像不可用或卡住时改直连)与镜像尝试的时限;经镜像的 `git` 命令由 `source/github` 先试一次镜像地址，由 `gitcmd.ThroughMirror` 去掉用户配置的凭据。
   - `wsl` — WSL 发行版：列出发行版、取发行版的主目录，在发行版里执行命令(每个发行版一个常驻的 `wsl.exe --exec /bin/sh`,命令只用 GNU 与 busybox 都支持的写法),以及给本地目录来源读发行版里目录的 `fs.FS`。发行版里的路径写成 `\\wsl.localhost\<发行版>\...`。
   - `skilllock` — 解析 `npx skills` 留下的来源记录，给未纳管技能认出来源(不是一种来源);记录文件由 `agentdir` 读出。
   - `skillfile` — 技能文件、文件集合比较与内容指纹,`library` 与各子包共用。
