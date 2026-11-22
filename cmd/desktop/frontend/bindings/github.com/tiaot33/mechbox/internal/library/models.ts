@@ -593,7 +593,7 @@ export interface DeleteAgentOptions {
 export interface DeleteAgentResult {
     /**
      * Kept 列出因为还有别的已添加 Agent 在读而保留的技能文件夹,按技能 ID、作用域排序:Scope 是被移除的 Agent 的作用域,
-     * SharedWith 是还在读这个文件夹的 Agent,它们照常算已装。没有这样的文件夹时为空。
+     * SharedWith 是目录列表里还有这个目录的 Agent:认这一处的照常算已装,自己在别的目录装着这个技能的仍认那一处。没有这样的文件夹时为空。
      */
     "kept": SkillScope[] | null;
 }
@@ -1294,7 +1294,7 @@ export enum MigrationOutcome {
     MigrationMoved = "moved",
 
     /**
-     * 旧目录还有别的 Agent 在读:文件夹原样复制到新目录,旧文件夹留给它们,它们照常算已装
+     * 旧目录还有别的 Agent 在读:文件夹原样复制到新目录,旧文件夹留给它们,认这一处的照常算已装
      */
     MigrationCopied = "copied",
 
@@ -1836,9 +1836,9 @@ export interface SameNameFolder {
 }
 
 /**
- * SameNameKind 是两个技能文件夹同名的情形。值以后可能增加,调用方遇到不认识的值按「只标出同名」处理。
+ * SameNamePairKind 是两个技能文件夹同名的情形。值以后可能增加,调用方遇到不认识的值按「只标出同名」处理。
  */
-export enum SameNameKind {
+export enum SameNamePairKind {
     /**
      * The Go zero value for the underlying type of the enum.
      */
@@ -1885,7 +1885,7 @@ export enum SameNameRule {
  * SameNameSkill 是一对同名的技能文件夹,两处都要标出来。
  */
 export interface SameNameSkill {
-    "kind": SameNameKind;
+    "kind": SameNamePairKind;
 
     /**
      * Name 是两处共同的技能名:SKILL.md 里的 name,读不出时用文件夹名。两处的文件夹名可以不同。
@@ -2756,7 +2756,7 @@ export interface UnmanagedSkill {
     "link_target"?: string;
 
     /**
-     * LinkOutside 表示 LinkTarget 不在任何 Agent 的技能目录里(各已添加 Agent 的全部全局目录与在各已登记项目里的全部技能目录),
+     * LinkOutside 表示 LinkTarget 不在任何 Agent 的技能目录里(表里各 Agent 的全部全局目录与在各已登记项目里的全部技能目录,候选池里的也算),
      * 例如技能作者把它链到自己的工作目录 ~/code/my-skills/foo,在那里改了 Agent 马上就能用上。入库后库第一次写这一处时
      * 会把链接换成独立的一份,在原来的目录里改就不再影响这里;所以和在项目仓库里的一样默认不入库,内容和库里一致也不自动纳入,
      * 界面写明它指向哪里。

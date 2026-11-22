@@ -283,3 +283,147 @@ func sameNameSkills(t *testing.T, lib *library.Library) []library.SameNameSkill 
 	}
 	return slices.DeleteFunc(same, func(skill library.SameNameSkill) bool { return skill.Kind == library.SameNameGlobalAndProject })
 }
+
+// 旧链接只算认这一处的 Agent 的:另一个 Agent 的目录列表里也有这个目录,但它自己在前面的目录装着这个技能,
+// 它别的目录里指向这一处的链接不是旧链接,卸载时留着。
+func TestLinkOfAnAgentThatRecognizesAnotherPlaceIsNotStale(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	home := t.TempDir()
+	setTestHome(t, home)
+	lib := openTestLibrary(t)
+	agents, links := filepath.Join(home, ".agents", "skills"), filepath.Join(home, ".links", "skills")
+	other, err := lib.AddAgent(ctx, library.AgentInput{
+		Name: "Other", GlobalDirectories: []string{filepath.Join(home, ".other", "skills"), agents, links}, ProjectDirectories: []string{".other/skills"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foo := fetchNamedSkill(t, lib, "foo")
+	codex := library.GlobalScope(library.AgentCodex)
+	for _, scope := range []library.Scope{library.GlobalScope(other.Code), codex} {
+		if err := lib.Install(ctx, foo.ID, scope, library.InstallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(links, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(links, "foo")
+	if err := os.Symlink(filepath.Join(agents, "foo"), link); err != nil {
+		t.Fatal(err)
+	}
+	inspections, err := lib.InspectSkillScopes(ctx, library.SkillScopeFilter{SkillID: foo.ID, Scope: &codex})
+	if err != nil || len(inspections) != 1 || len(inspections[0].StaleLinks) != 0 {
+		t.Fatalf("InspectSkillScopes(foo, codex) = %#v, %v; want no stale links", inspections, err)
+	}
+	if err := lib.Uninstall(ctx, foo.ID, codex, library.UninstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(link); err != nil {
+		t.Fatalf("link after uninstall: %v; want it kept", err)
+	}
+}
+
+// 注销项目、删除文件夹时,认那一处的 Agent 在项目里别的技能目录中指向它的旧链接一并删掉。
+func TestUnregisterProjectRemovesStaleLinks(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	home := t.TempDir()
+	setTestHome(t, home)
+	lib := openTestLibrary(t)
+	agent, err := lib.AddAgent(ctx, library.AgentInput{Name: "Two", GlobalDirectories: []string{"~/.two/skills"}, ProjectDirectories: []string{".one/skills", ".two/skills"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := registerProject(t, lib)
+	foo := fetchNamedSkill(t, lib, "foo")
+	if err := lib.Install(ctx, foo.ID, library.ProjectScope(agent.Code, project.ID), library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	links := filepath.Join(project.Path, ".two", "skills")
+	if err := os.MkdirAll(links, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(links, "foo")
+	if err := os.Symlink(filepath.Join(project.Path, ".one", "skills", "foo"), link); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.UnregisterProject(ctx, project.ID, library.UnregisterProjectOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	requireNoInstalledFolder(t, filepath.Join(project.Path, ".one", "skills"), "foo")
+	if _, err := os.Lstat(link); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("link after unregistering: %v; want it removed", err)
+	}
+}
+
+// 卸载前算会丢的提到按实际文件夹判断:记录在链接上、真实文件夹在 Cursor 的另一个目录里时,卸载只删链接,
+// Cursor 里提到它的技能仍找得到它,只读链接那个目录的 Codex 找不到;同时卸载的技能,另一个目录里有同名的另一份时,
+// 也不再算它会丢掉提到。
+func TestLostMentionsFollowTheActualFolders(t *testing.T) {
+	t.Parallel()
+	lib, agents, cursor := cursorHome(t)
+	skills := fetchMentionSource(t, lib, mentionSource(t, map[string]string{"entry": "Run /ship.\n", "ship": "# ship\n"}))
+	global := library.GlobalScope("cursor")
+	entry, ship := skills["entry"].ID, skills["ship"].ID
+	install(t, lib, ship, global)
+	install(t, lib, entry, global)
+	if err := os.MkdirAll(cursor, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(agents, "ship"), filepath.Join(cursor, "ship")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(cursor, "ship"), filepath.Join(agents, "ship")); err != nil {
+		t.Fatal(err)
+	}
+	requireMissingMentions(t, listLostMentions(t, lib, library.SkillInScope{SkillID: ship, Scope: global}), []library.MissingMention{
+		{SkillID: entry, Scope: library.GlobalScope(library.AgentCodex), Name: "ship", MentionedSkillID: ship},
+	})
+
+	writeUnmanagedSkill(t, cursor, "entry", "another entry")
+	requireMissingMentions(t, listLostMentions(t, lib,
+		library.SkillInScope{SkillID: ship, Scope: global}, library.SkillInScope{SkillID: entry, Scope: global},
+	), nil)
+}
+
+// 整批入库时,一项不填目录、另一项填第 1 个目录,是同一个文件夹:返回 InvalidArgument,什么都不入库。
+func TestFetchUnmanagedSkillsRejectsTheSameFolderWrittenTwoWays(t *testing.T) {
+	t.Parallel()
+	lib, agents, _ := cursorHome(t)
+	writeUnmanagedSkill(t, agents, "foo", "foo")
+	global := library.GlobalScope("cursor")
+	_, err := lib.FetchUnmanagedSkills(t.Context(), library.FetchUnmanagedSkillsRequest{Skills: []library.UnmanagedFetchItem{
+		{Folders: []library.FolderInScope{{Scope: global, Name: "foo"}}},
+		{Folders: []library.FolderInScope{{Scope: global, Directory: agents, Name: "foo"}}},
+	}})
+	requireLibraryError(t, err, library.InvalidArgument)
+	if skills, err := lib.ListSkills(t.Context()); err != nil || len(skills) != 0 {
+		t.Fatalf("ListSkills() = %#v, %v; want nothing fetched", skills, err)
+	}
+}
+
+// npx skills 把技能放在 ~/.agents/skills、在 ~/.claude/skills 留链接:Codex 移回候选池后,链接仍指在 Agent 目录里,不算指向外面。
+func TestLinkIntoAPoolAgentsDirectoryIsNotOutside(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	home := t.TempDir()
+	setTestHome(t, home)
+	lib := openTestLibrary(t)
+	if _, err := lib.DeleteAgent(ctx, library.AgentCodex, library.DeleteAgentOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	agents, claude := filepath.Join(home, ".agents", "skills"), filepath.Join(home, ".claude", "skills")
+	writeUnmanagedSkill(t, agents, "foo", "foo")
+	if err := os.MkdirAll(claude, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(agents, "foo"), filepath.Join(claude, "foo")); err != nil {
+		t.Fatal(err)
+	}
+	found := unmanagedNamed(t, lib, library.GlobalScope(library.AgentClaudeCode), "foo")
+	if len(found) != 1 || found[0].LinkTarget == "" || found[0].LinkOutside {
+		t.Fatalf("unmanaged foo = %#v; want a link not counted as outside", found)
+	}
+}

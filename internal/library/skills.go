@@ -300,7 +300,7 @@ func (l *Library) removeSkills(ctx context.Context, operation string, ids []Skil
 			if err != nil {
 				return err
 			}
-			place, err := installedAt(ctx, l.store, id, target)
+			place, err := l.installedAt(ctx, id, target)
 			if err != nil {
 				return err
 			}

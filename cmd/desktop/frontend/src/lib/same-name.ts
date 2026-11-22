@@ -1,6 +1,6 @@
 // 同名：同一个 Agent 的全局和项目里同名时会怎样，同一层的别处同名不同内容的几份，库里同名的另外几个技能。
 import {
-  SameNameKind as PairKind,
+  SameNamePairKind as PairKind,
   SameNameRule,
   type PlannedUnmanagedSkill,
   type SameNameSkill,

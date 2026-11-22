@@ -1,7 +1,7 @@
 // 同名：同一个 Agent 的全局和项目里同名时的后果，同一层的别处同名不同内容的几份。
 import { describe, expect, it } from "vitest";
 import {
-  SameNameKind,
+  SameNamePairKind,
   SameNameRule,
   ScopeKind,
   type Agent,
@@ -20,7 +20,7 @@ const where = (agent: string, project_id?: number) =>
   project_id ? { kind: ScopeKind.ScopeProject, agent, project_id } : { kind: ScopeKind.ScopeGlobal, agent };
 // globalAndProject 是同一个 Agent 的全局和一个项目里同名的一对:first 是全局的,second 是项目里的。
 const globalAndProject = (agent: string, project_id: number, name: string, global: Partial<SameNameFolder>, local: Partial<SameNameFolder>): SameNameSkill => ({
-  kind: SameNameKind.SameNameGlobalAndProject,
+  kind: SameNamePairKind.SameNameGlobalAndProject,
   name,
   first: { scope: where(agent, undefined), directory: "", folder: "", ...global } as SameNameFolder,
   second: { scope: where(agent, project_id), directory: "", folder: "", ...local } as SameNameFolder,

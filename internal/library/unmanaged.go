@@ -34,7 +34,7 @@ type UnmanagedSkill struct {
 	// LinkTarget 在文件夹是符号链接时给出它最终指向的目录(已解析各级符号链接),否则为空。
 	// 例如 npx skills 把真实文件夹放在 ~/.agents/skills/<name>,再从其他 Agent 的目录用符号链接指过去。
 	LinkTarget string `json:"link_target,omitempty"`
-	// LinkOutside 表示 LinkTarget 不在任何 Agent 的技能目录里(各已添加 Agent 的全部全局目录与在各已登记项目里的全部技能目录),
+	// LinkOutside 表示 LinkTarget 不在任何 Agent 的技能目录里(表里各 Agent 的全部全局目录与在各已登记项目里的全部技能目录,候选池里的也算),
 	// 例如技能作者把它链到自己的工作目录 ~/code/my-skills/foo,在那里改了 Agent 马上就能用上。入库后库第一次写这一处时
 	// 会把链接换成独立的一份,在原来的目录里改就不再影响这里;所以和在项目仓库里的一样默认不入库,内容和库里一致也不自动纳入,
 	// 界面写明它指向哪里。
@@ -410,9 +410,6 @@ func (l *Library) agentDirectories(ctx context.Context) ([]string, error) {
 	}
 	var directories []string
 	for _, agent := range agents {
-		if !agent.Enabled {
-			continue
-		}
 		for _, path := range agent.GlobalPaths {
 			directories = append(directories, l.home.Join(path))
 		}
@@ -422,14 +419,18 @@ func (l *Library) agentDirectories(ctx context.Context) ([]string, error) {
 			}
 		}
 	}
-	return directories, nil
+	return slices.Compact(slices.Sorted(slices.Values(directories))), nil
 }
 
 func (l *Library) displayDirectory(target resolvedScope) string {
-	if target.ProjectID == nil {
-		return l.home.Join(target.relative)
+	return l.shownDirectory(target.ProjectID != nil, target.relative)
+}
+
+func (l *Library) shownDirectory(project bool, relative string) string {
+	if !project {
+		return l.home.Join(relative)
 	}
-	return target.relative
+	return relative
 }
 
 func (l *Library) scopeIn(operation string, target resolvedScope, directory string) (resolvedScope, error) {
@@ -444,14 +445,14 @@ func (l *Library) scopeIn(operation string, target resolvedScope, directory stri
 	return resolvedScope{}, argumentError(operation, "directory", "the agent does not read skills from this directory")
 }
 
-// SameNameKind 是两个技能文件夹同名的情形。值以后可能增加,调用方遇到不认识的值按「只标出同名」处理。
-type SameNameKind string
+// SameNamePairKind 是两个技能文件夹同名的情形。值以后可能增加,调用方遇到不认识的值按「只标出同名」处理。
+type SameNamePairKind string
 
 const (
 	// SameNameGlobalAndProject 是同一个 Agent 的全局和一个已登记项目里同名:后果按 Agent 的 [Agent].SameName 说明。
-	SameNameGlobalAndProject SameNameKind = "global_and_project"
+	SameNameGlobalAndProject SameNamePairKind = "global_and_project"
 	// SameNameTwoDirectories 是同一个作用域的两个技能目录里同名、又不是同一个技能:不知道哪个生效,只标出同名。
-	SameNameTwoDirectories SameNameKind = "two_directories"
+	SameNameTwoDirectories SameNamePairKind = "two_directories"
 )
 
 // SameNameFolder 是同名技能中的一个技能文件夹。
@@ -467,7 +468,7 @@ type SameNameFolder struct {
 
 // SameNameSkill 是一对同名的技能文件夹,两处都要标出来。
 type SameNameSkill struct {
-	Kind SameNameKind `json:"kind"`
+	Kind SameNamePairKind `json:"kind"`
 	// Name 是两处共同的技能名:SKILL.md 里的 name,读不出时用文件夹名。两处的文件夹名可以不同。
 	Name string `json:"name"`
 	// First 在 SameNameGlobalAndProject 时是全局的那个,在 SameNameTwoDirectories 时是技能目录在 Agent 目录列表里靠前的那个;
@@ -477,7 +478,7 @@ type SameNameSkill struct {
 }
 
 // ListSameNameSkills 列出同名的技能文件夹,不论是不是库装的:库装的([Library.ListSkillScopes])和未纳管的([Library.ListUnmanagedSkills])
-// 一起比,也就是 Agent 实际能看到的技能。有两种(见 SameNameKind):每个已添加的 Agent 的全局和各已登记项目里同名的;
+// 一起比,也就是 Agent 实际能看到的技能。有两种(见 SameNamePairKind):每个已添加的 Agent 的全局和各已登记项目里同名的;
 // 同一个作用域两个技能目录里同名、又不是同一个技能的(两处是同一个技能的安装记录,或一处是这个技能的安装、另一处和它的当前版本内容一致,
 // 都不算;经符号链接指到同一个文件夹的只算一处)。和另一个技能目录里装着的技能的当前版本内容一致的那一份,和 ListUnmanagedSkills 一样不算。
 // 同名按 SKILL.md 的 frontmatter 里的 name 判断(Agent 按它认技能),frontmatter 读不出或没有合法的 name 时用文件夹名;
@@ -619,6 +620,7 @@ type scopeFolder struct {
 	target    resolvedScope
 	canonical string
 	skillID   SkillID
+	twins     []string
 }
 
 func (l *Library) scopeFolders(ctx context.Context, only map[Scope]bool) ([]scopeFolder, error) {
@@ -764,7 +766,10 @@ func withoutLinkedTwins(folders []scopeFolder) []scopeFolder {
 			continue
 		}
 		if other := result[at]; other.skillID == 0 && (found.skillID != 0 || other.Target != "" && found.Target == "") {
+			found.twins = append(other.twins, other.Path)
 			result[at] = found
+		} else {
+			result[at].twins = append(result[at].twins, found.Path)
 		}
 	}
 	return result

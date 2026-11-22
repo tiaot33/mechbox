@@ -253,12 +253,8 @@ func (p installedPlace) owned() bool {
 	return p.installed() && p.rows[0].Agent == p.target.Agent
 }
 
-type placeReader interface {
-	PlaceSkillScopes(ctx context.Context, skillID int64, scope store.Scope) ([]store.PlaceSkillScope, error)
-}
-
-func installedAt(ctx context.Context, q placeReader, id SkillID, target resolvedScope) (installedPlace, error) {
-	rows, err := q.PlaceSkillScopes(ctx, int64(id), target.Scope)
+func (l *Library) installedAt(ctx context.Context, id SkillID, target resolvedScope) (installedPlace, error) {
+	rows, err := l.store.PlaceSkillScopes(ctx, int64(id), target.Scope)
 	if err != nil {
 		return installedPlace{}, err
 	}
@@ -289,14 +285,6 @@ func (l *Library) readsTwice(ctx context.Context, id SkillID, target resolvedSco
 		}
 	}
 	return scopes, nil
-}
-
-func (l *Library) staleLinks(ctx context.Context, place installedPlace) ([]string, error) {
-	links, err := l.staleLinksOf(ctx, []installedPlace{place})
-	if err != nil {
-		return nil, err
-	}
-	return links[0], nil
 }
 
 func (l *Library) staleLinksOf(ctx context.Context, places []installedPlace) ([][]string, error) {
@@ -340,6 +328,13 @@ func (l *Library) staleLinksOf(ctx context.Context, places []installedPlace) ([]
 		for _, agent := range agents {
 			paths := agent.Paths(place.target.ProjectID != nil)
 			if !agent.Enabled || !slices.Contains(paths, place.target.relative) {
+				continue
+			}
+			recognized, err := l.store.PlaceSkillScopes(ctx, int64(place.skillID), store.Scope{Agent: agent.Code, ProjectID: place.target.ProjectID})
+			if err != nil {
+				return nil, err
+			}
+			if len(recognized) == 0 || recognized[0].Directory != place.target.relative {
 				continue
 			}
 			for _, directory := range paths {

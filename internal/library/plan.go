@@ -299,7 +299,7 @@ func (l *Library) readScopeEdit(ctx context.Context, operation string, id SkillI
 	if err != nil {
 		return scopeEdit{}, err
 	}
-	installed, err := installedAt(ctx, l.store, id, target)
+	installed, err := l.installedAt(ctx, id, target)
 	if err != nil {
 		return scopeEdit{}, err
 	}

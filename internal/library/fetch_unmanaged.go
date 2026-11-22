@@ -186,7 +186,7 @@ func (l *Library) unmanagedFolders(ctx context.Context, operation string, reques
 		return folders, matched, err
 	}
 	for _, folder := range folders {
-		place, err := installedAt(ctx, l.store, SkillID(matched), folder.target)
+		place, err := l.installedAt(ctx, SkillID(matched), folder.target)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -670,13 +670,19 @@ func (l *Library) FetchUnmanagedSkills(ctx context.Context, req FetchUnmanagedSk
 			if !validFolderName(folder.Name) {
 				return nil, argumentError(operation, "name", "invalid skill folder name")
 			}
-			if seen[folder] {
+			key := folder
+			if target, err := l.resolveScope(ctx, operation, folder.Scope); err == nil {
+				if target, err = l.scopeIn(operation, target, folder.Directory); err == nil {
+					key.Directory = target.relative
+				}
+			}
+			if seen[key] {
 				return nil, argumentError(operation, "folders", "a folder is given more than once")
 			}
 			if scopes[folder.Scope] {
 				return nil, argumentError(operation, "folders", "a skill is installed once per scope")
 			}
-			seen[folder], scopes[folder.Scope] = true, true
+			seen[key], scopes[folder.Scope] = true, true
 		}
 		if strings.TrimSpace(item.SourceInput) == "" && item.SourceRef != "" {
 			return nil, argumentError(operation, "source_ref", "a ref needs a source input")

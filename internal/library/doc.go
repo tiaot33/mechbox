@@ -191,11 +191,11 @@
 //
 // # 实现
 //
-// 一个 Agent 在一个作用域里认哪一处安装只在一个地方算:store 的 PlaceSkillScopes(按 store.Recognize 的规则,自己有记录的认记录,
-// 没有的按目录顺序认第一个有记录的目录;记录的 directory 为空时是它这一层级的第 1 个目录),place.go 的 installedAt 据此给出这一处的
-// 实际目录与文件夹;install.go 的 listSkillScopes 对全库按同一规则算出每个已添加 Agent 认的那一处。按 Agent 找文件夹的流程
+// 一个 Agent 在一个作用域里认哪一处安装的规则在 store.Recognize:自己有记录的认记录,没有的按目录顺序认第一个有记录的目录;
+// 记录的 directory 为空时是它这一层级的第 1 个目录。用到这条规则的有两处:store 的 PlaceSkillScopes 按它查单个 Agent 的那一处,
+// place.go 的 installedAt 据此给出这一处的实际目录与文件夹;install.go 的 listSkillScopes 对全库算出每个已添加 Agent 认的那一处。按 Agent 找文件夹的流程
 // (卸载、重新安装、更新、回滚、巡检、移除技能、改目录)都经这两处,不用作用域的第 1 个目录拼路径。删掉一处文件夹时连同 place.go 的
-// staleLinks 找出的旧链接(认这一处的 Agent 在别的技能目录里指向它、又没有记录的同名符号链接)。
+// staleLinksOf 找出的旧链接(认这一处的 Agent 在别的技能目录里指向它、又没有记录的同名符号链接)。
 //
 // 改动数据库又改动 Agent 目录的操作(安装、卸载、更新、回滚、重新安装等)都经 place.go 的 applyChange 一次提交:
 // 先把要写的文件夹暂存好,再开事务写记录,把文件夹移到位,提交事务,最后清理备份;任何一步失败都倒序撤销,

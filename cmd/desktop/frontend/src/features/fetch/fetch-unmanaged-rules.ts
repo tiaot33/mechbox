@@ -49,7 +49,7 @@ export function itemOf(
 ): UnmanagedFetchItem {
   const { input, ref } = sourceOf(planned, link);
   return {
-    folders: foldersOf(planned).map((f) => ({ scope: f.scope, name: f.name })),
+    folders: foldersOf(planned).map((f) => ({ scope: f.scope, directory: f.directory, name: f.name })),
     source_input: input,
     source_ref: ref,
   };

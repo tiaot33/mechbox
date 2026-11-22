@@ -21,7 +21,7 @@ const (
 	baselineFile  = "testdata/00027_schema.sql"
 )
 
-var enabledInNewLibrary = []string{"claude-code", "codex"}
+var EnabledInNewLibrary = []string{"claude-code", "codex"}
 
 func newToken() string {
 	return rand.Text()
@@ -60,7 +60,7 @@ func writeCatalogAgents(ctx context.Context, db *sql.DB, l layout, fresh bool) e
 	}
 	defer tx.Rollback()
 	for _, agent := range catalog {
-		enabled := fresh && slices.Contains(enabledInNewLibrary, agent.Code)
+		enabled := fresh && slices.Contains(EnabledInNewLibrary, agent.Code)
 		if _, err := tx.ExecContext(ctx, `INSERT INTO agents(code, name, global_paths, project_paths, detect_paths, same_name, enabled)
 			VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(code) DO NOTHING`,
 			agent.Code, agent.Name, jsonList(agent.GlobalPaths), jsonList(agent.ProjectPaths), jsonList(agent.DetectPaths), agent.SameName, enabled); err != nil {

@@ -398,7 +398,7 @@ func (l *Library) rollbackInstall(ctx context.Context, operation string, id Skil
 	if err != nil {
 		return "", err
 	}
-	installed, err := installedAt(ctx, l.store, id, target)
+	installed, err := l.installedAt(ctx, id, target)
 	if err != nil {
 		return "", err
 	}

@@ -1,6 +1,7 @@
 package library_test
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -205,5 +206,68 @@ func TestDeleteAgentHandsGroupInstallsToAnAgentWithTheSameDirectories(t *testing
 	scopes := skillScopesOf(t, lib, member.ID)
 	if len(scopes) != 1 || scopes[cline].Direct || !reflect.DeepEqual(scopes[cline].Groups, []library.GroupID{group.ID}) || scopes[cline].SharedOnly {
 		t.Fatalf("ListSkillScopes(member) = %#v; want Cline holding it through the group", scopes)
+	}
+}
+
+// 移除或改目录的 Agent 的文件夹,另一个 Agent 的目录列表里也有、它自己却在别的目录装着这个技能:
+// 那个 Agent 不接收记录,但还在读这个目录,所以文件夹保留;迁移时是复制。
+func TestAgentFolderReadByAnAgentThatRecognizesAnotherPlaceIsKept(t *testing.T) {
+	t.Parallel()
+	for _, edit := range []bool{false, true} {
+		t.Run(map[bool]string{false: "delete", true: "edit and migrate"}[edit], func(t *testing.T) {
+			ctx := t.Context()
+			lib, agents, cursor := cursorHome(t)
+			writeUnmanagedSkill(t, cursor, "foo", "foo")
+			fetched, err := lib.FetchUnmanaged(ctx, library.FetchUnmanagedRequest{Scope: library.GlobalScope("cursor"), Directory: cursor, Name: "foo"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			codex := library.GlobalScope(library.AgentCodex)
+			if err := lib.Install(ctx, fetched.Skill.ID, codex, library.InstallOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			if edit {
+				result, err := lib.EditAgent(ctx, library.AgentCodex, library.AgentInput{
+					Name: "Codex", GlobalDirectories: []string{"~/.codex/skills"}, ProjectDirectories: []string{".agents/skills"},
+				}, library.EditAgentOptions{Migrate: true})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(result.Migrations) != 1 || result.Migrations[0].Outcome != library.MigrationCopied {
+					t.Fatalf("EditAgent() migrations = %#v; want the folder copied", result.Migrations)
+				}
+			} else {
+				result, err := lib.DeleteAgent(ctx, library.AgentCodex, library.DeleteAgentOptions{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(result.Kept) != 1 || result.Kept[0].Scope != codex || !reflect.DeepEqual(result.Kept[0].SharedWith, []library.AgentCode{"cursor"}) {
+					t.Fatalf("DeleteAgent() kept = %#v; want the folder kept for Cursor", result.Kept)
+				}
+			}
+			requireSkillFile(t, agents, "foo", "---\nname: foo\ndescription: foo\n---\n# foo\n")
+			if scopes := skillScopesOf(t, lib, fetched.Skill.ID); scopes[library.GlobalScope("cursor")].Directory != cursor {
+				t.Fatalf("ListSkillScopes(foo) = %#v; want Cursor still on its own install in %s", scopes, cursor)
+			}
+		})
+	}
+}
+
+// 填的几个全局技能目录经符号链接是同一个目录或互相包含时,和字面上重复一样返回 InvalidArgument。
+func TestAgentDirectoriesThatAliasEachOtherAreRejected(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	setTestHome(t, home)
+	lib := openTestLibrary(t)
+	skills := filepath.Join(home, ".skills")
+	if err := os.MkdirAll(skills, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(skills, filepath.Join(home, ".alias")); err != nil {
+		t.Fatal(err)
+	}
+	for _, directories := range [][]string{{"~/.skills", "~/.alias"}, {"~/.skills", "~/.alias/inner"}} {
+		_, err := lib.AddAgent(t.Context(), library.AgentInput{Name: "Mine", GlobalDirectories: directories, ProjectDirectories: []string{".mine/skills"}})
+		requireLibraryError(t, err, library.InvalidArgument)
 	}
 }

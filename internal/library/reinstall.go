@@ -148,7 +148,7 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 		if err != nil {
 			return nil, err
 		}
-		place, err := installedAt(ctx, l.store, skillScope.SkillID, target)
+		place, err := l.installedAt(ctx, skillScope.SkillID, target)
 		if err != nil {
 			return nil, err
 		}
@@ -496,7 +496,7 @@ func (l *Library) reinstallLocked(ctx context.Context, operation string, request
 	if err != nil {
 		return "", false, err
 	}
-	installed, err := installedAt(ctx, l.store, request.SkillID, target)
+	installed, err := l.installedAt(ctx, request.SkillID, target)
 	if err != nil {
 		return "", false, err
 	}

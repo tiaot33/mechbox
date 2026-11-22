@@ -199,7 +199,7 @@ func (l *Library) scanInstalled(ctx context.Context) (*libraryScan, []SkillScope
 func (s *libraryScan) missing(installed []SkillScope, removed map[string]bool) []MissingMention {
 	present := map[folderAt]bool{}
 	for _, folder := range s.folders {
-		if !removed[folder.Path] {
+		if !removed[folder.Path] || slices.ContainsFunc(folder.twins, func(path string) bool { return !removed[path] }) {
 			present[folderAt{folder.target.scope(), folder.Name}] = true
 		}
 	}
@@ -208,7 +208,7 @@ func (s *libraryScan) missing(installed []SkillScope, removed map[string]bool) [
 	}
 	missing := []MissingMention{}
 	for _, in := range installed {
-		if !present[folderAt{in.Scope, agentdir.FolderName(in.Folder)}] {
+		if removed[in.Folder] || !present[folderAt{in.Scope, agentdir.FolderName(in.Folder)}] {
 			continue
 		}
 		from := s.byID[int64(in.SkillID)]

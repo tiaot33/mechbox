@@ -80,7 +80,7 @@ type MigrationOutcome string
 
 const (
 	MigrationMoved   MigrationOutcome = "moved"   // 文件夹原样搬到了新目录
-	MigrationCopied  MigrationOutcome = "copied"  // 旧目录还有别的 Agent 在读:文件夹原样复制到新目录,旧文件夹留给它们,它们照常算已装
+	MigrationCopied  MigrationOutcome = "copied"  // 旧目录还有别的 Agent 在读:文件夹原样复制到新目录,旧文件夹留给它们,认这一处的照常算已装
 	MigrationSkipped MigrationOutcome = "skipped" // 新目录里已有同名文件夹,或库里已有别的技能装在那里:不覆盖、不搬,旧文件夹留在原处,这个 Agent 在这一处不再算已装
 )
 
@@ -115,7 +115,7 @@ type DeleteAgentOptions struct {
 // DeleteAgentResult 是 DeleteAgent 的结果。
 type DeleteAgentResult struct {
 	// Kept 列出因为还有别的已添加 Agent 在读而保留的技能文件夹,按技能 ID、作用域排序:Scope 是被移除的 Agent 的作用域,
-	// SharedWith 是还在读这个文件夹的 Agent,它们照常算已装。没有这样的文件夹时为空。
+	// SharedWith 是目录列表里还有这个目录的 Agent:认这一处的照常算已装,自己在别的目录装着这个技能的仍认那一处。没有这样的文件夹时为空。
 	Kept []SkillScope `json:"kept"`
 }
 
@@ -182,7 +182,7 @@ func (l *Library) AddAgentsFromPool(ctx context.Context, codes []AgentCode) (add
 // 保留新数据库里先添加的 Claude Code 和 Codex。桌面端在第一次打开的流程里、全局目录选好之后调用它,
 // 这样在 Windows 上选了 WSL 发行版时检测的是发行版里的目录。用户添加的其他 Agent 不受影响。
 func (l *Library) ApplyDetectedAgents(ctx context.Context) (agents []Agent, err error) {
-	ctx, unlock := l.sharedOperation(ctx)
+	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	rows, err := l.store.ListAgents(ctx)
@@ -198,7 +198,7 @@ func (l *Library) ApplyDetectedAgents(ctx context.Context) (agents []Agent, err 
 		switch {
 		case agent.Detected:
 			detected = append(detected, string(agent.Code))
-		case agent.Code == AgentClaudeCode || agent.Code == AgentCodex:
+		case slices.Contains(store.EnabledInNewLibrary, string(agent.Code)):
 			missing = append(missing, string(agent.Code))
 		}
 	}
@@ -363,7 +363,7 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent AgentInpu
 		}
 		planned[agentdir.Canonical(migration.To)] = true
 		migration.Outcome = MigrationCopied
-		if item.receiver == "" {
+		if len(item.readers) == 0 {
 			change.Remove(item.Folder)
 			migration.Outcome = MigrationMoved
 		}
@@ -520,6 +520,10 @@ func (l *Library) DeleteAgent(ctx context.Context, code AgentCode, opts DeleteAg
 			if item.own != nil {
 				handOver = append(handOver, item)
 			}
+		case len(item.readers) > 0:
+			kept := item.SkillScope
+			kept.SharedWith = item.readers
+			result.Kept = append(result.Kept, kept)
 		case opts.Folders != Keep && item.own != nil:
 			removed = append(removed, item.place)
 		}
@@ -580,6 +584,7 @@ type agentInstall struct {
 	place    installedPlace
 	own      *store.PlaceSkillScope
 	receiver AgentCode
+	readers  []AgentCode
 }
 
 func (i agentInstall) project() bool {
@@ -588,6 +593,10 @@ func (i agentInstall) project() bool {
 
 func (l *Library) agentInstalls(ctx context.Context, code AgentCode) ([]agentInstall, error) {
 	skillScopes, err := l.listSkillScopes(ctx, 0, nil)
+	if err != nil {
+		return nil, err
+	}
+	agents, err := l.store.ListAgents(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -600,7 +609,7 @@ func (l *Library) agentInstalls(ctx context.Context, code AgentCode) ([]agentIns
 		if err != nil {
 			return nil, err
 		}
-		place, err := installedAt(ctx, l.store, skillScope.SkillID, target)
+		place, err := l.installedAt(ctx, skillScope.SkillID, target)
 		if err != nil {
 			return nil, err
 		}
@@ -614,6 +623,11 @@ func (l *Library) agentInstalls(ctx context.Context, code AgentCode) ([]agentIns
 		}
 		if item.receiver == "" && len(skillScope.SharedWith) > 0 {
 			item.receiver = skillScope.SharedWith[0]
+		}
+		for _, agent := range agents {
+			if agent.Enabled && agent.Code != string(code) && slices.Contains(agent.Paths(item.project()), place.target.relative) {
+				item.readers = append(item.readers, AgentCode(agent.Code))
+			}
 		}
 		installs = append(installs, item)
 	}
@@ -682,7 +696,7 @@ func (l *Library) agentRow(operation string, agent AgentInput) (store.Agent, err
 		}
 		projectPaths = append(projectPaths, path)
 	}
-	if err := distinctDirectories(operation, "project_directories", projectPaths); err != nil {
+	if err := distinctDirectories(operation, "project_directories", projectPaths, nil); err != nil {
 		return store.Agent{}, err
 	}
 	detectPaths, err := l.homeDirectories(operation, "detect_directories", agent.DetectDirectories, false)
@@ -713,13 +727,23 @@ func (l *Library) homeDirectories(operation, field string, directories []string,
 	if !skills {
 		return paths, nil
 	}
-	return paths, distinctDirectories(operation, field, paths)
+	return paths, distinctDirectories(operation, field, paths, l.home.Join)
 }
 
-func distinctDirectories(operation, field string, paths []string) error {
+func distinctDirectories(operation, field string, paths []string, absolute func(string) string) error {
+	overlap := func(a, b string) bool {
+		if a == b || strings.HasPrefix(b, a+"/") || strings.HasPrefix(a, b+"/") {
+			return true
+		}
+		if absolute == nil {
+			return false
+		}
+		a, b = absolute(a), absolute(b)
+		return agentdir.SameFolder(a, b) || agentdir.Inside(a, b) || agentdir.Inside(b, a)
+	}
 	for i, path := range paths {
 		for _, other := range paths[i+1:] {
-			if path == other || strings.HasPrefix(other, path+"/") || strings.HasPrefix(path, other+"/") {
+			if overlap(path, other) {
 				return argumentError(operation, field, "directories must not repeat or contain one another")
 			}
 		}

@@ -176,7 +176,7 @@ func memberNameCounts(members []Skill) map[string]int {
 
 func (l *Library) planInstall(ctx context.Context, id SkillID, name string, scope resolvedScope) (InstallPlan, error) {
 	plan := InstallPlan{SkillID: id, Name: name, Folder: agentdir.FolderPath(scope.directory, name), Status: InstallReady}
-	place, err := installedAt(ctx, l.store, id, scope)
+	place, err := l.installedAt(ctx, id, scope)
 	if err != nil {
 		return plan, err
 	}
@@ -229,7 +229,7 @@ func (l *Library) Install(ctx context.Context, id SkillID, scope Scope, opts Ins
 	if err := target.requireRoot("install skill"); err != nil {
 		return err
 	}
-	place, err := installedAt(ctx, l.store, id, target)
+	place, err := l.installedAt(ctx, id, target)
 	if err != nil {
 		return err
 	}
@@ -288,7 +288,7 @@ func (l *Library) uninstall(ctx context.Context, operation string, places []Skil
 		if err != nil {
 			return err
 		}
-		place, err := installedAt(ctx, l.store, item.SkillID, target)
+		place, err := l.installedAt(ctx, item.SkillID, target)
 		if err != nil {
 			return err
 		}
@@ -359,7 +359,7 @@ func newMemberPlan(operation string, opts InstallOptions) *memberPlan {
 
 func (l *Library) planMember(ctx context.Context, plan *memberPlan, id SkillID, name string, target resolvedScope, duplicate bool) error {
 	result := GroupMemberResult{SkillID: id, Scope: target.scope(), Outcome: MemberSkipped}
-	place, err := installedAt(ctx, l.store, id, target)
+	place, err := l.installedAt(ctx, id, target)
 	if err != nil {
 		return err
 	}
@@ -602,10 +602,7 @@ func (l *Library) listSkillScopes(ctx context.Context, skillID SkillID, scope *s
 			if scope != nil && listed != scopeFrom(*scope) {
 				continue
 			}
-			skillScope := SkillScope{SkillID: SkillID(key.skillID), Scope: listed, Directory: entry.directory, SharedOnly: entry.own == nil}
-			if key.projectID == 0 {
-				skillScope.Directory = l.home.Join(entry.directory)
-			}
+			skillScope := SkillScope{SkillID: SkillID(key.skillID), Scope: listed, Directory: l.shownDirectory(key.projectID != 0, entry.directory), SharedOnly: entry.own == nil}
 			name := ""
 			if entry.own != nil {
 				name = entry.own.Name

@@ -218,8 +218,8 @@ func (l *Library) RelocateProject(ctx context.Context, id ProjectID, path string
 }
 
 // UnregisterProject 注销一个已登记项目:它从项目列表里消失,在各 Agent 下的直接安装与组安装都撤掉。
-// 默认(opts.Folders 为零值或 Remove)同时删除库装进这个项目的技能文件夹;显式 Keep 时文件夹留在磁盘上,
-// 但库从此不再管理它们。项目目录本身、库没装的文件夹都不动。项目不在这台机器上时也能注销:
+// 默认(opts.Folders 为零值或 Remove)同时删除库装进这个项目的技能文件夹,连同指向它们的旧链接(同 Uninstall);
+// 显式 Keep 时文件夹留在磁盘上,但库从此不再管理它们。项目目录本身、库没装的文件夹都不动。项目不在这台机器上时也能注销:
 // 要删的文件夹本来就不在,算成功。删之前核对文件夹有没有被改过,确认之后才被改过的返回 Conflict,不注销(见 UnregisterProjectOptions)。
 // 未登记的 id 返回 NotFound。
 func (l *Library) UnregisterProject(ctx context.Context, id ProjectID, opts UnregisterProjectOptions) (err error) {
@@ -238,10 +238,23 @@ func (l *Library) UnregisterProject(ctx context.Context, id ProjectID, opts Unre
 		if err != nil {
 			return err
 		}
+		var places []installedPlace
 		for _, skillScope := range skillScopes {
-			if skillScope.Scope.Kind == ScopeProject && skillScope.Scope.ProjectID == id {
-				removals = append(removals, removal{skillID: skillScope.SkillID, folder: skillScope.Folder})
+			if skillScope.Scope.Kind != ScopeProject || skillScope.Scope.ProjectID != id {
+				continue
 			}
+			target, err := l.resolveScope(ctx, "unregister project", skillScope.Scope)
+			if err != nil {
+				return err
+			}
+			place, err := l.installedAt(ctx, skillScope.SkillID, target)
+			if err != nil {
+				return err
+			}
+			places = append(places, place)
+		}
+		if removals, err = l.placeRemovals(ctx, places); err != nil {
+			return err
 		}
 	}
 	var change agentdir.Change

@@ -18,7 +18,7 @@ export {
     ProxyMode,
     ReinstallOutcome,
     RollbackOutcome,
-    SameNameKind,
+    SameNamePairKind,
     SameNameRule,
     ScopeKind,
     SkillFileProblemKind,

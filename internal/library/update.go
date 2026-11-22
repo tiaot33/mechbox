@@ -212,7 +212,7 @@ func (l *Library) sameFolder(ctx context.Context, operation string, id SkillID, 
 	if err != nil {
 		return false
 	}
-	place, err := installedAt(ctx, l.store, id, target)
+	place, err := l.installedAt(ctx, id, target)
 	if err != nil || !place.installed() {
 		return false
 	}
