@@ -6,7 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import type { MentionLine, Skill, SkillMention } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { skillMentionsQuery, useSnapshot } from "@/lib/library";
-import { folderPresent, mergeProjectPlaces, scopeLabel, skillScopesOf } from "@/lib/model";
+import { folderPresent, skillScopesOf } from "@/lib/installs";
+import { eachPlace, placeNames } from "@/lib/places";
 import { toggleDrawer } from "@/lib/view";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -93,7 +94,7 @@ function Lines({ lines }: { lines: MentionLine[] }) {
 function Status({ skill, mention }: { skill: Skill; mention: SkillMention }) {
   const s = useSnapshot();
   const t = useT().drawer;
-  const checked = mergeProjectPlaces(s, skillScopesOf(s, skill.id).filter(folderPresent));
+  const checked = eachPlace(s, skillScopesOf(s, skill.id).filter(folderPresent));
   if (!checked.length) {
     return mention.skill_id ? (
       <span className="mention-status shrink-0 text-caption text-muted-foreground">{t.mentionInLibrary}</span>
@@ -112,7 +113,7 @@ function Status({ skill, mention }: { skill: Skill; mention: SkillMention }) {
     );
   }
   // 项目里共用一个目录的几个 Agent 在界面上是一处，合起来写。
-  const wheres = mergeProjectPlaces(s, missing).map((m) => scopeLabel(s, m.scope));
+  const wheres = placeNames(s, missing);
   // 装着的地方都找不到时不再逐个写出作用域(几项都一样，太长),悬停时列出。
   const everywhere = wheres.length > 1 && wheres.length === checked.length;
   return (

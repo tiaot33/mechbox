@@ -6,7 +6,9 @@ import type { Scope, SkillID, SkillScopeInspection } from "@bindings/internal/li
 import { detachedBy, linkWrites, lostEdits, placeKey, type Detached } from "@/lib/consent";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import { agentName, mergeProjectPlaces, projectName, scopeLabel, shortPath, skillName, wslTitle } from "@/lib/model";
+import { agentName, projectName, skillName } from "@/lib/scope";
+import { eachPlace, placeNames, scopeLabel } from "@/lib/places";
+import { shortPath, wslTitle } from "@/lib/paths";
 import { ui } from "@/lib/ui";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
@@ -31,7 +33,7 @@ export function DetachNotice({
       {items.map(({ place, by }) => (
         <span key={placeKey(place)} className="block">
           {t.actions.detach(
-            mergeProjectPlaces(s, by.map((scope) => ({ scope }))).map((x) => scopeLabel(s, x.scope)),
+            placeNames(s, by),
             skillName(s, place.skill_id),
             shortPath(s, place.folder),
             when,
@@ -84,7 +86,7 @@ export function LinkedPlaces({ places }: { places: SkillScopeInspection[] }) {
   const s = useSnapshot();
   return (
     <ListBox>
-      {mergeProjectPlaces(s, places).map((p) => (
+      {eachPlace(s, places).map((p) => (
         <ListRow key={placeKey(p)} compact className="linked-place">
           <div className="min-w-0 grow">
             <div>

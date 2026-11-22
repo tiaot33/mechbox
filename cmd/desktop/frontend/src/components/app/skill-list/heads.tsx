@@ -2,26 +2,11 @@
 import type { RegisteredProject } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import {
-  agentName,
-  agentNameIn,
-  groupStateIn,
-  editedHere,
-  needsRepair,
-  reinstallLevel,
-  skillScopeIn,
-  parseScope,
-  placeOf,
-  projectName,
-  scopeLabel,
-  shortPath,
-  skillScopesIn,
-  splitIdentical,
-  unmanagedIn,
-  wslTitle,
-  type ScopeKey,
-  fetchable,
-} from "@/lib/model";
+import { agentName, parseScope, placeOf, projectName, type ScopeKey } from "@/lib/scope";
+import { agentNameIn, scopeLabel } from "@/lib/places";
+import { groupStateIn, editedHere, needsRepair, reinstallLevel, skillScopeIn, skillScopesIn } from "@/lib/installs";
+import { shortPath, wslTitle } from "@/lib/paths";
+import { splitIdentical, unmanagedIn, fetchable } from "@/lib/unmanaged";
 import type { Level } from "@/lib/level";
 import { cn } from "@/lib/utils";
 import { offerFetchProject } from "@/features/fetch/fetch-unmanaged-all";

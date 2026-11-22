@@ -20,7 +20,9 @@ import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { useSnapshot, versionQuery } from "@/lib/library";
-import { mergeProjectPlaces, scopeLabel, shortRevision, skillName } from "@/lib/model";
+import { eachPlace, placeCount, scopeLabel } from "@/lib/places";
+import { shortRevision } from "@/lib/source";
+import { skillName } from "@/lib/scope";
 import { Modal, ui, useBusy } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
 import type { Tone } from "@/lib/level";
@@ -75,7 +77,7 @@ export function RollbackDialog({ record, onClose }: { record: UpdateRecord; onCl
         const installs = result.installs ?? [];
         const head = messages().update.rolledBack(
           (result.skills ?? []).map((x) => x.name),
-          mergeProjectPlaces(s, installs.filter(putBack)).length,
+          placeCount(s, installs.filter(putBack)),
         );
         if (rolledBackFully(result)) {
           ui.toast(head);
@@ -174,7 +176,7 @@ function RollbackConfirm({
       <div className={sectionClass}>{t.rollbackPlaces}</div>
       {places.length ? (
         <ListBox className="rollback-places">
-          {mergeProjectPlaces(s, places).map((p) => (
+          {eachPlace(s, places).map((p) => (
             <ListRow key={placeKey(p)} compact>
               <span className="min-w-0 truncate">{scopeLabel(s, p.scope)}</span>
               <span className="min-w-0 truncate text-muted-foreground">{nameOf(record, p.skill_id) ?? skillName(s, p.skill_id)}</span>
@@ -252,7 +254,7 @@ function RollbackLeft({ result, head, onDone }: { result: RollbackResult; head: 
             <Badge>{t.rollbackRemoved}</Badge>
           </ListRow>
         ))}
-        {mergeProjectPlaces(s, left).map((r) => (
+        {eachPlace(s, left).map((r) => (
           <ListRow key={placeKey(r)}>
             <div className="min-w-0 grow">
               <div>

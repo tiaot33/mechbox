@@ -3,7 +3,8 @@ import type { FetchedUnmanagedSkill, PlannedUnmanagedSkill } from "@bindings/int
 import { LibraryService } from "@bindings/cmd/desktop";
 import { messages, useT } from "@/lib/i18n";
 import { type LibraryError, toLibraryError } from "@/lib/library";
-import { homePath, sameNameFetchNote } from "@/lib/model";
+import { homePath } from "@/lib/paths";
+import { sameNameFetchNote } from "@/lib/same-name";
 import { Badge } from "@/components/ui/badge";
 import { fetchBatches, itemOf, keyOf, outsideTarget, sourceOf } from "./fetch-unmanaged-rules";
 

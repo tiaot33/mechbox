@@ -4,20 +4,10 @@ import { useState } from "react";
 import type { Agent, AgentCode, Scope, SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { currentSnapshot, reloadLibrary, useSnapshot } from "@/lib/library";
-import {
-  agentNameIn,
-  agentShown,
-  agentsUsedIn,
-  mergeAgentsExcept,
-  parseScope,
-  placeOf,
-  projectName,
-  scopeKey,
-  scopeOf,
-  skillScopeIn,
-  type Page,
-  type Place,
-} from "@/lib/model";
+import { agentNameIn, agentShown, agentsUsedIn, mergeAgentsExcept } from "@/lib/places";
+import { parseScope, placeOf, projectName, scopeKey, scopeOf, type Place } from "@/lib/scope";
+import { skillScopeIn } from "@/lib/installs";
+import type { Page } from "@/lib/pages";
 import { Modal, ui } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";

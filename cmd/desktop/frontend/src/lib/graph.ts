@@ -2,7 +2,9 @@
 // 只是把技能库给出的「提到」关系整理成圆点与连线，不碰界面;布局在 graph-layout.ts,画在 components/app/mention-graph 里。
 import type { CollectionID, Mention, Skill, SkillID } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { collator, matches, sourceLabel } from "./model";
+import { collator } from "./utils";
+import { matches } from "./pages";
+import { sourceLabel } from "./source";
 
 // GraphNode 是图上的一个技能。outside 的是本集合或组以外的技能(画成空心虚线圆),where 写它在哪个集合(没有来源的写「没有来源」);
 // collection 是它所在的集合(按集合着色，没有来源的是 null);mentioned 是图里有几个技能提到它(决定圆点大小)。

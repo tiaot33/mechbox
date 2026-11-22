@@ -15,19 +15,10 @@ import { createGroup, deleteGroup, renameGroup } from "@/features/group/group";
 import { useCollectionDrop, useDnD, useGroupDrop } from "./dnd";
 import { pressKeys } from "@/lib/keys";
 import { useT } from "@/lib/i18n";
-import {
-  collectionSkills,
-  foldCollections,
-  isLocal,
-  pending,
-  shortPath,
-  sourceKindLabel,
-  sectionKey,
-  sourceLabel,
-  wslTitle,
-  type Page,
-  isDefaultOrder,
-} from "@/lib/model";
+import { collectionSkills, foldCollections, isLocal, sourceKindLabel, sourceLabel } from "@/lib/source";
+import { todoSkills } from "@/lib/source-state";
+import { sectionKey, type Page } from "@/lib/pages";
+import { isDefaultOrder } from "@/features/order/order-rules";
 import { useUI } from "@/lib/ui";
 import { cn, toggled } from "@/lib/utils";
 import {
@@ -58,7 +49,7 @@ import { NavCount, navItem } from "./nav";
 import { ContextMenuEntries, useCollectionMenu, useGroupMenu } from "./menus";
 import { TailPath, tailPath, Truncated, WSLBadge } from "./parts";
 import { Badge } from "@/components/ui/badge";
-import { isWSLPath } from "@/lib/paths";
+import { isWSLPath, shortPath, wslTitle } from "@/lib/paths";
 import { platform } from "@/lib/platform";
 import { SyncDialog } from "@/features/settings/sync-dialog";
 import { openRelease } from "@/features/release/release";
@@ -80,7 +71,7 @@ export function LeftSidebar() {
   const pushFailed = !!useQuery({ ...syncStatusQuery, enabled: config.sync }).data?.problem;
   const intervals: Record<string, string> = { [SyncInterval.SyncHourly]: t.pushHourly, [SyncInterval.SyncDaily]: t.pushDaily, [SyncInterval.SyncWeekly]: t.pushWeekly };
   const syncLabel = pushFailed ? t.pushFailed : (config.auto_push && intervals[config.auto_push]) || t.manual;
-  const updates = s.skills.filter(pending).length;
+  const updates = todoSkills(s).length;
   const collections = s.collections;
   const groups = s.groups;
   // 收起的分节(collections / groups)。

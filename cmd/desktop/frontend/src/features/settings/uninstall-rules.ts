@@ -2,7 +2,7 @@
 // 不碰界面、不调技能库，单元测试见 uninstall-rules.test.ts。
 import { UninstallFolders } from "@bindings/cmd/desktop/models";
 import { SkillScopeStatus, type ProjectID, type SkillScopeInspection } from "@bindings/internal/library";
-import { folderPresent } from "@/lib/model";
+import { folderPresent } from "@/lib/installs";
 import { isWSLPath } from "@/lib/paths";
 
 // uninstallFolders 是现查出的各处安装(places)按文件夹合起来之后:present 是磁盘上在的文件夹，offMachine 是项目不在这台机器上的文件夹数，

@@ -2,7 +2,7 @@
 // 先后存在技能库里(随推送、拉回走);拖放时先在快照里换好顺序，界面不等技能库就跟着变，写完再重读。
 import { LibraryService } from "@bindings/cmd/desktop";
 import { queryClient, reloadLibrary, snapshotQuery, type Snapshot } from "@/lib/library";
-import { legacyOrder, moved, type LegacyOrder } from "@/lib/model";
+import { legacyOrder, moved, type LegacyOrder } from "@/features/order/order-rules";
 import { ui } from "@/lib/ui";
 
 type Kind = "collection" | "group";
@@ -31,7 +31,7 @@ function save(kind: Kind, ids: number[]) {
 const legacyKey = "mechbox.order";
 let adopting = false;
 
-// adoptLegacyOrder 在升级后第一次读到快照时，把旧版拖出来的先后写进技能库(规则见 lib/model 的 legacyOrder),写成了再删掉旧的那份;
+// adoptLegacyOrder 在升级后第一次读到快照时，把旧版拖出来的先后写进技能库(规则见 order-rules.ts 的 legacyOrder),写成了再删掉旧的那份;
 // 写失败时留着，下次启动再试。没有旧的那份时什么都不做。
 export async function adoptLegacyOrder(s: Snapshot) {
   const raw = localStorage.getItem(legacyKey);

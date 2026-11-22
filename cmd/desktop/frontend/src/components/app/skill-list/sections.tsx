@@ -9,21 +9,12 @@ import type { Collection, Group, Skill, SkillID } from "@bindings/internal/libra
 import { useEffect } from "react";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import {
-  changePending,
-  collectionSkills,
-  deletionPending,
-  localChanged,
-  isLocal,
-  placeOf,
-  scopeLabel,
-  revisionSummary,
-  revisionText,
-  scopeKey,
-  skillScopesOf,
-  sourceLabel,
-  wslTitle,
-} from "@/lib/model";
+import { sourceChanges } from "@/lib/source-state";
+import { collectionSkills, isLocal, revisionSummary, revisionText, sourceLabel } from "@/lib/source";
+import { placeOf, scopeKey } from "@/lib/scope";
+import { scopeLabel } from "@/lib/places";
+import { skillScopesOf } from "@/lib/installs";
+import { wslTitle } from "@/lib/paths";
 import { cn } from "@/lib/utils";
 import { toggleSection, toggleUnfolded, useView } from "@/lib/view";
 import { notInterested, previewNewSkills } from "@/features/fetch/preview";
@@ -177,11 +168,12 @@ export function CollectionSection({
   const skills = collectionSkills(s, collection);
   // 标题上的数字和行上的标记、更新页、计数是同一回事：「有变化」是有新版本或推测出改名、没跳过的(回滚掉的也算跳过);
   // 来源里已删除、用户没选继续保留的另写一项。都没有时不写，也没有「更新」。
-  const changed = skills.filter(changePending).length;
-  const deleted = skills.filter(deletionPending).length;
+  const found = sourceChanges(skills);
+  const changed = found.changed.length;
+  const deleted = found.deleted.length;
   const local = isLocal(collection.source);
   // 本地目录来源：目录里改过的技能(读目录时比出来的),右边是「重新读取」,一次读进整个目录的修改。
-  const edited = skills.filter(localChanged).length;
+  const edited = found.localChanged.length;
   const label = sourceLabel(s, collection.source);
   const facts = [
     revisionText(revisionSummary(skills)),

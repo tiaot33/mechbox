@@ -1,5 +1,6 @@
 // 技能文件内容的展示辅助：Go 的 []byte 经 JSON 成为 base64 字符串。
-import { messages } from "./i18n";
+import type { Skill } from "@bindings/internal/library";
+import { currentLanguage, messages } from "./i18n";
 
 // decodeContent 把 base64 内容解成文本;不是合法 UTF-8(二进制文件)时返回 null。
 export function decodeContent(base64: string | null): string | null {
@@ -24,4 +25,9 @@ export function formatDate(value: string | undefined): string {
   if (Number.isNaN(d.getTime()) || d.getFullYear() < 2000) return messages().common.unknown;
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+// translatedDescription 是描述在界面语言里的译文(技能库存下的);没有译文时为 undefined,显示原文。
+export function translatedDescription(item: { description_translations?: Skill["description_translations"] }): string | undefined {
+  return item.description_translations?.[currentLanguage()] || undefined;
 }

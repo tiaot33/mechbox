@@ -21,7 +21,10 @@ import {
 } from "@bindings/internal/library";
 import { defaultSkills, placeKey } from "@/lib/consent";
 import type { LibraryError, Snapshot } from "@/lib/library";
-import { isLocal, mergeProjectPlaces, sameMergedScope, scopeKey, skillScopesOf } from "@/lib/model";
+import { isLocal } from "@/lib/source";
+import { placeCount, sameMergedScope } from "@/lib/places";
+import { scopeKey } from "@/lib/scope";
+import { skillScopesOf } from "@/lib/installs";
 
 export interface UpdateOutcome {
   label: string;
@@ -60,7 +63,7 @@ export function updateOutcome(s: Snapshot, plan: UpdatePlan, label: string, chec
     record: result.record ?? 0,
     history: plan.collection_id ? { collection_id: plan.collection_id } : { skill_id: [...checked][0] },
     changed: (result.skills ?? []).filter((x) => x.changed).length,
-    placed: mergeProjectPlaces(s, installs.filter((r) => r.outcome !== ReinstallOutcome.ReinstallFailed)).length,
+    placed: placeCount(s, installs.filter((r) => r.outcome !== ReinstallOutcome.ReinstallFailed)),
     keptEdited: kept.keptEdited,
     keptMissing: kept.keptMissing,
     failed: failedOnly(installs),
@@ -121,7 +124,7 @@ export function refreshOutcome(s: Snapshot, skill: Skill, record: UpdateRecord |
     record: record?.id ?? 0,
     history: { skill_id: skill.id },
     changed: 0,
-    placed: mergeProjectPlaces(s, results.filter((r) => r.outcome !== ReinstallOutcome.ReinstallFailed)).length,
+    placed: placeCount(s, results.filter((r) => r.outcome !== ReinstallOutcome.ReinstallFailed)),
     keptEdited: kept.keptEdited,
     keptMissing: kept.keptMissing,
     failed: failedOnly(results),

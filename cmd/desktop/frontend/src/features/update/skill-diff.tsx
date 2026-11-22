@@ -5,7 +5,7 @@ import type { PlannedSkill, UpdatePlan, UpdateRisk, VersionDiff } from "@binding
 import { changedFiles } from "@/lib/diff";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, type LibraryError } from "@/lib/library";
-import { agentName } from "@/lib/model";
+import { agentName } from "@/lib/scope";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ChangedFiles, FileDiff, type FileReaders } from "./file-diff";

@@ -11,10 +11,10 @@ import {
   type SkillAudit,
 } from "@bindings/internal/library";
 import { configQuery, useLoadedSnapshot } from "@/lib/library";
-import { homePath, twinNote } from "@/lib/model";
+import { twinNote } from "@/lib/same-name";
 import { defaultCandidates } from "@/lib/consent";
 import { permissionNote } from "@/lib/agent-settings";
-import { isWSLPath } from "@/lib/paths";
+import { isWSLPath, homePath } from "@/lib/paths";
 import { messages, useT } from "@/lib/i18n";
 import { Modal, useUI } from "@/lib/ui";
 import { markFresh, useView } from "@/lib/view";

@@ -5,7 +5,9 @@ import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
 import type { Snapshot } from "@/lib/library";
 import type { Tone } from "@/lib/level";
-import { errorOccupier, scopeLabel, skillName } from "@/lib/model";
+import { errorOccupier } from "@/lib/installs";
+import { scopeLabel } from "@/lib/places";
+import { skillName } from "@/lib/scope";
 
 // ResultRow 是一条结果;occupier 是安装时占着文件夹的另一个同名技能，这一行能点开它(先关掉结果)。
 export interface ResultRow {

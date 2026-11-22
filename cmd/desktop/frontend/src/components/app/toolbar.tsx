@@ -5,11 +5,11 @@
 import { useEffect, useRef } from "react";
 import { useT } from "@/lib/i18n";
 import { useLoadedSnapshot, useSnapshot } from "@/lib/library";
-import { checkableCollections, pageTitle } from "@/lib/model";
+import { pageTitle } from "@/lib/pages";
 import { useBusy, useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { closeGraph, setSearch, toggleLeft, toggleRight, useCurrentPage, usePageListing, useView } from "@/lib/view";
-import { checkUpdates, useCheckMark } from "@/features/update/check";
+import { checkUpdates, useCheckMark, checkableCollections } from "@/features/update/check";
 import { openFetch } from "@/features/fetch/fetch-dialog";
 import { MarketDialog } from "@/features/fetch/market-dialog";
 import { Button } from "@/components/ui/button";

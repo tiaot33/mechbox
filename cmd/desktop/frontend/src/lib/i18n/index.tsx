@@ -1,5 +1,5 @@
 // 界面语言：zh.tsx 是文案的唯一来源，en.tsx 照它的结构逐条翻译(漏翻、参数不对由 tsc 报出)。
-// 组件里用 useT 取当前语言的文案，切换语言时随之重渲染;组件外的函数(model.ts 等)用 messages 读模块级的当前语言。
+// 组件里用 useT 取当前语言的文案，切换语言时随之重渲染;组件外的函数(lib/ 下的派生函数、features/ 里的写操作流程等)用 messages 读模块级的当前语言。
 // 实际用哪种语言由 Go 端决定(AppService.Language:设置里选的，或跟随系统时按系统的首选语言)。
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { zh } from "./zh";

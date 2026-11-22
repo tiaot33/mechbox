@@ -8,7 +8,9 @@ import type { SkillScopeInspection } from "@bindings/internal/library";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, configQuery, type LibraryError } from "@/lib/library";
-import { mergeProjectPlaces, projectName, scopeLabel, shortPath, wslTitle } from "@/lib/model";
+import { eachPlace, scopeLabel } from "@/lib/places";
+import { projectName } from "@/lib/scope";
+import { shortPath, wslTitle } from "@/lib/paths";
 import { ChoiceList, Modal, useUI, type Choice } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
@@ -136,7 +138,7 @@ export function UninstallDialog({ onClose }: { onClose: () => void }) {
                   {t.modified(modified.length, folders === UninstallFolders.FoldersTrash)}
                 </Notice>
                 <ListBox>
-                  {mergeProjectPlaces(s, modified).map((p) => (
+                  {eachPlace(s, modified).map((p) => (
                     <ListRow key={p.folder}>
                       <div className="min-w-0 grow">
                         <div>

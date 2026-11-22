@@ -5,14 +5,15 @@
 // 可以跳过单个技能的这次改动，也可以跳过整个来源版本。从技能发起时只勾这一个，其余有变化的折叠;改名和删除照样显示，新技能不提。
 import { useEffect, useRef, useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
-import { type CollectionID, type PlannedSkill, type SkillID, type UpdatePlan } from "@bindings/internal/library";
+import type { CollectionID, PlannedSkill, SkillID, UpdatePlan } from "@bindings/internal/library";
 import { rememberPlanRisks } from "@/lib/plan-risks";
 import { chosenInstallOn, defaultSkills, plannedInstalls } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { changedFiles } from "@/lib/diff";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, type LibraryError } from "@/lib/library";
-import { collectionName, folderKey, revisionSummary, revisionText, shortRevision, sourceLabel } from "@/lib/model";
+import { folderKey } from "@/lib/installs";
+import { revisionSummary, revisionText, shortRevision, sourceLabel, collectionName } from "@/lib/source";
 import { Modal, useBusy, useUI } from "@/lib/ui";
 import { MarkIcon } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

@@ -3,20 +3,11 @@ import { useEffect, useRef, useState } from "react";
 import type { CancellablePromise } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
 import type { Collection, CollectionID, Skill } from "@bindings/internal/library";
+import { updatedByDefault } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { useSnapshot, type Snapshot } from "@/lib/library";
-import {
-  collectionSkills,
-  deletedInSource,
-  pending,
-  renamedTo,
-  revisionSummary,
-  revisionText,
-  shortRevision,
-  sourceLabel,
-  updatableCollections,
-  updateAvailable,
-} from "@/lib/model";
+import { collectionSkills, revisionSummary, revisionText, shortRevision, sourceLabel, collectionName } from "@/lib/source";
+import { sourceChanges, sourceState, updatableCollections } from "@/lib/source-state";
 import { knownRisks, ReadRetries, rememberPlanRisks, snapshotRiskKey } from "@/lib/plan-risks";
 import { useBusy, useUI } from "@/lib/ui";
 import { riskSummary } from "@/features/update/risks";
@@ -40,7 +31,7 @@ export function UpdatesHead() {
   const t = useT().list;
   const collections = updatableCollections(s);
   const risks = usePlanRisks(s, collections);
-  const direct = collections.filter((c) => collectionSkills(s, c).some((x) => pending(x) && updateAvailable(x) && !x.edited));
+  const direct = collections.filter((c) => collectionSkills(s, c).some(updatedByDefault));
   return (
     <div className={cn(barClass, "px-3")}>
       <div className={cn(barRowClass, "updates-top")}>
@@ -62,11 +53,11 @@ export function UpdatesHead() {
       {collections.map((c) => {
         const skills = collectionSkills(s, c);
         const single = skills.length === 1;
-        const todo = skills.filter(pending);
-        const available = todo.filter(updateAvailable);
-        const plain = available.filter((x) => !x.edited);
-        const edited = available.filter((x) => x.edited);
-        const to = todo.map((x) => x.last_update_check?.revision).find(Boolean);
+        const found = sourceChanges(skills);
+        // plain 是点「更新」就会更新到的，edited 是更新会换掉用户修改的(更新计划里默认不勾)。
+        const plain = found.newVersion.filter(updatedByDefault);
+        const edited = found.newVersion.filter((x) => !updatedByDefault(x));
+        const to = found.revision;
         const risk = risks.get(c.id);
         const names = (list: Skill[]) => list.map((x) => x.name);
         const facts = [
@@ -74,14 +65,14 @@ export function UpdatesHead() {
           revisionMove(skills, to),
           plain.length ? (single ? t.newVersion : t.changedSkills(names(plain))) : "",
           edited.length ? (single ? t.newVersionEdited : t.changedSkillsEdited(names(edited))) : "",
-          ...todo.filter(renamedTo).map((x) => t.renamedSkill(x.name, renamedTo(x))),
-          todo.some(deletedInSource) ? t.deletedSkills(names(todo.filter(deletedInSource))) : "",
+          ...found.renamed.map((x) => t.renamedSkill(x.name, sourceState(x).renamedTo)),
+          found.deleted.length ? t.deletedSkills(names(found.deleted)) : "",
         ].filter(Boolean);
         return (
           <div key={c.id} className="update-row flex min-w-0 flex-col gap-0.5 border-t border-row-line pt-2">
             <div className={barRowClass}>
               {/* 名字不跟风险标签抢位置：它的宽度只看自己(最多占一半),风险读回来前后不变。 */}
-              <b className="max-w-1/2 min-w-0 shrink-0 truncate font-semibold">{single ? skills[0].name : sourceLabel(s, c.source)}</b>
+              <b className="max-w-1/2 min-w-0 shrink-0 truncate font-semibold">{collectionName(s, c.id)}</b>
               {/* 风险读回来之后才出现：只占名字后面的空白，放不下时自己截短(悬停看全),不挤名字和按钮。 */}
               {risk && (
                 <Badge tone="warn" className="update-risk min-w-0 shrink" title={`${risk}\n${t.riskTitle}`}>

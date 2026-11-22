@@ -20,21 +20,11 @@ import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
 import { installable, missingNames } from "@/lib/mentions";
-import {
-  errorOccupier,
-  folderKey,
-  folderPlaces,
-  noSource,
-  occupierOf,
-  placeOf,
-  scopeKey,
-  scopeLabel,
-  sharedWithNote,
-  shortPath,
-  skillName,
-  skillScopeIn,
-  sourceLabel,
-} from "@/lib/model";
+import { errorOccupier, folderKey, folderPlaces, occupierOf, skillScopeIn } from "@/lib/installs";
+import { noSource, sourceLabel } from "@/lib/source";
+import { placeOf, scopeKey, skillName } from "@/lib/scope";
+import { scopeLabel, sharedWithNote } from "@/lib/places";
+import { shortPath } from "@/lib/paths";
 import { placedBy, type ResultRow } from "@/components/app/result-rows";
 
 // occupied 是被占用、装不上的一处:reason 说明原因，同名的另一个技能(或这个技能的另一个作用域)已装在那个文件夹，用来源区分是哪一个;

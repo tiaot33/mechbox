@@ -22,20 +22,11 @@ import {
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, toLibraryError, useSnapshot, type LibraryError, type Snapshot } from "@/lib/library";
 import { mergeMissing, missingAt } from "@/lib/mentions";
-import {
-  agentName,
-  agentNameIn,
-  collectionSkills,
-  folderPlaces,
-  mergeProjectPlaces,
-  groupName,
-  placeOf,
-  projectName,
-  scopeLabel,
-  shortPath,
-  skillName,
-  sourceLabel,
-} from "@/lib/model";
+import { agentName, groupName, placeOf, projectName, skillName } from "@/lib/scope";
+import { agentNameIn, placeCount, scopeLabel } from "@/lib/places";
+import { collectionSkills, sourceLabel } from "@/lib/source";
+import { folderPlaces } from "@/lib/installs";
+import { shortPath } from "@/lib/paths";
 import { ui } from "@/lib/ui";
 import { openDrawer } from "@/lib/view";
 import { Hint } from "@/components/ui/field";
@@ -455,7 +446,7 @@ export async function uninstallGroup(groupID: GroupID, scope: Scope) {
     title: t.groupUninstallTitle(groupName(s, groupID), scopeLabel(s, scope)),
     body: (
       <>
-        <p>{t.groupUninstallBody(mergeProjectPlaces(s, gone).length, scopeLabel(s, scope))}</p>
+        <p>{t.groupUninstallBody(placeCount(s, gone), scopeLabel(s, scope))}</p>
         {removed.length > 0 && (
           <>
             <Notice alert>{t.groupUninstallShared(removed.length)}</Notice>

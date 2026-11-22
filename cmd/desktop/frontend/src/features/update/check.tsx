@@ -4,8 +4,9 @@ import type { CollectionID } from "@bindings/internal/library";
 import { create } from "zustand";
 import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
-import { currentSnapshot, queryClient, reloadLibrary, snapshotQuery } from "@/lib/library";
-import { deletedInSource, isLocal, pending, renamedTo, sourceLabel, updateAvailable } from "@/lib/model";
+import { currentSnapshot, queryClient, reloadLibrary, snapshotQuery, type Snapshot } from "@/lib/library";
+import { isLocal, sourceLabel } from "@/lib/source";
+import { sourceChanges } from "@/lib/source-state";
 import { ui } from "@/lib/ui";
 import { showResults } from "@/components/app/results";
 import { useMarkStatus, type MarkStatus } from "@/components/ui/status-mark";
@@ -39,11 +40,8 @@ export async function checkUpdates(collections: CollectionID[], origin: CheckOri
   const failed = (checks ?? []).filter((c) => c.error);
   useCheckStore.setState({ running: null, settled: { id: nextSettledID++, failed: !checks || failed.length > 0, at: Date.now(), origin } });
   if (!checks) return;
-  const skills = checks.flatMap((c) => c.skills ?? []).filter(pending);
-  const available = skills.filter(updateAvailable).length;
-  const renamed = skills.filter(renamedTo).length;
-  const deleted = skills.filter(deletedInSource).length;
-  const summary = t.checkSummary(checks.length, available, renamed, deleted);
+  const found = sourceChanges(checks.flatMap((c) => c.skills ?? []));
+  const summary = t.checkSummary(checks.length, found.newVersion.length, found.renamed.length, found.deleted.length);
   if (failed.length) {
     await showResults(
       t.checkUpdates,
@@ -56,7 +54,7 @@ export async function checkUpdates(collections: CollectionID[], origin: CheckOri
       t.checkFailedNote(summary, failed.length),
     );
   } else {
-    ui.toast(skills.length ? summary : t.nothingPending(checks.length));
+    ui.toast(found.todo.length ? summary : t.nothingPending(checks.length));
   }
 }
 
@@ -79,4 +77,9 @@ export async function checkLocalDirectories() {
   } finally {
     localChecking = false;
   }
+}
+
+// checkableCollections 是检查更新的范围：本地目录来源不检查。
+export function checkableCollections(s: Snapshot): CollectionID[] {
+  return s.collections.filter((c) => !isLocal(c.source)).map((c) => c.id);
 }

@@ -2,7 +2,7 @@
 import { useEffect, useRef } from "react";
 import type { SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
-import type { PickRow } from "@/lib/model";
+import type { PickRow } from "@/lib/pages";
 import { cn } from "@/lib/utils";
 import { setPicked, togglePick, useView } from "@/lib/view";
 

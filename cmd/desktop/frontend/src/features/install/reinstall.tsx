@@ -10,22 +10,14 @@ import {
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import { toggled } from "@/lib/utils";
-import { canInstall, overwriteKey, placeKey, planReinstall, reinstallsNothing, reinstallTargets, type MissingChoice, type ReinstallChoices } from "@/lib/consent";
+import { overwriteKey, placeKey, planReinstall, reinstallsNothing, reinstallTargets, type MissingChoice, type ReinstallChoices } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, toLibraryError, useSnapshot } from "@/lib/library";
-import {
-  agentName,
-  folderKey,
-  groupName,
-  linkNote,
-  mergeProjectPlaces,
-  scopeLabel,
-  sharedWithNote,
-  shortPath,
-  skillName,
-  wslTitle,
-} from "@/lib/model";
+import { agentName, groupName, skillName } from "@/lib/scope";
+import { canInstall, folderKey, linkNote } from "@/lib/installs";
+import { eachPlace, placeCount, placeNames, scopeLabel, sharedWithNote } from "@/lib/places";
+import { shortPath, wslTitle } from "@/lib/paths";
 import { Modal, ui } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { ListBox, ListRow } from "@/components/ui/list";
@@ -86,12 +78,12 @@ export async function reinstall(filter: SkillScopeFilter, what: string) {
     return { results, rows, uninstalled };
   }, { failed: (d) => d.rows.length > 0 || d.results.some((r) => r.outcome === ReinstallOutcome.ReinstallFailed) });
   if (!done) return;
-  const failed = mergeProjectPlaces(s, done.results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed));
+  const failed = eachPlace(s, done.results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed));
   if (failed.length || done.rows.length) {
     await showResults(t.reinstallPartly, [...failed.map((r) => failedRow(s, r)), ...done.rows], t.kept(keptModified, keptMissing) || undefined);
     return;
   }
-  const placed = mergeProjectPlaces(s, done.results.filter((r) => r.outcome === ReinstallOutcome.Reinstalled)).length;
+  const placed = placeCount(s, done.results.filter((r) => r.outcome === ReinstallOutcome.Reinstalled));
   ui.toast(t.reinstalled(placed, done.uninstalled, what, keptModified, keptMissing));
 }
 
@@ -153,7 +145,7 @@ function ReinstallDialog({
                 <ListRow key={key} compact>
                   <div className="min-w-0 grow">
                     <div>
-                      {t.actions.missingPlace(skillName(s, p.skill_id), mergeProjectPlaces(s, places).map((x) => scopeLabel(s, x.scope)))}
+                      {t.actions.missingPlace(skillName(s, p.skill_id), placeNames(s, places))}
                     </div>
                     <div className="truncate font-mono text-caption text-muted-foreground" title={wslTitle(p.folder)}>
                       {shortPath(s, p.folder)}
@@ -185,7 +177,7 @@ function ReinstallDialog({
         <>
           <Notice alert>{t.actions.modifiedNotice}</Notice>
           <ListBox>
-            {mergeProjectPlaces(s, modified).map((p) => {
+            {eachPlace(s, modified).map((p) => {
               const key = overwriteKey(p);
               return (
                 <ListRow key={key} asChild compact clickable selected={overwrite.has(key)}>
