@@ -38,6 +38,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
   const s = useSnapshot();
   const ui = useUI();
   const { settings: t, agents: agentsT, credentials: credentialsT } = useT();
+  const [resetting, setResetting] = useState(false);
   const { setLanguage } = useLanguage();
   const [settings, setSettings] = useState<Settings>();
   const [current, setCurrent] = useState<Section>(sections[0]);
@@ -196,7 +197,21 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
               {card(
                 "agents",
                 <span className="flex items-center gap-2">
-                  <Button className="reset-agents" title={agentsT.resetAgentsTitle} onClick={() => void resetAgents()}>
+                  <Button
+                    className="reset-agents"
+                    title={agentsT.resetAgentsTitle}
+                    loading={resetting}
+                    onClick={async () => {
+                      // 读计划、确认、执行期间不再响应，免得叠出两个确认框。
+                      if (resetting) return;
+                      setResetting(true);
+                      try {
+                        await resetAgents();
+                      } finally {
+                        setResetting(false);
+                      }
+                    }}
+                  >
                     {agentsT.resetAgents}
                   </Button>
                   <Button onClick={() => ui.open((close) => <AddAgentDialog onClose={close} />)}>

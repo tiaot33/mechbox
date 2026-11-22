@@ -1,7 +1,6 @@
 package library
 
 import (
-	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -280,7 +279,11 @@ func (l *Library) editAgent(ctx context.Context, operation string, code AgentCod
 		return EditAgentResult{}, err
 	}
 	row.Code, row.SameName, row.Enabled = current.Code, current.SameName, true
-	installs, err := l.agentInstalls(ctx, code)
+	others, err := l.enabledAgentsExcept(ctx, []AgentCode{code})
+	if err != nil {
+		return EditAgentResult{}, err
+	}
+	installs, err := l.agentInstalls(ctx, code, others)
 	if err != nil {
 		return EditAgentResult{}, err
 	}
@@ -502,42 +505,77 @@ func (l *Library) DeleteAgent(ctx context.Context, code AgentCode, opts DeleteAg
 	if err := validateFolderPolicy(operation, opts.Folders); err != nil {
 		return DeleteAgentResult{}, err
 	}
-	return l.deleteAgent(ctx, operation, code, opts, false)
+	return l.deleteAgents(ctx, operation, []AgentCode{code}, opts, nil)
 }
 
-func (l *Library) deleteAgent(ctx context.Context, operation string, code AgentCode, opts DeleteAgentOptions, forget bool) (result DeleteAgentResult, err error) {
-	agent, err := l.enabledAgent(ctx, string(code))
+// agentRemoval 是一次移除的几个 Agent 会怎样:它们当一批算,还在读的 Agent 只算这一批以外的已添加 Agent。
+// kept 是还有这一批以外的 Agent 在读、总是保留的(SharedWith 为那些 Agent),handOver 是其中要把记录转交出去的;
+// owned 是只有这一批在读、为它们装的,按选项删除或保留;heirs 是各 Agent 每个层级的组安装转给谁。
+type agentRemoval struct {
+	heirs    map[AgentCode]map[bool]AgentCode
+	handOver []agentInstall
+	kept     []SkillScope
+	owned    []agentInstall
+}
+
+func (l *Library) planAgentRemoval(ctx context.Context, codes []AgentCode) (agentRemoval, error) {
+	plan := agentRemoval{heirs: map[AgentCode]map[bool]AgentCode{}, kept: []SkillScope{}}
+	others, err := l.enabledAgentsExcept(ctx, codes)
 	if err != nil {
-		return DeleteAgentResult{}, err
+		return agentRemoval{}, err
 	}
-	heirs, err := l.groupHeirs(ctx, agent)
-	if err != nil {
-		return DeleteAgentResult{}, err
+	allowed := func(code AgentCode) bool {
+		return slices.ContainsFunc(others, func(row store.Agent) bool { return row.Code == string(code) })
 	}
-	installs, err := l.agentInstalls(ctx, code)
-	if err != nil {
-		return DeleteAgentResult{}, err
-	}
-	var change agentdir.Change
-	defer func() { err = errors.Join(err, change.Rollback()) }()
-	var handOver []agentInstall
-	var removed []installedPlace
-	result.Kept = []SkillScope{}
-	for i, item := range installs {
-		if heir := heirs[item.project()]; heir != "" && slices.Contains(item.SharedWith, heir) {
-			installs[i].receiver, item.receiver = heir, heir
+	seen := map[string]bool{}
+	for _, code := range codes {
+		agent, err := l.enabledAgent(ctx, string(code))
+		if err != nil {
+			return agentRemoval{}, err
 		}
-		switch {
-		case item.receiver != "":
-			result.Kept = append(result.Kept, item.SkillScope)
-			if item.own != nil {
-				handOver = append(handOver, item)
+		heirs := groupHeirs(agent, others)
+		plan.heirs[code] = heirs
+		installs, err := l.agentInstalls(ctx, code, others)
+		if err != nil {
+			return agentRemoval{}, err
+		}
+		for _, item := range installs {
+			if heir := heirs[item.project()]; heir != "" && slices.Contains(item.SharedWith, heir) {
+				item.receiver = heir
 			}
-		case len(item.readers) > 0:
-			kept := item.SkillScope
-			kept.SharedWith = item.readers
-			result.Kept = append(result.Kept, kept)
-		case opts.Folders != Keep && item.own != nil:
+			key := fmt.Sprintf("%d\x00%s", item.SkillID, agentdir.Canonical(item.Folder))
+			switch {
+			case item.receiver != "" || len(item.readers) > 0:
+				if item.receiver != "" && item.own != nil {
+					plan.handOver = append(plan.handOver, item)
+				}
+				if !seen[key] {
+					kept := item.SkillScope
+					kept.SharedWith = slices.DeleteFunc(slices.Clone(kept.SharedWith), func(code AgentCode) bool { return !allowed(code) })
+					if len(kept.SharedWith) == 0 {
+						kept.SharedWith = item.readers
+					}
+					plan.kept = append(plan.kept, kept)
+				}
+				seen[key] = true
+			case item.own != nil && !seen[key]:
+				plan.owned = append(plan.owned, item)
+				seen[key] = true
+			}
+		}
+	}
+	slices.SortFunc(plan.kept, func(a, b SkillScope) int { return compareSkillInScope(a.SkillID, a.Scope, b.SkillID, b.Scope) })
+	return plan, nil
+}
+
+func (l *Library) deleteAgents(ctx context.Context, operation string, codes []AgentCode, opts DeleteAgentOptions, forget []string) (result DeleteAgentResult, err error) {
+	plan, err := l.planAgentRemoval(ctx, codes)
+	if err != nil {
+		return DeleteAgentResult{}, err
+	}
+	var removed []installedPlace
+	if opts.Folders != Keep {
+		for _, item := range plan.owned {
 			removed = append(removed, item.place)
 		}
 	}
@@ -549,170 +587,67 @@ func (l *Library) deleteAgent(ctx context.Context, operation string, code AgentC
 	if err != nil {
 		return DeleteAgentResult{}, err
 	}
+	var change agentdir.Change
+	defer func() { err = errors.Join(err, change.Rollback()) }()
 	err = l.applyChange(ctx, &change, func(tx *store.Tx) error {
 		if err := l.removeFolders(ctx, tx, &change, operation, removals, opts.DiscardEdits); err != nil {
 			return err
 		}
 		for _, install := range groupInstalls {
-			heir := heirs[install.Scope.ProjectID != nil]
-			if install.Scope.Agent != string(code) || heir == "" {
+			heir := plan.heirs[AgentCode(install.Scope.Agent)][install.Scope.ProjectID != nil]
+			if heir == "" {
 				continue
 			}
 			if err := tx.RecordGroupInstall(ctx, install.GroupID, store.Scope{Agent: string(heir), ProjectID: install.Scope.ProjectID}, install.CreatedAt); err != nil {
 				return err
 			}
 		}
-		for _, item := range handOver {
+		for _, item := range plan.handOver {
 			if err := tx.HandOverSkillScope(ctx, item.own.ID, string(item.receiver)); err != nil {
 				return err
 			}
 		}
-		if forget {
-			return tx.ForgetAgent(ctx, string(code))
+		for _, code := range codes {
+			if forget != nil {
+				if err := tx.ForgetAgent(ctx, string(code)); err != nil {
+					return err
+				}
+			} else if err := tx.DisableAgent(ctx, string(code)); err != nil {
+				return err
+			}
 		}
-		return tx.DisableAgent(ctx, string(code))
+		for _, code := range forget {
+			if err := tx.ForgetAgent(ctx, code); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return DeleteAgentResult{}, err
 	}
-	return result, nil
+	return DeleteAgentResult{Kept: plan.kept}, nil
 }
 
-// ListAgentDefaults 列出应用内置收录的 Agent 的默认设置,按代码排序:名称、技能目录、检测目录与同名规则都是这一版应用内置的值,
-// 不是数据库里那一行,用户改过的照样按内置值列出;用户手填添加的、本版应用没有收录的不在里面。编辑 Agent 时给目录输入列候选、
-// 「恢复默认」前看哪些 Agent 会改,都用它。全局目录与检测目录按当前用户主目录(选了 WSL 发行版时是发行版里的)写成绝对路径。
-// 不检测,Detected 始终为 false。
-func (l *Library) ListAgentDefaults(ctx context.Context) (agents []Agent, err error) {
-	_, unlock := l.sharedOperation(ctx)
-	defer unlock()
-	rows := store.Catalog()
-	slices.SortFunc(rows, func(a, b store.Agent) int { return strings.Compare(a.Code, b.Code) })
-	for _, row := range rows {
-		agent := Agent{
-			Code: AgentCode(row.Code), Name: row.Name, SameName: SameNameRule(row.SameName),
-			GlobalDirectories: []string{}, ProjectDirectories: slices.Clone(row.ProjectPaths), DetectDirectories: []string{},
-		}
-		for _, path := range row.GlobalPaths {
-			agent.GlobalDirectories = append(agent.GlobalDirectories, l.home.Join(path))
-		}
-		for _, path := range row.DetectPaths {
-			agent.DetectDirectories = append(agent.DetectDirectories, l.home.Join(path))
-		}
-		agents = append(agents, agent)
-	}
-	return agents, nil
-}
-
-// ResetAgentsOptions 是 ResetAgents 的选项,只管移除用户手填添加的 Agent 时只有它在读的技能文件夹,含义同 DeleteAgentOptions:
-// Folders 默认(零值或 Remove)删除,显式 Keep 保留;DiscardEdits 是确认时告诉用户被改过、修改会丢掉的文件夹。
-type ResetAgentsOptions struct {
-	Folders      FolderPolicy `json:"folders"`
-	DiscardEdits []string     `json:"discard_edits,omitempty"`
-}
-
-// ResetAgentsResult 是 ResetAgents 的结果,各项按代码(技能 ID、作用域)排序。
-type ResetAgentsResult struct {
-	// Removed 是移除了的用户手填添加的 Agent,含候选池里的。
-	Removed []AgentCode `json:"removed"`
-	// Reset 是换回了内置值的收录 Agent(已添加的和候选池里的),只列原来和内置值不一样的。
-	Reset []AgentCode `json:"reset"`
-	// Migrations 是已添加的收录 Agent 去掉了的目录里那几处安装的迁移结果,同 EditAgentResult.Migrations。
-	Migrations []AgentMigration `json:"migrations"`
-	// Kept 是移除手填添加的 Agent 时因为还有别的已添加 Agent 在读而保留的技能文件夹,同 DeleteAgentResult.Kept。
-	Kept []SkillScope `json:"kept"`
-}
-
-// ResetAgents 是设置页的「恢复默认」:把 Agent 设置和这一版应用内置的默认同步,免得同一个 Agent 有两个(用户手填的和收录的)。
-// 用户在确认框里确认过才调用:应用升级、拉回库时照旧不改写已有的 Agent,也不自动合并手填的 Agent,只有这里一次改写。
-//   - 用户手填添加的 Agent(代码以 custom- 开头)一律移除,不判断它和哪个收录的 Agent 重复,也不回到候选池。已添加的按 DeleteAgent 的规则
-//     处理安装:还有别的已添加 Agent 在读的文件夹总是保留并转交记录,只有它读的按 opts 删除或保留。先移除它们,再改收录的 Agent,
-//     这样手填 Agent 和收录 Agent 共用的文件夹先交给收录的那个,再随它迁移。
-//   - 收录的 Agent(已添加的和候选池里的)名称、技能目录、检测目录都换回内置值。已添加的按 EditAgent 选了迁移的规则处理:
-//     实际目录不在内置目录里的安装迁移到内置的第 1 个目录。不改哪些 Agent 已添加。
-//   - 本版应用没有收录、又不是手填的(从装了更新版本应用的机器同步来的)原样不动。
-//
-// 逐个 Agent 提交:中途失败时已经处理完的 Agent 保持处理后的样子,其余不动,再调用一次会接着做完;
-// 要删的文件夹确认之后才被改过时返回 Conflict(见 DeleteAgentOptions),那个 Agent 和之后的都没动。
-func (l *Library) ResetAgents(ctx context.Context, opts ResetAgentsOptions) (result ResetAgentsResult, err error) {
-	ctx, unlock := l.exclusiveOperation(ctx)
-	defer unlock()
-	defer func() { err = typedError(err) }()
-	const operation = "reset agents"
-	if err := validateFolderPolicy(operation, opts.Folders); err != nil {
-		return ResetAgentsResult{}, err
-	}
-	result = ResetAgentsResult{Removed: []AgentCode{}, Reset: []AgentCode{}, Migrations: []AgentMigration{}, Kept: []SkillScope{}}
+func (l *Library) enabledAgentsExcept(ctx context.Context, codes []AgentCode) ([]store.Agent, error) {
 	rows, err := l.store.ListAgents(ctx)
-	if err != nil {
-		return ResetAgentsResult{}, err
-	}
-	for _, row := range rows {
-		if !strings.HasPrefix(row.Code, customAgentPrefix) {
-			continue
-		}
-		if row.Enabled {
-			deleted, err := l.deleteAgent(ctx, operation, AgentCode(row.Code), DeleteAgentOptions{Folders: opts.Folders, DiscardEdits: opts.DiscardEdits}, true)
-			if err != nil {
-				return ResetAgentsResult{}, err
-			}
-			result.Kept = append(result.Kept, deleted.Kept...)
-		} else if err := l.store.InTx(ctx, func(tx *store.Tx) error { return tx.ForgetAgent(ctx, row.Code) }); err != nil {
-			return ResetAgentsResult{}, err
-		}
-		result.Removed = append(result.Removed, AgentCode(row.Code))
-	}
-	rows, err = l.store.ListAgents(ctx)
-	if err != nil {
-		return ResetAgentsResult{}, err
-	}
-	for _, defaults := range store.Catalog() {
-		i := slices.IndexFunc(rows, func(row store.Agent) bool { return row.Code == defaults.Code })
-		if i < 0 || sameAgentSettings(rows[i], defaults) {
-			continue
-		}
-		if rows[i].Enabled {
-			edited, err := l.editAgent(ctx, operation, AgentCode(defaults.Code), defaults, EditAgentOptions{Migrate: true})
-			if err != nil {
-				return ResetAgentsResult{}, err
-			}
-			result.Migrations = append(result.Migrations, edited.Migrations...)
-		} else if err := l.store.InTx(ctx, func(tx *store.Tx) error { return tx.EditAgent(ctx, defaults) }); err != nil {
-			return ResetAgentsResult{}, err
-		}
-		result.Reset = append(result.Reset, AgentCode(defaults.Code))
-	}
-	slices.Sort(result.Reset)
-	slices.SortFunc(result.Migrations, func(a, b AgentMigration) int { return compareSkillInScope(a.SkillID, a.Scope, b.SkillID, b.Scope) })
-	slices.SortFunc(result.Kept, func(a, b SkillScope) int { return compareSkillInScope(a.SkillID, a.Scope, b.SkillID, b.Scope) })
-	return result, nil
-}
-
-const customAgentPrefix = "custom-"
-
-func compareSkillInScope(aID SkillID, a Scope, bID SkillID, b Scope) int {
-	return cmp.Or(cmp.Compare(aID, bID), cmp.Compare(a.Agent, b.Agent), cmp.Compare(a.ProjectID, b.ProjectID))
-}
-
-func sameAgentSettings(a, b store.Agent) bool {
-	return a.Name == b.Name && slices.Equal(a.GlobalPaths, b.GlobalPaths) && slices.Equal(a.ProjectPaths, b.ProjectPaths) &&
-		slices.Equal(slices.Sorted(slices.Values(a.DetectPaths)), slices.Sorted(slices.Values(b.DetectPaths)))
-}
-
-func (l *Library) groupHeirs(ctx context.Context, agent store.Agent) (map[bool]AgentCode, error) {
-	agents, err := l.store.ListAgents(ctx)
 	if err != nil {
 		return nil, err
 	}
+	return slices.DeleteFunc(rows, func(row store.Agent) bool { return !row.Enabled || slices.Contains(codes, AgentCode(row.Code)) }), nil
+}
+
+func groupHeirs(agent store.Agent, others []store.Agent) map[bool]AgentCode {
 	heirs := map[bool]AgentCode{}
 	for _, project := range []bool{false, true} {
-		for _, other := range agents {
-			if other.Enabled && other.Code != agent.Code && slices.Equal(other.Paths(project), agent.Paths(project)) {
+		for _, other := range others {
+			if other.Code != agent.Code && slices.Equal(other.Paths(project), agent.Paths(project)) {
 				heirs[project] = AgentCode(other.Code)
 				break
 			}
 		}
 	}
-	return heirs, nil
+	return heirs
 }
 
 type agentInstall struct {
@@ -727,14 +662,13 @@ func (i agentInstall) project() bool {
 	return i.place.target.ProjectID != nil
 }
 
-func (l *Library) agentInstalls(ctx context.Context, code AgentCode) ([]agentInstall, error) {
+func (l *Library) agentInstalls(ctx context.Context, code AgentCode, others []store.Agent) ([]agentInstall, error) {
 	skillScopes, err := l.listSkillScopes(ctx, 0, nil)
 	if err != nil {
 		return nil, err
 	}
-	agents, err := l.store.ListAgents(ctx)
-	if err != nil {
-		return nil, err
+	other := func(code AgentCode) bool {
+		return slices.ContainsFunc(others, func(row store.Agent) bool { return row.Code == string(code) })
 	}
 	var installs []agentInstall
 	for _, skillScope := range skillScopes {
@@ -753,15 +687,15 @@ func (l *Library) agentInstalls(ctx context.Context, code AgentCode) ([]agentIns
 		for _, row := range place.rows {
 			if row.Agent == string(code) {
 				item.own = &row
-			} else if item.receiver == "" && slices.Contains(skillScope.SharedWith, AgentCode(row.Agent)) {
+			} else if item.receiver == "" && other(AgentCode(row.Agent)) && slices.Contains(skillScope.SharedWith, AgentCode(row.Agent)) {
 				item.receiver = AgentCode(row.Agent)
 			}
 		}
-		if item.receiver == "" && len(skillScope.SharedWith) > 0 {
-			item.receiver = skillScope.SharedWith[0]
+		if i := slices.IndexFunc(skillScope.SharedWith, other); item.receiver == "" && i >= 0 {
+			item.receiver = skillScope.SharedWith[i]
 		}
-		for _, agent := range agents {
-			if agent.Enabled && agent.Code != string(code) && slices.Contains(agent.Paths(item.project()), place.target.relative) {
+		for _, agent := range others {
+			if agent.Code != string(code) && slices.Contains(agent.Paths(item.project()), place.target.relative) {
 				item.readers = append(item.readers, AgentCode(agent.Code))
 			}
 		}
@@ -783,16 +717,9 @@ func (l *Library) agentsOf(ctx context.Context, rows []store.Agent) ([]Agent, er
 	var detect []string
 	var owners []int
 	for i, row := range rows {
-		agents[i] = Agent{
-			Code: AgentCode(row.Code), Name: row.Name, SameName: SameNameRule(row.SameName),
-			GlobalDirectories: []string{}, ProjectDirectories: slices.Clone(row.ProjectPaths), DetectDirectories: []string{},
-		}
-		for _, path := range row.GlobalPaths {
-			agents[i].GlobalDirectories = append(agents[i].GlobalDirectories, l.home.Join(path))
-		}
-		for _, path := range row.DetectPaths {
-			agents[i].DetectDirectories = append(agents[i].DetectDirectories, l.home.Join(path))
-			detect = append(detect, l.home.Join(path))
+		agents[i] = l.agentFromRow(row)
+		for _, directory := range agents[i].DetectDirectories {
+			detect = append(detect, directory)
 			owners = append(owners, i)
 		}
 	}
@@ -804,6 +731,20 @@ func (l *Library) agentsOf(ctx context.Context, rows []store.Agent) ([]Agent, er
 		agents[owners[i]].Detected = agents[owners[i]].Detected || state.Directory
 	}
 	return agents, nil
+}
+
+func (l *Library) agentFromRow(row store.Agent) Agent {
+	agent := Agent{
+		Code: AgentCode(row.Code), Name: row.Name, SameName: SameNameRule(row.SameName),
+		GlobalDirectories: []string{}, ProjectDirectories: slices.Clone(row.ProjectPaths), DetectDirectories: []string{},
+	}
+	for _, path := range row.GlobalPaths {
+		agent.GlobalDirectories = append(agent.GlobalDirectories, l.home.Join(path))
+	}
+	for _, path := range row.DetectPaths {
+		agent.DetectDirectories = append(agent.DetectDirectories, l.home.Join(path))
+	}
+	return agent
 }
 
 func (l *Library) agentRow(operation string, agent AgentInput) (store.Agent, error) {

@@ -127,6 +127,26 @@ func TestResetAgentsRemovesHandAddedAgentsAndRestoresTheCatalog(t *testing.T) {
 				}
 			}
 
+			plan, err := lib.PlanResetAgents(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			codesOf := func(items []library.AgentReset) []library.AgentCode {
+				var codes []library.AgentCode
+				for _, item := range items {
+					codes = append(codes, item.Agent.Code)
+				}
+				return codes
+			}
+			if !sameCodes(codesOf(plan.Removed), []library.AgentCode{lonely.Code, sharing.Code, pooled.Code}) || !slices.Equal(codesOf(plan.Reset), []library.AgentCode{library.AgentClaudeCode, "cursor"}) {
+				t.Fatalf("PlanResetAgents() removed %v, reset %v", codesOf(plan.Removed), codesOf(plan.Reset))
+			}
+			if len(plan.Migrations) != 1 || plan.Migrations[0].Place.SkillID != work.ID || plan.Migrations[0].To != filepath.Join(home, ".claude", "skills", "work") || !plan.Migrations[0].Leaves {
+				t.Fatalf("PlanResetAgents() migrations = %#v", plan.Migrations)
+			}
+			if len(plan.Kept) != 1 || plan.Kept[0].SkillID != shared.ID || len(plan.Removable) != 1 || plan.Removable[0].SkillID != alone.ID {
+				t.Fatalf("PlanResetAgents() kept %#v, removable %#v", plan.Kept, plan.Removable)
+			}
 			result, err := lib.ResetAgents(ctx, library.ResetAgentsOptions{Folders: folders})
 			if err != nil {
 				t.Fatal(err)
@@ -192,4 +212,76 @@ func TestResetAgentsRemovesHandAddedAgentsAndRestoresTheCatalog(t *testing.T) {
 
 func sameCodes(a, b []library.AgentCode) bool {
 	return slices.Equal(slices.Sorted(slices.Values(a)), slices.Sorted(slices.Values(b)))
+}
+
+// 恢复默认把要移除的手填 Agent 当一批算:两个手填 Agent 共用、没有别的 Agent 在读的文件夹,计划里归入选了删除时会删的,
+// 不报成保留;执行按同一套规则,选保留时留着,选删除时删掉。以前逐个移除,前一个把文件夹转给后一个,确认框写着保留,实际却删了。
+func TestResetAgentsTreatsHandAddedAgentsAsOneBatch(t *testing.T) {
+	t.Parallel()
+	for _, folders := range []library.FolderPolicy{library.Keep, library.Remove} {
+		t.Run(string(folders), func(t *testing.T) {
+			ctx := t.Context()
+			home := t.TempDir()
+			setTestHome(t, home)
+			lib := openTestLibrary(t)
+			first := addAgent(t, lib, home, "first", ".shared/skills", ".first/skills")
+			addAgent(t, lib, home, "second", ".shared/skills", ".second/skills")
+			skill := fetchNamedSkill(t, lib, "both")
+			if err := lib.Install(ctx, skill.ID, library.GlobalScope(first.Code), library.InstallOptions{}); err != nil {
+				t.Fatal(err)
+			}
+			plan, err := lib.PlanResetAgents(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(plan.Kept) != 0 || len(plan.Removable) != 1 || plan.Removable[0].SkillID != skill.ID {
+				t.Fatalf("PlanResetAgents() kept %#v, removable %#v; want the shared folder removable", plan.Kept, plan.Removable)
+			}
+			result, err := lib.ResetAgents(ctx, library.ResetAgentsOptions{Folders: folders})
+			if err != nil || len(result.Kept) != 0 {
+				t.Fatalf("ResetAgents() = %#v, %v; want nothing reported as kept", result, err)
+			}
+			shared := filepath.Join(home, ".shared", "skills")
+			if folders == library.Keep {
+				requireInstalledFolder(t, shared, "both", "# both\n")
+			} else {
+				requireNoInstalledFolder(t, shared, "both")
+			}
+		})
+	}
+}
+
+// 恢复默认时有一个要删的文件夹确认之后才被改过:整次返回 Conflict,哪个手填 Agent 都不移除,文件夹都不删。
+// 以前逐个移除,前面的 Agent 已经移除、文件夹已经删了,界面却像什么都没做。
+func TestResetAgentsConflictLeavesEveryAgentInPlace(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	home := t.TempDir()
+	setTestHome(t, home)
+	lib := openTestLibrary(t)
+	first := addAgent(t, lib, home, "first", ".first/skills", ".first/skills")
+	second := addAgent(t, lib, home, "second", ".second/skills", ".second/skills")
+	one := fetchNamedSkill(t, lib, "one")
+	two := fetchNamedSkill(t, lib, "two")
+	for _, install := range []struct {
+		skill library.Skill
+		agent library.Agent
+	}{{one, first}, {two, second}} {
+		if err := lib.Install(ctx, install.skill.ID, library.GlobalScope(install.agent.Code), library.InstallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	edited := filepath.Join(home, ".second", "skills", "two")
+	writeFile(t, filepath.Join(edited, "notes.md"), []byte("edited\n"), 0o644)
+	_, err := lib.ResetAgents(ctx, library.ResetAgentsOptions{Folders: library.Remove})
+	requireErrorDetails(t, err, library.Conflict, library.ErrorDetails{Paths: []string{edited}})
+	if codes := agentCodes(listAgents(t, lib)); !slices.Contains(codes, first.Code) || !slices.Contains(codes, second.Code) {
+		t.Fatalf("ListAgents() after conflict = %v; want both hand-added agents still added", codes)
+	}
+	requireInstalledFolder(t, filepath.Join(home, ".first", "skills"), "one", "# one\n")
+	if _, err := lib.ResetAgents(ctx, library.ResetAgentsOptions{Folders: library.Remove, DiscardEdits: []string{edited}}); err != nil {
+		t.Fatal(err)
+	}
+	requireNoInstalledFolder(t, filepath.Join(home, ".first", "skills"), "one")
+	requireNoInstalledFolder(t, filepath.Join(home, ".second", "skills"), "two")
 }

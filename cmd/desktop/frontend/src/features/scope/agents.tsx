@@ -7,7 +7,7 @@ import { currentSnapshot, useSnapshot, type LibraryError } from "@/lib/library";
 import { folderPlaces } from "@/lib/installs";
 import { scopeLabel } from "@/lib/places";
 import { nativePath, shortPath, wslTitle } from "@/lib/paths";
-import { placeOf, skillName } from "@/lib/scope";
+import { skillName } from "@/lib/scope";
 import { ui } from "@/lib/ui";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
@@ -124,9 +124,9 @@ export async function resetAgents() {
   const s = currentSnapshot();
   const t = messages().agents;
   const a = messages().actions;
-  const read = await ui.read(() => Promise.all([LibraryService.ListAgentDefaults(), LibraryService.ListAgentPool()]));
+  const read = await ui.read(() => LibraryService.PlanResetAgents());
   if (!read) return;
-  const plan = agentReset(s, read[0] ?? [], read[1] ?? []);
+  const plan = agentReset(s, read);
   if (plan.nothing) {
     ui.toast(t.resetNothing);
     return;
@@ -186,7 +186,7 @@ function ResetBody({ plan }: { plan: ResetPlan }) {
           </ListBox>
         </>
       )}
-      {plan.changedPooled.length > 0 && <Hint>{t.resetChangedPooled(plan.changedPooled.map((c) => c.agent.name))}</Hint>}
+      {plan.changedPooled.length > 0 && <Hint>{t.resetChangedPooled(plan.changedPooled.map((agent) => agent.name))}</Hint>}
       {plan.removed.length > 0 && (
         <>
           {heading(t.resetRemoved(plan.removed.length))}
@@ -215,7 +215,7 @@ function ResetBody({ plan }: { plan: ResetPlan }) {
                     {skillName(s, place.skill_id)} · {scopeLabel(s, place.scope)}
                   </div>
                   <div className="truncate font-mono text-caption text-muted-foreground" title={wslTitle(place.folder)}>
-                    {t.resetMigrateTo(shortPath(s, place.folder), placeOf(place.scope) ? nativePath(to) : shortPath(s, to))}
+                    {t.resetMigrateTo(shortPath(s, place.folder), shortPath(s, to))}
                   </div>
                 </div>
               </ListRow>
@@ -228,6 +228,14 @@ function ResetBody({ plan }: { plan: ResetPlan }) {
         <>
           <Notice>{a.removeAgentShared(plan.kept.length)}</Notice>
           <SharedFolders places={plan.kept} />
+        </>
+      )}
+      {plan.own.length > 0 && (
+        <>
+          {heading(t.resetRemovable(plan.own.length))}
+          <div className="reset-removable">
+            <SharedFolders places={plan.own} />
+          </div>
         </>
       )}
       <DetachNotice items={detachedBy(folderPlaces(s, plan.own))} when="delete" prefix={a.ifRemoveToo} />

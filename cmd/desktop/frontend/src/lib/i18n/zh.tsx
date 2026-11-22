@@ -1421,6 +1421,7 @@ export const zh = {
     resetMigrations: (n: number) => `迁移的技能（${n} 处）：所在目录不在内置目录里，迁移到内置的第 1 个目录；新目录里已经装着同一个技能的改认那一份`,
     resetMigrateTo: (from: string, to: string) => `${from} → ${to}`,
     resetField: (field: string, from: string, to: string) => `${{ name: "名称", global_directories: "全局", project_directories: "项目里", detect_directories: "检测" }[field] ?? field}：${from || "（空）"} → ${to || "（空）"}`,
+    resetRemovable: (n: number) => `只有要移除的手填 Agent 在读的文件夹（${n} 个）：选「同时删除」时删掉，选保留时留在原处`,
     resetKeepDesc: "手填 Agent 装的文件夹留在原处，技能库从此不再管",
     resetNothing: "Agent 设置已经和内置的默认一样",
     resetDone: (changed: number, removed: number) =>

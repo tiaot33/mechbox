@@ -263,6 +263,10 @@ func (s *LibraryService) ListAgentDefaults(ctx context.Context) ([]library.Agent
 	return settle(s.lib.ListAgentDefaults(ctx))(ctx)
 }
 
+func (s *LibraryService) PlanResetAgents(ctx context.Context) (library.ResetAgentsPlan, error) {
+	return settle(s.lib.PlanResetAgents(ctx))(ctx)
+}
+
 func (s *LibraryService) ResetAgents(ctx context.Context, opts library.ResetAgentsOptions) (library.ResetAgentsResult, error) {
 	return settle(s.lib.ResetAgents(ctx, opts))(ctx)
 }

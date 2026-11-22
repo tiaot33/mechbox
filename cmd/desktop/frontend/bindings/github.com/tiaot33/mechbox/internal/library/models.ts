@@ -163,6 +163,16 @@ export interface AgentMigration {
 }
 
 /**
+ * AgentReset 是「恢复默认」里的一个 Agent:Agent 是它现在的样子,Added 表示已添加(否则在候选池里);
+ * Defaults 是要换回的内置值,要移除的手填 Agent 没有。
+ */
+export interface AgentReset {
+    "agent": Agent;
+    "defaults"?: Agent | null;
+    "added": boolean;
+}
+
+/**
  * AgentSettings 是技能对 Claude Code、Codex 声明的设置:只有那个 Agent 才读的字段,决定它怎样用这个技能。
  * Claude Code 的取自 SKILL.md 开头的 frontmatter,Codex 的取自技能文件夹里的 agents/openai.yaml。
  * 只给出和默认不同的;写错了、解析不出来的按 Agent 自己的做法当作没写,不报错。
@@ -1369,6 +1379,16 @@ export enum PlannedChange {
 };
 
 /**
+ * PlannedMigration 是「恢复默认」会迁移的一处安装:已添加的收录 Agent 的这一处所在的目录不在内置目录里,迁移到 To(新的技能文件夹)。
+ * Leaves 表示恢复默认之后旧文件夹不再有已添加的 Agent 在读,会被搬走;否则复制一份过去,旧文件夹留给还在读的 Agent。
+ */
+export interface PlannedMigration {
+    "place": SkillScope;
+    "to": string;
+    "leaves": boolean;
+}
+
+/**
  * PlannedSkill 是更新计划里的一个技能。
  */
 export interface PlannedSkill {
@@ -1726,12 +1746,43 @@ export interface RemoveSkillOptions {
 }
 
 /**
- * ResetAgentsOptions 是 ResetAgents 的选项,只管移除用户手填添加的 Agent 时只有它在读的技能文件夹,含义同 DeleteAgentOptions:
+ * ResetAgentsOptions 是 ResetAgents 的选项,只管 ResetAgentsPlan.Removable 里的文件夹,含义同 DeleteAgentOptions:
  * Folders 默认(零值或 Remove)删除,显式 Keep 保留;DiscardEdits 是确认时告诉用户被改过、修改会丢掉的文件夹。
  */
 export interface ResetAgentsOptions {
     "folders": FolderPolicy;
     "discard_edits"?: string[] | null;
+}
+
+/**
+ * ResetAgentsPlan 是 [Library.PlanResetAgents] 给出的「恢复默认」会做的事,和 [Library.ResetAgents] 按同一套规则算。
+ * 要移除的手填 Agent 当一批算:还在读的 Agent 只算这一批以外的已添加 Agent。
+ */
+export interface ResetAgentsPlan {
+    /**
+     * Reset 是会换回内置值的收录 Agent(已添加的和候选池里的),只列和内置值不一样的,按代码排序。
+     */
+    "reset": AgentReset[] | null;
+
+    /**
+     * Removed 是会移除的手填 Agent(已添加的和候选池里的),按代码排序;它们不回候选池。
+     */
+    "removed": AgentReset[] | null;
+
+    /**
+     * Migrations 是已添加的收录 Agent 去掉的目录里会迁移的各处,按技能 ID、作用域排序。
+     */
+    "migrations": PlannedMigration[] | null;
+
+    /**
+     * Kept 是移除手填 Agent 时还有这一批以外的已添加 Agent 在读、不管怎么选都保留的技能文件夹,SharedWith 是在读的 Agent。
+     */
+    "kept": SkillScope[] | null;
+
+    /**
+     * Removable 是只有这一批手填 Agent 在读、为它们装的技能文件夹:ResetAgentsOptions.Folders 选删除时删掉,一个文件夹只列一处。
+     */
+    "removable": SkillScope[] | null;
 }
 
 /**
@@ -1754,7 +1805,7 @@ export interface ResetAgentsResult {
     "migrations": AgentMigration[] | null;
 
     /**
-     * Kept 是移除手填添加的 Agent 时因为还有别的已添加 Agent 在读而保留的技能文件夹,同 DeleteAgentResult.Kept。
+     * Kept 同 ResetAgentsPlan.Kept。
      */
     "kept": SkillScope[] | null;
 }

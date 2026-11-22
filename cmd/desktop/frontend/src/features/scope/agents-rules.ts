@@ -1,14 +1,24 @@
 // Agent(agents.tsx、agent-settings.tsx)里的判断：改目录时哪些已装的技能、组安装受影响要先问，移除 Agent 时哪些文件夹归它、
 // 哪些还有别的 Agent 在读，候选池怎么排、哪几个要标「已有 Agent 读这个目录」。
 // 不碰界面、不调技能库，单元测试见 agents-rules.test.ts。
-import { MigrationOutcome, type Agent, type AgentCode, type AgentInput, type AgentMigration, type Scope, type SkillScopeInspection } from "@bindings/internal/library";
+import {
+  MigrationOutcome,
+  type Agent,
+  type AgentCode,
+  type AgentInput,
+  type AgentMigration,
+  type ResetAgentsPlan,
+  type Scope,
+  type SkillScope,
+  type SkillScopeInspection,
+} from "@bindings/internal/library";
 import { detachedBy } from "@/lib/consent";
 import { messages } from "@/lib/i18n";
 import type { Snapshot } from "@/lib/library";
 import { folderPlaces } from "@/lib/installs";
 import { directoriesAt } from "@/lib/places";
 import { shortPath } from "@/lib/paths";
-import { placeOf, projectName, skillName, type Place } from "@/lib/scope";
+import { placeOf, projectName, scopeKey, skillName, type Place } from "@/lib/scope";
 import type { ResultRow } from "@/components/app/result-rows";
 
 // cleanPath 是比较目录时去掉开头的 ./ 和末尾的 /:写法不同的同一个目录不算改了。
@@ -60,57 +70,42 @@ export function migrationReport(s: Snapshot, migrations: AgentMigration[]) {
 
 // ---------- 恢复默认 ----------
 
-// AgentChange 是恢复默认时一个收录的 Agent 要换回的内置值:fields 是和内置值不一样的几项。
+// AgentChange 是恢复默认时一个已添加的收录 Agent 要换回的内置值:fields 是和内置值不一样的几项(只用来写出改了什么)。
 export type AgentChange = { agent: Agent; defaults: Agent; fields: ("name" | DirectoryKind)[] };
-
-// handAdded 是用户手填添加的 Agent(代码以 custom- 开头),恢复默认时一律移除。
-export const handAdded = (agent: Agent) => agent.code.startsWith("custom-");
 
 const sameDirectories = (a: string[] | null = [], b: string[] | null = []) =>
   (a ?? []).length === (b ?? []).length && (a ?? []).every((d, i) => cleanPath(d) === cleanPath((b ?? [])[i]));
 const sameSet = (a: string[] | null = [], b: string[] | null = []) => sameDirectories((a ?? []).map(cleanPath).sort(), (b ?? []).map(cleanPath).sort());
 
-function agentChange(agent: Agent, defaults: Agent | undefined): AgentChange | undefined {
-  if (!defaults) return undefined;
+function changedFields(agent: Agent, defaults: Agent): AgentChange["fields"] {
   const fields: AgentChange["fields"] = [];
   if (agent.name !== defaults.name) fields.push("name");
   for (const kind of ["global_directories", "project_directories"] as const) if (!sameDirectories(agent[kind], defaults[kind])) fields.push(kind);
   if (!sameSet(agent.detect_directories, defaults.detect_directories)) fields.push("detect_directories");
-  return fields.length ? { agent, defaults, fields } : undefined;
+  return fields;
 }
 
-const inputOf = (a: Agent): AgentInput => ({
-  name: a.name,
-  global_directories: a.global_directories ?? [],
-  project_directories: a.project_directories ?? [],
-  detect_directories: a.detect_directories ?? [],
-});
-
-// agentReset 是「恢复默认」会做的，和技能库的 ResetAgents 一致:先移除手填添加的 Agent(removed 是已添加的，removedPooled 是候选池里的，
-// 都不回候选池;它们的文件夹按移除 Agent 的规则:kept 还有别的 Agent 在读、总是保留,own 只有它读、按用户选的删除或保留),
-// 再把收录的 Agent 换回内置值(changed 是已添加的,changedPooled 是候选池里的);migrations 是已添加的收录 Agent 去掉的目录里
-// 那几处安装，迁移到内置的第 1 个目录(to 是那个目录);detached 是别处的符号链接指着要搬走的文件夹的。nothing 是已经和内置的一样。
-export function agentReset(s: Snapshot, defaults: Agent[], pool: Agent[]) {
-  const byCode = new Map(defaults.map((a) => [a.code, a]));
-  const removed = s.agents.filter(handAdded);
-  const removedPooled = pool.filter(handAdded);
-  const changed = s.agents.flatMap((a) => agentChange(a, byCode.get(a.code)) ?? []);
-  const changedPooled = pool.flatMap((a) => agentChange(a, byCode.get(a.code)) ?? []);
-  const deleted = removed.map((a) => agentDelete(s, a.code));
-  const edits = changed.map((c) => ({ change: c, edit: agentEdit(s, c.agent, inputOf(c.defaults)) }));
-  const migrations = edits.flatMap(({ change, edit }) =>
-    edit.affected.map((place) => ({ place, to: directoriesAt(change.defaults, placeOf(place.scope))[0] ?? "" })),
-  );
+// agentReset 把技能库给出的恢复默认计划(PlanResetAgents)整理成确认框要写的，不另算规则:changed / changedPooled 是换回内置值的
+// 已添加 / 候选池里的收录 Agent;removed / removedPooled 是移除的手填 Agent;kept 是还有别的 Agent 在读、总是保留的文件夹
+// (shared_with 按计划，不算同批移除的手填 Agent);own 是只有这批手填 Agent 在读、选删除时删掉的;migrations 是要迁移的各处
+// (to 是新的文件夹);detached 是迁移后旧文件夹被搬走、别处的符号链接指着它、库先给那几处换上独立一份的。各处按快照里的巡检结果写。
+export function agentReset(s: Snapshot, plan: ResetAgentsPlan) {
+  const inspected = (p: SkillScope): SkillScopeInspection =>
+    s.skillScopes.find((x) => x.skill_id === p.skill_id && scopeKey(x.scope) === scopeKey(p.scope)) ?? (p as SkillScopeInspection);
+  const reset = plan.reset ?? [];
+  const removed = plan.removed ?? [];
+  const migrations = (plan.migrations ?? []).map((m) => ({ place: inspected(m.place), to: m.to, leaves: m.leaves }));
+  const changed = reset.filter((r) => r.added && r.defaults).map((r) => ({ agent: r.agent, defaults: r.defaults!, fields: changedFields(r.agent, r.defaults!) }));
   return {
-    removed,
-    removedPooled,
     changed,
-    changedPooled,
-    kept: deleted.flatMap((d) => d.kept),
-    own: deleted.flatMap((d) => d.own),
+    changedPooled: reset.filter((r) => !r.added).map((r) => r.agent),
+    removed: removed.filter((r) => r.added).map((r) => r.agent),
+    removedPooled: removed.filter((r) => !r.added).map((r) => r.agent),
+    kept: (plan.kept ?? []).map((p) => ({ ...inspected(p), shared_with: p.shared_with })),
+    own: (plan.removable ?? []).map(inspected),
     migrations,
-    detached: edits.flatMap(({ edit }) => edit.detached),
-    nothing: !removed.length && !removedPooled.length && !changed.length && !changedPooled.length,
+    detached: detachedBy(folderPlaces(s, migrations.filter((m) => m.leaves).map((m) => m.place))),
+    nothing: !reset.length && !removed.length,
   };
 }
 

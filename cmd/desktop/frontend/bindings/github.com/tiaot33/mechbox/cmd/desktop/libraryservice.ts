@@ -261,6 +261,10 @@ export function PlanInstall(id: library$0.SkillID, scope: library$0.Scope): $Can
     return $Call.ByID(3522939696, id, scope);
 }
 
+export function PlanResetAgents(): $CancellablePromise<library$0.ResetAgentsPlan> {
+    return $Call.ByID(1621974982);
+}
+
 export function PlanSyncPull(backup: library$0.SyncBackupID): $CancellablePromise<library$0.SyncPullPlan> {
     return $Call.ByID(986267041, backup);
 }

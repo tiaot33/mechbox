@@ -106,8 +106,9 @@
 //   - [Library.EditAgent] 改名称、技能目录列表与检测目录;实际目录不在新列表里的安装选择是否迁移到新的第 1 个目录。
 //     [Library.DeleteAgent] 把 Agent 移回候选池,选择是否一并删除文件夹,组安装转给目录列表完全相同的另一个已添加 Agent。
 //     改目录或移除都不动其他已添加 Agent 还在读的文件夹:迁移时复制过去,移除时即使选了一并删除也保留,安装记录转给还在读的 Agent。
-//   - [Library.ListAgentDefaults] 列出这一版应用内置的收录 Agent 默认设置(编辑时给目录输入列候选);[Library.ResetAgents] 是「恢复默认」:
-//     移除用户手填添加的 Agent,把收录的 Agent 换回内置值,去掉的目录里的安装迁移到内置的第 1 个目录。
+//   - 恢复默认(agents_reset.go):[Library.ListAgentDefaults] 列出这一版应用内置的收录 Agent 默认设置(编辑时给目录输入列候选);
+//     [Library.PlanResetAgents] 再 [Library.ResetAgents]:先看会改什么,再移除用户手填添加的 Agent(当一批一次提交)、
+//     把收录的 Agent 换回内置值,去掉的目录里的安装迁移到内置的第 1 个目录。
 //   - 一个层级可以有几个技能目录:新装的技能装进第 1 个,其余目录里已有的技能原地入库,记下它在哪个目录([SkillScope].Directory)。
 //     一处安装是「全局或哪个项目 + 技能目录 + 文件夹」,已添加的 Agent 里目录列表有这个目录的都读得到它;一个 Agent 在一个作用域里
 //     对一个技能只认一处(见 [SkillScope])。认同一处的几个 Agent 共用这个文件夹:装到其中一个,其余也算已装([SkillScope].SharedOnly);

@@ -1496,6 +1496,7 @@ export const en = {
     resetMigrateTo: (from: string, to: string) => `${from} → ${to}`,
     resetField: (field: string, from: string, to: string) =>
       `${{ name: "Name", global_directories: "Global", project_directories: "In projects", detect_directories: "Detection" }[field] ?? field}: ${from || "(none)"} → ${to || "(none)"}`,
+    resetRemovable: (n: number) => `Folders only the hand-added Agents read (${n}): deleted if you choose to delete them, otherwise left where they are`,
     resetKeepDesc: "Folders installed for the hand-added Agents stay where they are; the Library no longer manages them",
     resetNothing: "The Agent settings already match the built-in defaults",
     resetDone: (changed: number, removed: number) =>
