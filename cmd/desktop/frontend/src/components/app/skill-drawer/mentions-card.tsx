@@ -112,7 +112,7 @@ function Status({ skill, mention }: { skill: Skill; mention: SkillMention }) {
       </span>
     );
   }
-  // 项目里共用一个目录的几个 Agent 在界面上是一处，合起来写。
+  // 目录列表相同、合成一处的几个 Agent 在界面上是一处，合起来写。
   const wheres = placeNames(s, missing);
   // 装着的地方都找不到时不再逐个写出作用域(几项都一样，太长),悬停时列出。
   const everywhere = wheres.length > 1 && wheres.length === checked.length;

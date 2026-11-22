@@ -1,4 +1,4 @@
-// 同名：同一个 Agent 的全局和项目里同名时的后果，同一层的别处同名不同内容的几份。
+// 同名：同一个 Agent 的全局和项目里同名时的后果，同一个作用域两个目录里同名，同一层的别处同名不同内容的几份。
 import { describe, expect, it } from "vitest";
 import {
   SameNamePairKind,
@@ -12,6 +12,7 @@ import {
 } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
 import { sameNameCopies, sameNameNote, sameNameScopes, skillSameNameNote } from "./same-name";
+import type { SkillScopeInspection } from "@bindings/internal/library";
 
 const snapshot = (s: Partial<Snapshot>) =>
   ({ collections: [], groups: [], skills: [], skillScopes: [], unmanaged: [], agents: [], projects: [], info: { home_dir: "/home" }, ...s }) as unknown as Snapshot;
@@ -42,6 +43,48 @@ describe("sameNameNote", () => {
     expect(sameNameNote(snapshot({ ...base, unmanaged: [{ ...copy, skill_id: undefined }] } as Partial<Snapshot>), "claude-code@1", pair.second.folder)?.text).toBe(
       "全局也有同名的 x（不在技能库里）",
     );
+  });
+});
+
+describe("同一个作用域两个目录里同名", () => {
+  // Cursor 全局读 ~/.agents/skills 和 ~/.cursor/skills,两个目录里各有一个不同的 foo;Codex 只读 ~/.agents/skills,没有这一对。
+  const pair = {
+    kind: SameNamePairKind.SameNameTwoDirectories,
+    name: "foo",
+    first: { scope: where("cursor"), directory: "/home/.agents/skills", folder: "/home/.agents/skills/foo", skill_id: 4 },
+    second: { scope: where("cursor"), directory: "/home/.cursor/skills", folder: "/home/.cursor/skills/foo" },
+  } as SameNameSkill;
+  const s = snapshot({
+    agents: [
+      { code: "codex", name: "Codex", global_directories: ["/home/.agents/skills"], project_directories: [".agents/skills"] },
+      { code: "cursor", name: "Cursor", global_directories: ["/home/.agents/skills", "/home/.cursor/skills"], project_directories: [".agents/skills"] },
+    ] as Agent[],
+    agentsShown: {},
+    sameName: [pair],
+  } as Partial<Snapshot>);
+
+  it("两份都标同名，只说同名、不说哪个生效，悬停写出另一处的文件夹", () => {
+    expect(sameNameNote(s, "cursor@0", pair.first.folder)).toEqual({
+      text: "这个 Agent 的另一个技能目录里也有同名的 foo（不在技能库里）",
+      title: "另一处的文件夹：~/.cursor/skills/foo",
+    });
+    expect(sameNameNote(s, "cursor@0", pair.second.folder)?.title).toBe("另一处的文件夹：~/.agents/skills/foo");
+    expect(sameNameNote(s, "codex@0", pair.first.folder)).toBeUndefined();
+  });
+
+  it("技能库页一行上写出是哪个作用域", () => {
+    expect(skillSameNameNote(s, 4)?.text).toBe("Cursor · 全局 的两个技能目录里都有同名的 foo（库装的；不在技能库里）");
+  });
+
+  it("只因共用目录被动算出已装、又被关掉显示的 Agent 的不说", () => {
+    const passive = {
+      ...s,
+      agentsShown: { cursor: false },
+      skillScopes: [{ skill_id: 4, scope: where("cursor"), shared_only: true } as SkillScopeInspection],
+    } as Snapshot;
+    expect(skillSameNameNote(passive, 4)).toBeUndefined();
+    const own = { ...passive, skillScopes: [{ skill_id: 4, scope: where("cursor") } as SkillScopeInspection] } as Snapshot;
+    expect(skillSameNameNote(own, 4)).toBeDefined();
   });
 });
 

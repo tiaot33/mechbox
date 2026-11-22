@@ -1,8 +1,9 @@
-// 同名：同一个 Agent 的全局和项目里同名时会怎样，同一层的别处同名不同内容的几份，库里同名的另外几个技能。
+// 同名：同一个 Agent 的全局和项目里同名时会怎样，同一个作用域的两个技能目录里同名，同一层的别处同名不同内容的几份，库里同名的另外几个技能。
 import {
   SameNamePairKind as PairKind,
   SameNameRule,
   type PlannedUnmanagedSkill,
+  type SameNameFolder,
   type SameNameSkill,
   type Scope,
   type Skill,
@@ -11,17 +12,24 @@ import {
 } from "@bindings/internal/library";
 import { messages } from "./i18n";
 import { installedWhere } from "./installs";
+import { agentNameIn, agentShown, mergedAgents, scopeLabel } from "./places";
 import type { Snapshot } from "./library";
 import { shortPath } from "./paths";
 import { parseScope, placeOf, projectName, scopeKey, type ScopeKey } from "./scope";
 import { sourceLabel } from "./source";
 import { unmanagedIn } from "./unmanaged";
 
-// ---------- 同一个 Agent 的全局和项目里同名 ----------
+// ---------- 同一个 Agent 的全局和项目里同名、同一个作用域两个目录里同名 ----------
 
-// globalAndProject 是同一个 Agent 的全局和项目里同名的那几对:first 是全局的那份,second 是项目里的。
-function globalAndProject(s: Snapshot): SameNameSkill[] {
-  return s.sameName.filter((p) => p.kind === PairKind.SameNameGlobalAndProject);
+// pairsOf 是某一种同名的那几对。只因共用目录被动算出已装(自己在这两处都没有安装记录)、又被关掉显示的 Agent 的不算：用户不想看到它。
+function pairsOf(s: Snapshot, kind: PairKind): SameNameSkill[] {
+  const owns = (scope: Scope) =>
+    s.skillScopes.some((p) => p.scope.agent === scope.agent && placeOf(p.scope) === placeOf(scope) && !p.shared_only);
+  return s.sameName.filter((p) => {
+    if (p.kind !== kind) return false;
+    const agent = s.agents.find((a) => a.code === p.second.scope.agent);
+    return !agent || agentShown(s.agentsShown, agent) || owns(p.first.scope) || owns(p.second.scope);
+  });
 }
 
 // SameNameKind 是同名的一对里一边那份是什么：库装的(managed)、和库里某个技能一样但不是库装的(identical,见 lib/unmanaged 的 identicalIn:
@@ -33,49 +41,82 @@ function sameNameKind(s: Snapshot, side: { skill_id?: SkillID; folder: string })
   return s.unmanaged.some((u) => u.folder === side.folder && !!u.skill_id) ? "identical" : "unmanaged";
 }
 
-// sameNameNote 说明作用域里的一个技能文件夹和同一个 Agent 全局 / 某个已登记项目里的文件夹同名时会怎样:
-// 按 Agent 已知的规则说出后果(Claude Code 里全局的生效，Codex 里两份都会出现),没有已知规则的只说同名。
-// 同名按 SKILL.md 里的 name,两处的文件夹名可以不同。folder 是这个作用域里那个技能文件夹;没有同名时返回 undefined。
-// title 列出另一处的文件夹。
-export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text: string; title: string } | undefined {
+type Note = { text: string; title: string };
+
+// sameNameNote 说明作用域里的一个技能文件夹和别处同名时会怎样:folder 是这个作用域里那个技能文件夹;没有同名时返回 undefined。
+// 同名按 SKILL.md 里的 name,两处的文件夹名可以不同;title 列出另一处的文件夹。两种同名都有时逐行写。
+// - 和同一个 Agent 全局 / 某个已登记项目里的文件夹同名:按 Agent 已知的规则说出后果(Claude Code 里全局的生效，Codex 里两份都会出现),
+//   没有已知规则的只说同名。
+// - 和这个作用域的另一个技能目录里的文件夹同名：不知道哪个生效，只说同名。合成一处的几个 Agent 目录相同，只说一次。
+export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): Note | undefined {
+  const notes = [globalAndProjectNote(s, key, folder), twoDirectoriesNote(s, key, folder)].filter((n): n is Note => !!n);
+  if (!notes.length) return undefined;
+  return { text: notes.map((n) => n.text).join("\n"), title: notes.map((n) => n.title).join("\n") };
+}
+
+function globalAndProjectNote(s: Snapshot, key: ScopeKey, folder: string): Note | undefined {
   const m = messages().model;
   const scope = parseScope(key);
   const agent = s.agents.find((a) => a.code === scope.agent);
   const rule = agent?.same_name ?? SameNameRule.SameNameUnknown;
   const who = agent?.name ?? scope.agent;
+  const pairs = pairsOf(s, PairKind.SameNameGlobalAndProject);
   if (scope.project_id) {
-    const pairs = globalAndProject(s).filter((p) => p.second.scope.agent === scope.agent && p.second.scope.project_id === scope.project_id && p.second.folder === folder);
-    if (pairs.length === 0) return undefined;
-    const kinds = [...new Set(pairs.map((p) => sameNameKind(s, p.first)))];
-    const name = pairs[0].name;
+    const here = pairs.filter((p) => p.second.scope.agent === scope.agent && p.second.scope.project_id === scope.project_id && p.second.folder === folder);
+    if (here.length === 0) return undefined;
+    const kinds = [...new Set(here.map((p) => sameNameKind(s, p.first)))];
+    const name = here[0].name;
     const text = {
       [SameNameRule.SameNameGlobalWins]: m.sameNameGlobalWins(name, kinds, who),
       [SameNameRule.SameNameBothShown]: m.sameNameGlobalBoth(name, kinds, who),
       [SameNameRule.SameNameUnknown]: m.sameNameGlobalUnknown(name, kinds),
     }[rule];
-    return { text, title: pairs.map((p) => m.sameNameGlobalFolder(shortPath(s, p.first.folder))).join("\n") };
+    return { text, title: here.map((p) => m.sameNameGlobalFolder(shortPath(s, p.first.folder))).join("\n") };
   }
-  const pairs = globalAndProject(s).filter((p) => p.first.scope.agent === scope.agent && p.first.folder === folder);
-  if (pairs.length === 0) return undefined;
-  const name = pairs[0].name;
-  const projects = [...new Set(pairs.map((p) => projectName(s, p.second.scope.project_id ?? 0)))];
+  const here = pairs.filter((p) => p.first.scope.agent === scope.agent && p.first.folder === folder);
+  if (here.length === 0) return undefined;
+  const name = here[0].name;
+  const projects = [...new Set(here.map((p) => projectName(s, p.second.scope.project_id ?? 0)))];
   const text = {
     [SameNameRule.SameNameGlobalWins]: m.sameNameProjectWins(projects, name, who),
     [SameNameRule.SameNameBothShown]: m.sameNameProjectBoth(projects, name, who),
     [SameNameRule.SameNameUnknown]: m.sameNameProjectUnknown(projects, name),
   }[rule];
-  return { text, title: pairs.map((p) => m.sameNameProjectFolder(projectName(s, p.second.scope.project_id ?? 0), shortPath(s, p.second.folder))).join("\n") };
+  return { text, title: here.map((p) => m.sameNameProjectFolder(projectName(s, p.second.scope.project_id ?? 0), shortPath(s, p.second.folder))).join("\n") };
 }
 
-// skillSameNameNote 是库里一个技能在各处的同名说明(技能库页、更新页的一行用):同一个 Agent 的全局和某个项目里同名的一对只说一次,
-// 写出是哪两处(各是库装的、和库里一样的还是不在技能库里的)和后果;text 与 title 相同，逐对一行。没有同名时返回 undefined。
-export function skillSameNameNote(s: Snapshot, skillID: SkillID): { text: string; title: string } | undefined {
+function twoDirectoriesNote(s: Snapshot, key: ScopeKey, folder: string): Note | undefined {
   const m = messages().model;
-  const lines = globalAndProject(s)
-    .filter((p) => p.first.skill_id === skillID || p.second.skill_id === skillID)
+  const scope = parseScope(key);
+  const agents = mergedAgents(s, scope.agent, placeOf(scope));
+  const others = new Map<string, SameNameFolder>();
+  let name = "";
+  for (const p of pairsOf(s, PairKind.SameNameTwoDirectories)) {
+    if (!agents.includes(p.first.scope.agent) || placeOf(p.first.scope) !== placeOf(scope)) continue;
+    const other = p.first.folder === folder ? p.second : p.second.folder === folder ? p.first : undefined;
+    if (!other) continue;
+    others.set(other.folder, other);
+    name = p.name;
+  }
+  if (!others.size) return undefined;
+  const list = [...others.values()];
+  return {
+    text: m.sameNameTwoDirectories(name, [...new Set(list.map((o) => sameNameKind(s, o)))]),
+    title: list.map((o) => m.sameNameOtherFolder(shortPath(s, o.folder))).join("\n"),
+  };
+}
+
+// skillSameNameNote 是库里一个技能在各处的同名说明(技能库页、更新页的一行用):同一对只说一次，
+// 写出是哪两处(各是库装的、和库里一样的还是不在技能库里的)和后果;text 与 title 相同，逐对一行。没有同名时返回 undefined。
+// 合成一处的几个 Agent 写在一起(名字写那几个),说一次。
+export function skillSameNameNote(s: Snapshot, skillID: SkillID): Note | undefined {
+  const m = messages().model;
+  const mine = (p: SameNameSkill) => p.first.skill_id === skillID || p.second.skill_id === skillID;
+  const lines = pairsOf(s, PairKind.SameNameGlobalAndProject)
+    .filter(mine)
     .map((p) => {
       const agent = s.agents.find((a) => a.code === p.second.scope.agent);
-      const who = agent?.name ?? p.second.scope.agent;
+      const who = agentNameIn(s, p.second.scope.agent, placeOf(p.second.scope));
       const say = {
         [SameNameRule.SameNameGlobalWins]: m.sameNamePairWins,
         [SameNameRule.SameNameBothShown]: m.sameNamePairBoth,
@@ -83,7 +124,10 @@ export function skillSameNameNote(s: Snapshot, skillID: SkillID): { text: string
       }[agent?.same_name ?? SameNameRule.SameNameUnknown];
       return say(who, projectName(s, p.second.scope.project_id ?? 0), p.name, sameNameKind(s, p.first), sameNameKind(s, p.second));
     });
-  const text = [...new Set(lines)].join("\n");
+  const twoDirectories = pairsOf(s, PairKind.SameNameTwoDirectories)
+    .filter(mine)
+    .map((p) => m.sameNamePairTwoDirectories(scopeLabel(s, p.first.scope), p.name, sameNameKind(s, p.first), sameNameKind(s, p.second)));
+  const text = [...new Set([...lines, ...twoDirectories])].join("\n");
   return text ? { text, title: text } : undefined;
 }
 

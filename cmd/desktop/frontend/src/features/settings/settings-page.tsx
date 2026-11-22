@@ -14,7 +14,7 @@ import { useSnapshot, type LibraryError } from "@/lib/library";
 import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { useView } from "@/lib/view";
-import { AgentDialog, AgentSection } from "@/features/scope/agent-settings";
+import { AddAgentDialog, AgentSection } from "@/features/scope/agent-settings";
 import { ProjectPathDialog } from "@/features/scope/project-path-dialog";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -194,7 +194,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
               )}
               {card(
                 "agents",
-                <Button onClick={() => ui.open((close) => <AgentDialog onClose={close} />)}>
+                <Button onClick={() => ui.open((close) => <AddAgentDialog onClose={close} />)}>
                   <Icon name="plus" />
                   {t.addAgent}
                 </Button>,

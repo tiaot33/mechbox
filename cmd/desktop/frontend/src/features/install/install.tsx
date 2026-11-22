@@ -46,6 +46,7 @@ import {
   notDirectIn,
   occupied,
   readInstallPlans,
+  readsTwiceNotes,
   skippedPicked,
   uninstallGroupPlaces,
   uninstallPicked,
@@ -60,6 +61,7 @@ export async function installSkill(id: SkillID, scope: Scope) {
   const plan = await ui.read(() => LibraryService.PlanInstall(id, scope));
   if (!plan) return;
   const where = scopeLabel(s, scope);
+  const twice = readsTwiceNotes(s, [{ plan }]);
   let overwrite = false;
   switch (plan.status) {
     case InstallPlanStatus.InstallOccupied: {
@@ -71,7 +73,12 @@ export async function installSkill(id: SkillID, scope: Scope) {
     case InstallPlanStatus.InstallUntracked: {
       const ok = await ui.confirm({
         title: t.untrackedTitle,
-        body: <Notice alert>{t.untrackedBody(shortPath(s, plan.folder), plan.name)}</Notice>,
+        body: (
+          <>
+            <Notice alert>{t.untrackedBody(shortPath(s, plan.folder), plan.name)}</Notice>
+            <ReadsTwiceNotice notes={twice} />
+          </>
+        ),
         confirm: t.overwriteInstall,
         danger: true,
       });
@@ -79,6 +86,8 @@ export async function installSkill(id: SkillID, scope: Scope) {
       overwrite = true;
       break;
     }
+    default:
+      if (twice.length && !(await ui.confirm({ title: t.installTitle(plan.name, where), body: <ReadsTwiceNotice notes={twice} />, confirm: t.install }))) return;
   }
   const done = await ui.run(() => LibraryService.Install(id, scope, { overwrite }).then(() => true));
   if (done) await toastInstalled([{ skill_id: id, scope }], t.installed(plan.name, where));
@@ -122,7 +131,7 @@ async function installMentioned(targets: SkillInScope[]) {
 }
 
 // lostMentions 是卸掉这几处的文件夹之后才会找不到被提到技能的地方(技能库一次算出);读不出来时当作没有，不拦着卸载。
-// 项目里共用目录的几个 Agent 的同一条只留一条。
+// 目录列表相同、合成一处的几个 Agent 的同一条只留一条。
 export async function lostMentions(gone: SkillInScope[]): Promise<MissingMention[]> {
   if (!gone.length) return [];
   try {
@@ -247,21 +256,32 @@ async function installEach(items: InstallItem[], title: string, done: string): P
     settled.map((r): PlanRead => (r.status === "fulfilled" ? { plan: r.value } : { error: toLibraryError(r.reason) })),
   );
   const { several, label, untracked } = plans;
+  const twice = readsTwiceNotes(
+    s,
+    plans.planned.filter((x) => x.plan.status !== InstallPlanStatus.InstallOccupied).map((x) => ({ plan: x.plan, label: several || items.length > 1 ? label(x) : undefined })),
+  );
   let overwrite = false;
-  if (untracked.length) {
+  if (untracked.length || twice.length) {
     const choice = await ui.confirm({
       title,
       body: (
-        <Notice alert>
-          {several
-            ? t.untrackedPlaces(untracked.length, untracked.map(label))
-            : t.untrackedSkills(untracked.length, untracked.map((x) => x.plan.name))}
-        </Notice>
+        <>
+          {untracked.length > 0 && (
+            <Notice alert>
+              {several
+                ? t.untrackedPlaces(untracked.length, untracked.map(label))
+                : t.untrackedSkills(untracked.length, untracked.map((x) => x.plan.name))}
+            </Notice>
+          )}
+          <ReadsTwiceNotice notes={twice} />
+        </>
       ),
-      choices: [
-        { value: "skip", label: several ? t.skipPlaces : t.skipSkills, desc: several ? t.skipPlacesDesc : t.skipSkillsDesc },
-        { value: "overwrite", label: t.overwriteFolders, desc: t.overwriteFoldersDesc },
-      ],
+      choices: untracked.length
+        ? [
+            { value: "skip", label: several ? t.skipPlaces : t.skipSkills, desc: several ? t.skipPlacesDesc : t.skipSkillsDesc },
+            { value: "overwrite", label: t.overwriteFolders, desc: t.overwriteFoldersDesc },
+          ]
+        : undefined,
       confirm: t.install,
     });
     if (!choice) return false;
@@ -289,7 +309,7 @@ export async function uninstallSkill(id: SkillID, scope: Scope) {
   const s = currentSnapshot();
   const t = messages().actions;
   // 全局共用目录：从其中一个卸载会撤销共用的各个 Agent 的直接安装，文件夹随之删除，先说明还有哪些 Agent 在用。
-  // 项目里共用目录的几个 Agent 在界面上本来就是一处、名字里写着它们，不再另说。
+  // 目录列表相同、合成一处的几个 Agent 在界面上本来就是一处、名字里写着它们，不再另说。
   // 别处的符号链接指着这个文件夹时，删之前库先给那几处换上独立的一份，也先说明。
   // 文件夹被手动改过时，卸载会把修改一起删掉，先列出是哪几处。没有组安装留着时文件夹才删。
   const plan = uninstallPlace(s, id, scope);
@@ -379,22 +399,33 @@ export async function installGroup(groupID: GroupID, scope: Scope) {
   const plan = await ui.read(() => LibraryService.PlanGroupInstall(groupID, scope));
   if (!plan) return;
   const { untracked, blocked } = groupInstallPlan(plan.members ?? []);
+  const twice = readsTwiceNotes(
+    s,
+    (plan.members ?? []).filter((m) => m.status === InstallPlanStatus.InstallReady || m.status === InstallPlanStatus.InstallUntracked).map((m) => ({ plan: m })),
+  );
   let overwrite = false;
-  if (untracked.length) {
+  if (untracked.length || twice.length) {
     const choice = await ui.confirm({
       title: t.groupInstallTitle(groupName(s, groupID), scopeLabel(s, scope)),
       body: (
-        <Notice alert>
-          {t.groupUntracked(
-            untracked.length,
-            untracked.map((m) => m.name),
+        <>
+          {untracked.length > 0 && (
+            <Notice alert>
+              {t.groupUntracked(
+                untracked.length,
+                untracked.map((m) => m.name),
+              )}
+            </Notice>
           )}
-        </Notice>
+          <ReadsTwiceNotice notes={twice} />
+        </>
       ),
-      choices: [
-        { value: "skip", label: t.skipMembers, desc: t.skipMembersDesc },
-        { value: "overwrite", label: t.overwriteFolders, desc: t.overwriteFoldersDesc },
-      ],
+      choices: untracked.length
+        ? [
+            { value: "skip", label: t.skipMembers, desc: t.skipMembersDesc },
+            { value: "overwrite", label: t.overwriteFolders, desc: t.overwriteFoldersDesc },
+          ]
+        : undefined,
       confirm: t.install,
     });
     if (!choice) return;
@@ -445,3 +476,17 @@ export async function uninstallGroup(groupID: GroupID, scope: Scope) {
   });
 }
 
+
+// ReadsTwiceNotice 是安装前「这几个 Agent 也读这个目录，会读到两份」的提示(见 readsTwiceNotes),一处一行;没有时不显示。
+function ReadsTwiceNotice({ notes }: { notes: string[] }) {
+  if (!notes.length) return null;
+  return (
+    <Notice className="reads-twice">
+      {notes.map((note) => (
+        <span key={note} className="block">
+          {note}
+        </span>
+      ))}
+    </Notice>
+  );
+}

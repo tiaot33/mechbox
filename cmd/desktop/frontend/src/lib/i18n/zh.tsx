@@ -92,7 +92,8 @@ export const zh = {
   model: {
     global: "全局",
     agentNames: (names: string[]) => names.join("、"),
-    projectFolderNote: (folder: string, names: string[]) => `${names.join("、")} 都读项目里的 ${folder}：装一次都算已装，卸载也一起卸载`,
+    mergedFolderNote: (dirs: string[], names: string[], project: boolean) =>
+      `${names.join("、")} 都读${project ? "项目里的 " : " "}${dirs.join("、")}：装一次都算已装，卸载也一起卸载`,
     outsideLinkNote: (target: string) =>
       `它是指向 ${target} 的符号链接。之后在 app 里更新它，会把链接换成独立的一份；在 ${target} 里改就不再影响这里。`,
     linkNote: (target: string) => `这次会换成独立的一份（现在是指向 ${target} 的符号链接）`,
@@ -115,6 +116,11 @@ export const zh = {
       `${who} 的全局（${kinds([global])}）和项目「${project}」（${kinds([here])}）里都有 ${name}：${who} 在「${project}」里两份都会出现`,
     sameNamePairUnknown: (who: string, project: string, name: string, global: SameNameKind, here: SameNameKind) =>
       `${who} 的全局（${kinds([global])}）和项目「${project}」（${kinds([here])}）里都有同名的 ${name}`,
+    // 同一个作用域的两个技能目录里同名：不知道哪个生效，只说同名。
+    sameNameTwoDirectories: (name: string, k: SameNameKind[]) => `这个 Agent 的另一个技能目录里也有同名的 ${name}（${kinds(k)}）`,
+    sameNameOtherFolder: (folder: string) => `另一处的文件夹：${folder}`,
+    sameNamePairTwoDirectories: (where: string, name: string, first: SameNameKind, second: SameNameKind) =>
+      `${where} 的两个技能目录里都有同名的 ${name}（${kinds([first])}；${kinds([second])}）`,
     sameNameFetchSourced: (name: string) =>
       `带来源入库时只和这个来源里同名的技能比：内容和它的某个版本一样时只记下装在这里，不一样时不能入库（可以清空来源）；其他来源或没有来源的同名技能不合并，入库后库里会多一个「${name}」，列表里写出各装在哪里。`,
     sameNameFetchUnsourced: (name: string) =>
@@ -170,6 +176,7 @@ export const zh = {
     untrackedBody: (folder: string, name: string) => `${folder} 已存在，但不是从技能库装的。覆盖会用「${name}」替换它。`,
     overwriteInstall: "覆盖并安装",
     installed: (name: string, where: string) => `已安装「${name}」到 ${where}`,
+    installTitle: (name: string, where: string) => `安装「${name}」到 ${where}`,
     uninstallTitle: (name: string) => `卸载「${name}」`,
     uninstallShared: (folder: string, agents: string[], grouped: boolean) =>
       `${folder} 还被 ${agents.join("、")} 共用。` +
@@ -346,9 +353,10 @@ export const zh = {
     unregistered: "已注销项目",
     sharedBy: (agents: string[]) => `${agents.join("、")} 在用`,
     agentAdded: (name: string) => `已添加 Agent「${name}」`,
+    agentsAdded: (names: string[]) => (names.length === 1 ? `已添加 Agent「${names[0]}」` : `已添加 ${names.length} 个 Agent：${names.join("、")}`),
     editAgentTitle: (name: string) => `改 Agent「${name}」的目录`,
     editAgentHint: (installed: number, groupInstalls: number) =>
-      `这个 Agent 在旧目录里${[installed && `已装了 ${installed} 处技能`, groupInstalls && `有 ${groupInstalls} 个组安装`].filter(Boolean).join("，")}。`,
+      `这个 Agent 在去掉的目录里${[installed && `已装了 ${installed} 处技能`, groupInstalls && `有 ${groupInstalls} 个组安装`].filter(Boolean).join("，")}。`,
     editAgentShared: (n: number) => `其中 ${n} 个文件夹还有别的 Agent 在用，留在旧目录给它们：迁移时复制一份到新目录，不迁移时不动。`,
     migrate: "迁移到新目录",
     migrateDesc: "把已装的文件夹原样搬过去，组安装保留；新目录里已有同名文件夹的不覆盖、不搬，旧文件夹留在原处，完成后列出",
@@ -360,12 +368,17 @@ export const zh = {
     notMigratedReason: (to: string, from: string) => `新目录里已有同名文件夹，或被库里另一个技能的安装占用：${to}\n旧文件夹留在原处：${from}`,
     migratedPartly: (migrated: number, skipped: number) => `迁移了 ${migrated} 个文件夹；下面 ${skipped} 个没有迁移，这个 Agent 在那里不再算已装。`,
     agentSavedMigrated: (name: string, n: number) => `已保存 Agent「${name}」，迁移了 ${n} 个文件夹`,
-    deleteAgentTitle: (name: string) => `删除 Agent「${name}」`,
-    deleteAgentHint: "它从 Agent 列表里消失，在全局和各项目的直接安装与组安装记录都会删除。",
-    deleteAgentShared: (n: number) => `下面 ${n} 个文件夹还有别的 Agent 在用，不管怎么选都保留，安装记录转给它们。`,
+    readsTwice: (agents: string[], skill: string) => `${agents.join("、")} 也读这个目录，已经在自己别的目录装着 ${skill}，装上后会读到两份`,
+    staleLinks: (n: number) => `会一并删掉 ${n} 个指向这些文件夹的旧链接：`,
+    copiesLeft: (skill: string, copies: string[], folder: string, stillInstalled: boolean) =>
+      `${skill}：${copies.join("、")} 里还有一份一样的，删掉 ${folder} 后 Agent 照样读得到它${stillInstalled ? "，列表里仍显示已装" : ""}`,
+    removeAgentTitle: (name: string) => `移除 Agent「${name}」`,
+    removeAgentHint: "它从 Agent 列表里消失、回到候选池，之后可以再添加；它在全局和各项目的直接安装与组安装记录都会删除。从 Mechbox 移除不等于卸载这个 Agent。",
+    removeAgentShared: (n: number) => `下面 ${n} 个文件夹还有别的 Agent 在用，不管怎么选都保留，安装记录转给它们。`,
+    removeAgent: "移除",
     keepAgentFoldersDesc: "文件夹留在原处，技能库从此不再管",
     delete: "删除",
-    agentDeleted: (name: string) => `已删除 Agent「${name}」`,
+    agentRemoved: (name: string) => `已移除 Agent「${name}」，它回到了候选池`,
     twin: (source: string, w: InstalledWhere) => `${source}，${where(w)}`,
     sameNameTwins: (name: string, twins: string[], note: string) => `库里已经有叫「${name}」的技能（${twins.join("；")}）。${note}`,
     matchedVersion: (name: string, match: string) =>
@@ -796,6 +809,7 @@ export const zh = {
     sameNameCopiesTitle: (name: string, places: string[]) =>
       `${places.join("、")} 里也有 ${name}，内容和这里的不同：不会合成一个技能，入库时只入库其中一份`,
     agentDirectory: "Agent 目录",
+    directorySeparator: "、",
     statInstalled: "已安装",
     statNotInLibrary: "不在技能库里",
     statIdentical: "不是 app 装的",
@@ -1342,32 +1356,53 @@ export const zh = {
 
   agents: {
     shownHint: "勾选的 Agent 出现在选择安装位置的地方。已经装了技能的 Agent 不管勾没勾，装出去的地方在技能详情、更新和巡检里照常列出。",
-    custom: "自定义",
     detected: "检测到",
+    detectedTitle: "在这台机器上检测到了这个 Agent",
     notDetected: "未检测到",
-    directories: (global: string, project: string) => `${global} · 项目里 ${project}`,
+    notDetectedTitle: "在这台机器上没有检测到这个 Agent（它的检测目录都不存在）",
+    directories: (globals: string[], projects: string[]) => `${globals.join("、")} · 项目里 ${projects.join("、")}`,
+    directoriesTitle: (globals: string[], projects: string[]) => [`全局：`, ...globals, `项目里：`, ...projects].join("\n"),
     edit: "编辑",
-    delete: "删除",
+    remove: "移除",
     show: (name: string) => `显示 ${name}`,
     shown: "显示",
     hidden: "不显示",
     nameRequired: "填写名称",
+    directoryRequired: "填写目录",
     globalRequired: "填写全局技能目录",
-    globalInHome: "全局技能目录要在用户主目录里面（不能是主目录本身）",
-    globalInWSL: "全局技能目录要在 Windows 本机的主目录里面；要放到 WSL 发行版里，先在「设置 → 通用 → 全局目录」选那个发行版",
+    globalInHome: "要在用户主目录里面（不能是主目录本身）",
+    globalInWSL: "要在 Windows 本机的主目录里面；要放到 WSL 发行版里，先在「设置 → 通用 → 全局目录」选那个发行版",
     projectRequired: "填写项目里的技能目录",
     projectRelative: (example: string) => `填相对项目根目录的路径，如 ${example}`,
     projectInside: "要在项目根目录里面（不能是项目根本身）",
     editTitle: (name: string) => `编辑 Agent「${name}」`,
     addTitle: "添加 Agent",
+    addManualTitle: "手填添加 Agent",
+    searchPool: "按名称或目录搜索",
+    loadingPool: "正在读取候选池…",
+    poolEmpty: "收录的 Agent 都已添加。要用别的 Agent，可以手填添加。",
+    poolNoMatch: "没有匹配的 Agent。",
+    alreadyRead: "已有 Agent 读这个目录",
+    alreadyReadTitle: (dir: string, project: boolean, by: string[]) =>
+      `${by.join("、")} 已经在读${project ? "项目里的 " : " "}${dir}；再添加它，两个 Agent 会读同一个目录（多半是以前手填添加的同一个 Agent）`,
+    addPicked: (n: number) => `添加 ${n} 个`,
+    manual: "手填添加…",
+    backToPool: "候选池",
     cancel: "取消",
     save: "保存",
     add: "添加",
     name: "名称",
     global: "全局技能目录（在用户主目录里面）",
+    project: "项目里的技能目录（相对项目根目录）",
+    detect: "检测目录（在用户主目录里面）",
+    directoriesHint: "第 1 个装新技能；其余目录里已有的技能也会列出，可以原地入库",
+    detectHint: "其中任一目录存在就算在这台机器上检测到；可以不填",
+    installsNew: "装新技能",
+    addDirectory: "添加目录",
+    removeDirectory: "去掉这个目录",
     choose: "选择…",
     chooseGlobal: "选择全局技能目录",
-    project: "项目里的技能目录（相对项目根目录）",
+    chooseDetect: "选择检测目录",
   },
 
   scopes: {

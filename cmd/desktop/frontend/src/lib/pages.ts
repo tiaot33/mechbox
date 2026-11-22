@@ -8,7 +8,7 @@ import type { Agent, CollectionID, GroupID, ProjectID, Scope, Skill, SkillID, Un
 import { messages } from "./i18n";
 import { skillScopesIn } from "./installs";
 import type { Snapshot } from "./library";
-import { globalScopesSeenFrom, mergeProjectAgents, scopeLabel } from "./places";
+import { globalScopesSeenFrom, mergeAgents, scopeLabel } from "./places";
 import { parseScope, placeOf, projectName, scopeKey, scopeOf, type ScopeKey } from "./scope";
 import { collectionSkills, noSource, sourceLabel } from "./source";
 import { todoSkills, updatableCollections } from "./source-state";
@@ -161,7 +161,7 @@ function arrangeSkills(
 
 // ScopeListing 是作用域页要列的，分上下两块。上面是 Agent 在这里看得到的：装在这里的库里的技能按集合或组分节(hereSections)、
 // 装在这里的未纳管技能，以及项目里来自同一个 Agent 全局的(Agent 在项目里也看得到，不再出现在别处)。
-// 项目里共用一个目录的几个 Agent 合成一处时，来自全局的是这几个 Agent 全局的合起来。
+// 目录列表相同、合成一处的几个 Agent 合成一处时，来自全局的是这几个 Agent 全局的合起来。
 // 下面是库里没装在这里的技能，同样按集合或组分节(notHereSections);notHereSkills 是其中的技能，按节的先后、一个技能只算一次。
 // 搜索时都只留匹配的;hereCount 是上面那块里库里的技能个数，含和库里一样、不是库装的那几个(identicalIn)。
 export interface ScopeListing {
@@ -236,7 +236,7 @@ export function projectAgents(s: Snapshot, project: ProjectID, search: string): 
   const byName = (a: { name: string }, b: { name: string }) => collator.compare(a.name, b.name);
   const inProject = (p: { scope: Scope }, a: Agent) => p.scope.agent === a.code && placeOf(p.scope) === project;
   const used = s.agents.filter((a) => s.skillScopes.some((p) => inProject(p, a)) || s.unmanaged.some((u) => inProject(u, a)));
-  return mergeProjectAgents(s, used)
+  return mergeAgents(s, project, used)
     .map((agent) => {
       const key = scopeKey(scopeOf(agent.code, project));
       const split = splitIdentical(unmanagedIn(s, key));

@@ -14,7 +14,7 @@ import {
   type SkillInScope,
   type SkillScopeInspection,
 } from "@bindings/internal/library";
-import { detachedBy, lostEdits } from "@/lib/consent";
+import { copiesLeft, detachedBy, lostEdits, staleLinksOf } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
 import type { Attempt, LibraryError, Snapshot } from "@/lib/library";
@@ -22,7 +22,7 @@ import { installable, missingNames } from "@/lib/mentions";
 import { errorOccupier, folderKey, folderPlaces, occupierOf, skillScopeIn } from "@/lib/installs";
 import { noSource, sourceLabel } from "@/lib/source";
 import { placeOf, scopeKey, skillName } from "@/lib/scope";
-import { scopeLabel, sharedWithNote } from "@/lib/places";
+import { agentNameIn, scopeLabel, sharedWithNote } from "@/lib/places";
 import { shortPath } from "@/lib/paths";
 import { placedBy, type ResultRow } from "@/components/app/result-rows";
 
@@ -89,6 +89,19 @@ export function readInstallPlans(s: Snapshot, items: InstallItem[], reads: PlanR
     return [];
   });
   return { several, label, planned, untracked: planned.filter((x) => x.plan.status === InstallPlanStatus.InstallUntracked), unread };
+}
+
+// readsTwiceNotes 是装上之后会让别的 Agent 读到两份的说明(见 InstallPlan.reads_twice):它们也读要装进的目录，又已经在自己的另一个目录装着这个技能。
+// 一处一行，label 给出时写在前面(装到几处时写出是哪一处);没有时为空。照样能装，安装前提示。
+export function readsTwiceNotes(s: Snapshot, plans: readonly { plan: InstallPlan; label?: string }[]): string[] {
+  const t = messages().actions;
+  return plans.flatMap(({ plan, label }) => {
+    const scopes = plan.reads_twice ?? [];
+    if (!scopes.length) return [];
+    const names = [...new Set(scopes.map((sc) => agentNameIn(s, sc.agent, placeOf(sc))))];
+    const note = t.readsTwice(names, plan.name);
+    return [label ? `${label}：${note}` : note];
+  });
 }
 
 // InstallStep 是逐处安装的一步:skip 是不装、直接写进结果的一行(被别的技能占用，或有同名文件夹而用户选了跳过);
@@ -162,21 +175,28 @@ export function groupInstalled(results: GroupMemberResult[], blocked: InstallPla
 // ---------- 卸载 ----------
 
 // uninstallPlace 是从 scope 卸载一个技能会动到的:place 是这一处;shared 是全局共用目录里还读着它的别的 Agent(卸载会撤销它们的直接安装，
-// 文件夹随之删除;项目里共用目录的几个 Agent 在界面上本来就是一处，不算);deleted 是会删掉文件夹的各处：直接安装、没有组安装留着时才删。
+// 文件夹随之删除;目录列表相同、合成一处的几个 Agent 在界面上本来就是一处，不算);deleted 是会删掉文件夹的各处：直接安装、没有组安装留着时才删。
 export function uninstallPlace(s: Snapshot, id: SkillID, scope: Scope) {
   const place = skillScopeIn(s, id, scopeKey(scope));
   return {
     place,
-    shared: place ? sharedWithNote(place) : [],
+    shared: place ? sharedWithNote(s, place) : [],
     deleted: place?.direct && !place.groups?.length ? folderPlaces(s, [place]) : [],
   };
 }
 
-// asksBeforeUninstall 是卸载一处之前要不要先确认：平时一点就卸载;有要说的才问：全局共用、别处的符号链接指着要删的文件夹、
-// 要删的文件夹被手动改过，或别的技能会因此找不到它提到的技能(unfound)。
+// asksBeforeUninstall 是卸载一处之前要不要先确认：平时一点就卸载;有要说的才问：还有目录列表不同的 Agent 共用、别处的符号链接指着要删的文件夹、
+// 要删的文件夹被手动改过、会一并删掉旧链接、Agent 在别的目录里还有一份一样的(卸载后照样显示已装),或别的技能会因此找不到它提到的技能(unfound)。
 export function asksBeforeUninstall(p: ReturnType<typeof uninstallPlace>, unfound: MissingMention[]): boolean {
   if (!p.place) return false;
-  return p.shared.length > 0 || detachedBy(p.deleted).length > 0 || lostEdits(p.deleted).length > 0 || unfound.length > 0;
+  return (
+    p.shared.length > 0 ||
+    detachedBy(p.deleted).length > 0 ||
+    lostEdits(p.deleted).length > 0 ||
+    staleLinksOf(p.deleted).length > 0 ||
+    copiesLeft(p.deleted).length > 0 ||
+    unfound.length > 0
+  );
 }
 
 // uninstallPicked 是从 scopes 卸载勾选的技能会动到的:direct 是要撤销的直接安装，viaGroup 是只随组安装、跳过的;
@@ -191,7 +211,7 @@ export function uninstallPicked(s: Snapshot, ids: SkillID[], scopes: Scope[]) {
     viaGroup: places.filter((p) => !p.direct),
     deleted,
     folders: new Set(deleted.map(folderKey)).size,
-    shared: direct.filter((p) => sharedWithNote(p).length && !p.groups?.length),
+    shared: direct.filter((p) => sharedWithNote(s, p).length && !p.groups?.length),
     skills: new Set(direct.map((p) => p.skill_id)).size,
   };
 }
@@ -219,5 +239,5 @@ export function uninstallGroupPlaces(s: Snapshot, groupID: GroupID, scope: Scope
       );
       return !others.some((g) => memberOf(g.group_id, p.skill_id));
     });
-  return { gone, shared: gone.filter((p) => sharedWithNote(p).length) };
+  return { gone, shared: gone.filter((p) => sharedWithNote(s, p).length) };
 }

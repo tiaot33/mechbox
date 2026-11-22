@@ -33,8 +33,10 @@ import {
   defaultSkills,
   detachedBy,
   linkWrites,
+  copiesLeft,
   discardedEdits,
   lostEdits,
+  staleLinksOf,
   overwriteKey,
   planReinstall,
   reinstallsNothing,
@@ -330,6 +332,21 @@ describe("删掉文件夹之前说明会丢的修改", () => {
     const current = place(2, global(claude), SkillScopeStatus.SkillScopeCurrent);
     const shared = { ...place(1, global(codex), SkillScopeStatus.SkillScopeModified), folder: edited.folder };
     expect(discardedEdits([edited, current, shared])).toEqual([edited.folder]);
+  });
+});
+
+describe("删掉文件夹时一并删掉的旧链接与别的目录里一样的那几份", () => {
+  it("旧链接去重、按路径排序", () => {
+    const a = place(1, global(claude), SkillScopeStatus.SkillScopeCurrent, { stale_links: ["/home/.cursor/skills/s1"] });
+    const b = place(2, global(claude), SkillScopeStatus.SkillScopeCurrent, { stale_links: ["/home/.cursor/skills/s1", "/home/.a/skills/s2"] });
+    expect(staleLinksOf([a, b])).toEqual(["/home/.a/skills/s2", "/home/.cursor/skills/s1"]);
+  });
+
+  it("别的目录里一样的那几份按文件夹说一次;没有的不说", () => {
+    const a = place(1, global(claude), SkillScopeStatus.SkillScopeCurrent, { copies: ["/home/.cursor/skills/s1"] });
+    const shared = { ...place(1, global(codex), SkillScopeStatus.SkillScopeCurrent, { copies: ["/home/.cursor/skills/s1"] }), folder: a.folder };
+    const none = place(2, global(claude), SkillScopeStatus.SkillScopeCurrent);
+    expect(copiesLeft([a, shared, none])).toEqual([{ place: a, copies: ["/home/.cursor/skills/s1"] }]);
   });
 });
 

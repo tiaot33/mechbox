@@ -23,7 +23,7 @@ import type { Attempt, LibraryError, Snapshot } from "@/lib/library";
 import { errorOccupier, skillScopesIn } from "@/lib/installs";
 import { sortSkills } from "@/lib/pages";
 import { lastSegment } from "@/lib/paths";
-import { mergeProjectAgents, mergedScope, placeCount, sameFolderAt, scopeLabel, type AgentList } from "@/lib/places";
+import { mergeAgents, mergedScope, placeCount, sameFolderAt, scopeLabel, type AgentList } from "@/lib/places";
 import { placeOf, scopeKey, scopeOf, type Place, type ScopeKey } from "@/lib/scope";
 import { extraCopy, notTakenOver, repoOwned, unmanagedIn } from "@/lib/unmanaged";
 import { memberRows, type ResultRow } from "@/components/app/result-rows";
@@ -48,7 +48,7 @@ export interface CopyPlace {
   missing: boolean;
 }
 
-// copyTarget 是照装到 to 时这一处装在谁的作用域上：项目里共用一个目录的几个 Agent 合成一处，落在代表的 Agent 上，
+// copyTarget 是照装到 to 时这一处装在谁的作用域上：目录列表相同、合成一处的几个 Agent 合成一处，落在代表的 Agent 上，
 // 和右栏、作用域页一致(组安装记在代表上，合成的那一行才显示为已组安装)。
 function copyTarget(s: AgentList, to: AgentCode, place: Place): AgentCode {
   return mergedScope(s, scopeOf(to, place)).agent;
@@ -135,8 +135,9 @@ function folderNamesIn(s: Snapshot, key: ScopeKey): string[] {
 // projectAgentsUsing 是在项目里装了库里技能(直接安装或组安装)的 Agent,共用目录的合成一处(代表的 Agent)。
 function projectAgentsUsing(s: Snapshot, project: ProjectID): Agent[] {
   const inProject = (scope: Scope, a: Agent) => scope.agent === a.code && placeOf(scope) === project;
-  return mergeProjectAgents(
+  return mergeAgents(
     s,
+    project,
     s.agents.filter((a) => s.skillScopes.some((p) => inProject(p.scope, a)) || s.groupInstalls.some((g) => inProject(g.scope, a))),
   );
 }
@@ -163,7 +164,7 @@ export function copyProjectSources(s: Snapshot, to: ProjectID): RegisteredProjec
 // uncopiedProjectUnmanaged 是项目 from 里照装带不过去的未纳管技能(按 splitUncopied 分开;to 里同一个 Agent 已有同名文件夹的不算)。
 export function uncopiedProjectUnmanaged(s: Snapshot, from: ProjectID, to: ProjectID): UncopiedUnmanaged {
   return splitUncopied(
-    mergeProjectAgents(s, s.agents).flatMap((a) => {
+    mergeAgents(s, from, s.agents).flatMap((a) => {
       const there = folderNamesIn(s, scopeKey(scopeOf(a.code, to)));
       return unmanagedIn(s, scopeKey(scopeOf(a.code, from))).filter((u) => !there.includes(u.name) && !extraCopy(s, u));
     }),

@@ -30,6 +30,7 @@ import {
   notDirectIn,
   occupied,
   readInstallPlans,
+  readsTwiceNotes,
   skippedPicked,
   uninstallGroupPlaces,
   uninstallPicked,
@@ -51,6 +52,12 @@ function place(skill_id: number, scope: Scope, extra: Partial<SkillScopeInspecti
   return { skill_id, scope, directory: `${where}/skills`, folder: `${where}/skills/s${skill_id}`, direct: true, status: SkillScopeStatus.SkillScopeCurrent, ...extra };
 }
 
+// 两个 Agent 的目录各是各的，不合成一处。
+const agentsWithOwnDirectories = [
+  { code: claude, name: "Claude Code", global_directories: ["/home/.claude/skills"], project_directories: [".claude/skills"] } as Agent,
+  { code: codex, name: "Codex", global_directories: ["/home/.codex/skills"], project_directories: [".codex/skills"] } as Agent,
+];
+
 const snapshot = (s: Partial<Snapshot>) =>
   ({
     collections: [],
@@ -59,7 +66,7 @@ const snapshot = (s: Partial<Snapshot>) =>
     skills: [],
     skillScopes: [],
     unmanaged: [],
-    agents: [{ code: claude, name: "Claude Code" } as Agent, { code: codex, name: "Codex" } as Agent],
+    agents: agentsWithOwnDirectories,
     projects: [{ id: 7, name: "proj" }],
     info: { home_dir: "/home" },
     ...s,
@@ -69,6 +76,17 @@ const plan = (status: InstallPlanStatus, extra: Partial<InstallPlan> = {}) =>
   ({ status, name: "s1", folder: "/home/.claude/skills/s1", ...extra }) as InstallPlan;
 
 const err = (code: ErrorCode, details?: LibraryError["details"]): LibraryError => ({ code, message: code, details }) as LibraryError;
+
+describe("装上之后会读到两份", () => {
+  it("写出也读这个目录、已经在别的目录装着它的 Agent;装到几处时写出是哪一处", () => {
+    const s = snapshot({});
+    const twice = plan(InstallPlanStatus.InstallReady, { reads_twice: [global(codex)] });
+    expect(readsTwiceNotes(s, [{ plan: twice }])).toEqual([t.readsTwice(["Codex"], "s1")]);
+    expect(readsTwiceNotes(s, [{ plan: twice, label: "s1 · Claude Code · 全局" }, { plan: plan(InstallPlanStatus.InstallReady) }])).toEqual([
+      `s1 · Claude Code · 全局：${t.readsTwice(["Codex"], "s1")}`,
+    ]);
+  });
+});
 
 describe("被占用、装不上的一处怎么说", () => {
   it("占着的是这个技能自己(另一个作用域算出同一个目录)时没有能点开的", () => {
@@ -225,6 +243,13 @@ describe("卸载一处", () => {
     expect(asksBeforeUninstall(r, [])).toBe(true);
   });
 
+  it("会一并删掉旧链接、Agent 在别的目录里还有一份一样的时先确认", () => {
+    const stale = snapshot({ skillScopes: [place(1, global(claude), { stale_links: ["/home/.cursor/skills/s1"] })] });
+    expect(asksBeforeUninstall(uninstallPlace(stale, 1, global(claude)), [])).toBe(true);
+    const copy = snapshot({ skillScopes: [place(1, global(claude), { copies: ["/home/.cursor/skills/s1"] })] });
+    expect(asksBeforeUninstall(uninstallPlace(copy, 1, global(claude)), [])).toBe(true);
+  });
+
   it("还有组安装留着时文件夹不删", () => {
     const s = snapshot({ skillScopes: [place(1, global(claude), { groups: [5] })] });
     expect(uninstallPlace(s, 1, global(claude)).deleted).toEqual([]);
@@ -240,9 +265,15 @@ describe("卸载一处", () => {
     expect(asksBeforeUninstall(uninstallPlace(linked, 1, global(claude)), [])).toBe(true);
   });
 
-  it("项目里共用目录的几个 Agent 不另说共用;这一处没装时不问", () => {
-    const s = snapshot({ skillScopes: [place(1, project(claude, 7), { shared_with: [codex] })] });
+  it("目录列表相同、合成一处的几个 Agent 不另说共用;只共用某个目录的照旧说;这一处没装时不问", () => {
+    const agents = [
+      { code: claude, name: "Claude Code", global_directories: ["/home/.claude/skills"], project_directories: [".agents/skills"] } as Agent,
+      { code: codex, name: "Codex", global_directories: ["/home/.codex/skills"], project_directories: [".agents/skills"] } as Agent,
+    ];
+    const s = snapshot({ agents, skillScopes: [place(1, project(claude, 7), { shared_with: [codex] })] });
     expect(uninstallPlace(s, 1, project(claude, 7)).shared).toEqual([]);
+    const partly = snapshot({ agents: [agents[0], { ...agents[1], project_directories: [".agents/skills", ".codex/skills"] }], skillScopes: s.skillScopes });
+    expect(uninstallPlace(partly, 1, project(claude, 7)).shared).toEqual([codex]);
     expect(asksBeforeUninstall(uninstallPlace(s, 2, project(claude, 7)), [{ skill_id: 2, scope: global(claude), name: "x" } as MissingMention])).toBe(false);
   });
 });

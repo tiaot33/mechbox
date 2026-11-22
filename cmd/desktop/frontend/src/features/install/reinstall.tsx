@@ -128,7 +128,7 @@ function ReinstallDialog({
             {folders.map(([key, places]) => {
               const p = places[0];
               const groups = [...new Set(places.flatMap((x) => x.groups ?? []))];
-              const shared = sharedWithNote(p);
+              const shared = sharedWithNote(s, p);
               return (
                 <ListRow key={key} compact>
                   <div className="min-w-0 grow">

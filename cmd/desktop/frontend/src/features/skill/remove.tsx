@@ -16,6 +16,7 @@ import { ChoiceList, Modal, ui } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { runDiscardingEdits } from "@/components/app/discard-edits";
+import { StaleNotes } from "@/components/app/link-notes";
 import { installReplacing, lostMentionLines, lostMentions } from "@/features/install/install";
 import type { MissingMention } from "@bindings/internal/library";
 import { lostAfterTwin, removedPlaces } from "./remove-rules";
@@ -30,7 +31,12 @@ export async function removeSkill(id: SkillID) {
   const unfound = await lostMentions(places);
   const choice = await ui.confirm({
     title: t.removeSkillTitle(skillName(s, id)),
-    body: <Hint>{t.removeSkillHint}</Hint>,
+    body: (
+      <>
+        <Hint>{t.removeSkillHint}</Hint>
+        <StaleNotes deleted={places} prefix={t.ifRemoveToo} stillInstalled={false} />
+      </>
+    ),
     choices: installed ? folderChoices(t.removeFromScopes(installed, lostEdits(places).length), unfound) : undefined,
     confirm: t.remove,
     danger: true,
@@ -113,6 +119,7 @@ function RemoveTwinDialog({
       }
     >
       <Hint>{a.removeSkillHint}</Hint>
+      {removing && <StaleNotes deleted={places} prefix={a.ifRemoveToo} stillInstalled={false} />}
       {choices && <ChoiceList choices={choices} value={policy} onChange={setPolicy} />}
       {removing && replace.length > 0 && (
         <label className="replace-twin flex cursor-pointer items-start gap-2 px-2.5">
@@ -132,13 +139,18 @@ function RemoveTwinDialog({
 // 确认之后才被改过的，技能库删之前核对出来再问一次(runDiscardingEdits)。返回是否移除了：取消了、失败了时是 false。
 export async function removeSkills(ids: SkillID[]): Promise<boolean> {
   const s = currentSnapshot();
-  // 几个技能装在同一个作用域只算一个作用域;项目里共用一个目录的几个 Agent 是一个。
+  // 几个技能装在同一个作用域只算一个作用域;目录列表相同、合成一处的几个 Agent 是一个。
   const { places, scopes } = removedPlaces(s, ids);
   const t = messages().actions;
   const unfound = await lostMentions(places);
   const choice = await ui.confirm({
     title: t.removeSkillsTitle(ids.length),
-    body: <Hint>{t.removeSkillsHint}</Hint>,
+    body: (
+      <>
+        <Hint>{t.removeSkillsHint}</Hint>
+        <StaleNotes deleted={places} prefix={t.ifRemoveToo} stillInstalled={false} />
+      </>
+    ),
     choices: scopes ? folderChoices(t.removeFromScopes(scopes, lostEdits(places).length), unfound) : undefined,
     confirm: t.remove,
     danger: true,

@@ -121,8 +121,8 @@ export interface ReinstallChoices {
   missing: Map<string, MissingChoice>;
 }
 
-// overwriteKey 是被改过的一处在确认框里的勾选:项目里共用一个文件夹的几处合成一行，按文件夹勾选;其余逐处勾选。
-export const overwriteKey = (p: SkillScopeInspection) => (p.scope.project_id ? folderKey(p) : placeKey(p));
+// overwriteKey 是被改过的一处在确认框里的勾选：共用一个文件夹的几处合成一行，按文件夹勾选。
+export const overwriteKey = (p: SkillScopeInspection) => folderKey(p);
 
 // ReinstallTargets 是现查之后要重新安装的几处，以及其中要问用户的：被改过的、文件夹不在了的。
 // 只点了一处(single)时文件夹不在了也直接装回去，不再问。
@@ -204,6 +204,22 @@ export function lostEdits(deleted: SkillScopeInspection[]): SkillScopeInspection
     if (!edited(p) || p.link_target || folders.has(folderKey(p))) return false;
     folders.add(folderKey(p));
     return true;
+  });
+}
+
+// staleLinksOf 是删掉 deleted 这几处的文件夹时技能库一并删掉的旧链接(见 SkillScopeInspection.stale_links),去重、按路径排序。
+export function staleLinksOf(deleted: SkillScopeInspection[]): string[] {
+  return [...new Set(deleted.flatMap((p) => p.stale_links ?? []))].sort();
+}
+
+// copiesLeft 是删掉 deleted 这几处的文件夹之后，读它的 Agent 在自己别的技能目录里照样读得到的一样的那几份(见 SkillScopeInspection.copies):
+// 卸载后这个技能照样显示已装，要事先说明。共用一个文件夹的几处只算一次。
+export function copiesLeft(deleted: SkillScopeInspection[]): { place: SkillScopeInspection; copies: string[] }[] {
+  const folders = new Set<string>();
+  return deleted.flatMap((place) => {
+    if (!place.copies?.length || folders.has(folderKey(place))) return [];
+    folders.add(folderKey(place));
+    return [{ place, copies: place.copies }];
   });
 }
 

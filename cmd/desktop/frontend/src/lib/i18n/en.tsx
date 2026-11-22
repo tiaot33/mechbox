@@ -94,8 +94,8 @@ export const en = {
   model: {
     global: "Global",
     agentNames: (names: string[]) => names.join(", "),
-    projectFolderNote: (folder: string, names: string[]) =>
-      `${and(names)} all read ${folder} in the project: one install covers them all, and uninstalling removes it for all of them`,
+    mergedFolderNote: (dirs: string[], names: string[], project: boolean) =>
+      `${and(names)} all read ${and(dirs)}${project ? " in the project" : ""}: one install covers them all, and uninstalling removes it for all of them`,
     outsideLinkNote: (target: string) =>
       `It's a symlink to ${target}. Updating it in the app later replaces the link with a separate copy; changes made in ${target} will no longer affect it here.`,
     linkNote: (target: string) => `Will become a separate copy this time (currently a symlink to ${target})`,
@@ -116,6 +116,10 @@ export const en = {
       `${who} has ${name} both globally (${kinds([global])}) and in “${project}” (${kinds([here])}). In “${project}”, both will show up in ${who}`,
     sameNamePairUnknown: (who: string, project: string, name: string, global: SameNameKind, here: SameNameKind) =>
       `${who} has a skill named ${name} both globally (${kinds([global])}) and in “${project}” (${kinds([here])})`,
+    sameNameTwoDirectories: (name: string, k: SameNameKind[]) => `Another skills directory of this Agent also has a skill named ${name} (${kinds(k)})`,
+    sameNameOtherFolder: (folder: string) => `The other folder: ${folder}`,
+    sameNamePairTwoDirectories: (where: string, name: string, first: SameNameKind, second: SameNameKind) =>
+      `${where} has a skill named ${name} in two skills directories (${kinds([first])}; ${kinds([second])})`,
     sameNameFetchSourced: (name: string) =>
       `With a Source, it's compared only with the same-named skill from that Source: if the content matches one of its Versions, it's just recorded as installed here; if not, it can't be fetched (you can clear the Source). Same-named skills from other Sources or with no Source aren't merged—the Library will have another “${name}”, and the list shows where each is installed.`,
     sameNameFetchUnsourced: (name: string) =>
@@ -172,6 +176,7 @@ export const en = {
     untrackedBody: (folder: string, name: string) => `${folder} exists but wasn't installed by the Library. Overwriting replaces it with “${name}”.`,
     overwriteInstall: "Overwrite and install",
     installed: (name: string, where: string) => `Installed “${name}” in ${where}`,
+    installTitle: (name: string, where: string) => `Install “${name}” to ${where}`,
     uninstallTitle: (name: string) => `Uninstall “${name}”`,
     uninstallShared: (folder: string, agents: string[], grouped: boolean) =>
       `${folder} is also shared by ${and(agents)}. ` +
@@ -375,9 +380,10 @@ export const en = {
     unregistered: "Project unregistered",
     sharedBy: (agents: string[]) => `In use by ${and(agents)}`,
     agentAdded: (name: string) => `Added Agent “${name}”`,
+    agentsAdded: (names: string[]) => (names.length === 1 ? `Added Agent “${names[0]}”` : `Added ${count(names.length, "Agent")}: ${and(names)}`),
     editAgentTitle: (name: string) => `Change the directories of Agent “${name}”`,
     editAgentHint: (installed: number, groupInstalls: number) =>
-      `In the old directories, this Agent has ${and([installed ? count(installed, "installed skill") : "", groupInstalls ? count(groupInstalls, "Group install") : ""].filter(Boolean))}.`,
+      `In the removed directories, this Agent has ${and([installed ? count(installed, "installed skill") : "", groupInstalls ? count(groupInstalls, "Group install") : ""].filter(Boolean))}.`,
     editAgentShared: (n: number) =>
       `${n === 1 ? "1 of these folders is" : `${n} of these folders are`} still used by other Agents and stay in the old directory for them: migrating copies them to the new directory; not migrating leaves them alone.`,
     migrate: "Migrate to the new directory",
@@ -393,13 +399,20 @@ export const en = {
     migratedPartly: (migrated: number, skipped: number) =>
       `Migrated ${count(migrated, "folder")}; ${skipped === 1 ? "the 1 below wasn't migrated, and this Agent no longer counts it" : `the ${skipped} below weren't migrated, and this Agent no longer counts them`} as installed there.`,
     agentSavedMigrated: (name: string, n: number) => `Saved Agent “${name}” and migrated ${count(n, "folder")}`,
-    deleteAgentTitle: (name: string) => `Delete Agent “${name}”`,
-    deleteAgentHint: "It disappears from the Agent list, and its direct install and Group install records, global and in every project, are deleted.",
-    deleteAgentShared: (n: number) =>
+    readsTwice: (agents: string[], skill: string) =>
+      `${and(agents)} also read this directory and already have ${skill} in another of their directories, so they'll see two copies`,
+    staleLinks: (n: number) => `${count(n, "old link")} pointing to these folders will be deleted too:`,
+    copiesLeft: (skill: string, copies: string[], folder: string, stillInstalled: boolean) =>
+      `${skill}: there's an identical copy in ${and(copies)}. After ${folder} is deleted, the Agent still reads that copy${stillInstalled ? ", and the skill still shows as installed" : ""}`,
+    removeAgentTitle: (name: string) => `Remove Agent “${name}”`,
+    removeAgentHint:
+      "It disappears from the Agent list and goes back to the candidates, so you can add it again later; its direct install and Group install records, global and in every project, are deleted. Removing it from Mechbox doesn't uninstall the Agent.",
+    removeAgent: "Remove",
+    removeAgentShared: (n: number) =>
       `The ${count(n, "folder")} below ${n === 1 ? "is" : "are"} still used by other Agents and will be kept whatever you choose; their install records pass to those Agents.`,
     keepAgentFoldersDesc: "The folders stay where they are, no longer managed by the Library",
     delete: "Delete",
-    agentDeleted: (name: string) => `Deleted Agent “${name}”`,
+    agentRemoved: (name: string) => `Removed Agent “${name}”; it's back among the candidates`,
     twin: (source: string, w: InstalledWhere) => `${source}, ${where(w)}`,
     sameNameTwins: (name: string, twins: string[], note: string) => `The Library already has a skill named “${name}” (${twins.join("; ")}). ${note}`,
     matchedVersion: (name: string, match: string) =>
@@ -837,6 +850,7 @@ export const en = {
     sameNameCopiesTitle: (name: string, places: string[]) =>
       `${places.join(", ")} also ${places.length === 1 ? "has" : "have"} ${name} with different content: they won't be merged into one skill, and only one copy gets fetched`,
     agentDirectory: "Agent directory",
+    directorySeparator: ", ",
     statInstalled: "installed",
     statNotInLibrary: "not in the Library",
     statIdentical: "not installed by the app",
@@ -1411,33 +1425,54 @@ export const en = {
   agents: {
     shownHint:
       "Checked Agents appear wherever you choose where to install. Agents that already have skills installed are still listed in skill details, Updates and inspections, checked or not.",
-    custom: "Custom",
     detected: "Detected",
+    detectedTitle: "This Agent was detected on this machine",
     notDetected: "Not detected",
-    directories: (global: string, project: string) => `${global} · in projects: ${project}`,
+    notDetectedTitle: "This Agent wasn't detected on this machine (none of its detection directories exist)",
+    directories: (globals: string[], projects: string[]) => `${globals.join(", ")} · in projects: ${projects.join(", ")}`,
+    directoriesTitle: (globals: string[], projects: string[]) => ["Global:", ...globals, "In projects:", ...projects].join("\n"),
     edit: "Edit",
-    delete: "Delete",
+    remove: "Remove",
     show: (name: string) => `Show ${name}`,
     shown: "Shown",
     hidden: "Hidden",
     nameRequired: "Enter a name",
+    directoryRequired: "Enter a directory",
     globalRequired: "Enter the global skill directory",
-    globalInHome: "The global skill directory must be inside your home directory (not the home directory itself)",
+    globalInHome: "Must be inside your home directory (not the home directory itself)",
     globalInWSL:
-      "The global skill directory must be inside your home directory on this Windows PC; to put it in a WSL distribution, first choose that distribution under Settings → General → Global directories",
+      "Must be inside your home directory on this Windows PC; to put it in a WSL distribution, first choose that distribution under Settings → General → Global directories",
     projectRequired: "Enter the skill directory in projects",
     projectRelative: (example: string) => `Enter a path relative to the project root, e.g. ${example}`,
     projectInside: "Must be inside the project root (not the project root itself)",
     editTitle: (name: string) => `Edit Agent “${name}”`,
-    addTitle: "Add Agent",
+    addTitle: "Add Agents",
+    addManualTitle: "Add an Agent by hand",
+    searchPool: "Search by name or directory",
+    loadingPool: "Reading the candidates…",
+    poolEmpty: "Every Agent the app knows is already added. To use another Agent, add it by hand.",
+    poolNoMatch: "No matching Agents.",
+    alreadyRead: "Directory already read",
+    alreadyReadTitle: (dir: string, project: boolean, by: string[]) =>
+      `${and(by)} already ${by.length === 1 ? "reads" : "read"} ${dir}${project ? " in projects" : ""}; adding this one means two Agents read the same directory (probably the same Agent you added by hand before)`,
+    addPicked: (n: number) => `Add ${n}`,
+    manual: "Add by hand…",
+    backToPool: "Candidates",
     cancel: "Cancel",
     save: "Save",
     add: "Add",
     name: "Name",
-    global: "Global skill directory (inside your home directory)",
+    global: "Global skill directories (inside your home directory)",
+    project: "Skill directories in projects (relative to the project root)",
+    detect: "Detection directories (inside your home directory)",
+    directoriesHint: "New skills go into the first one; skills already in the others are listed too and can be fetched in place",
+    detectHint: "The Agent counts as detected on this machine if any of these exists; optional",
+    installsNew: "New skills",
+    addDirectory: "Add directory",
+    removeDirectory: "Remove this directory",
     choose: "Choose…",
     chooseGlobal: "Choose the global skill directory",
-    project: "Skill directory in projects (relative to the project root)",
+    chooseDetect: "Choose a detection directory",
   },
 
   scopes: {

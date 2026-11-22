@@ -3,7 +3,7 @@
 // 删掉被手动改过的文件夹前说出是哪几处，修改会跟着丢掉;确认之后才被改过的见 discard-edits.tsx。
 import { LibraryService } from "@bindings/cmd/desktop";
 import type { Scope, SkillID, SkillScopeInspection } from "@bindings/internal/library";
-import { detachedBy, linkWrites, lostEdits, placeKey, type Detached } from "@/lib/consent";
+import { copiesLeft, detachedBy, linkWrites, lostEdits, placeKey, staleLinksOf, type Detached } from "@/lib/consent";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { agentName, projectName, skillName } from "@/lib/scope";
@@ -102,13 +102,59 @@ export function LinkedPlaces({ places }: { places: SkillScopeInspection[] }) {
   );
 }
 
-// DeleteNotes 是删掉 deleted 这几处的文件夹之前的说明：被手动改过的几处修改会丢掉，别处链接指着的先换上独立的一份。
+// DeleteNotes 是删掉 deleted 这几处的文件夹之前的说明：被手动改过的几处修改会丢掉，别处链接指着的先换上独立的一份，
+// 以及会一并删掉的旧链接、删掉后 Agent 照样读得到的一样的那几份(见 StaleNotes)。
 // prefix 用在只和某个选项有关时(如"选「一并卸载」时:")。
 export function DeleteNotes({ deleted, prefix = "" }: { deleted: SkillScopeInspection[]; prefix?: string }) {
   return (
     <>
       <LostEdits places={lostEdits(deleted)} prefix={prefix} />
       <DetachNotice items={detachedBy(deleted)} when="delete" prefix={prefix} />
+      <StaleNotes deleted={deleted} prefix={prefix} />
+    </>
+  );
+}
+
+// StaleNotes 是删掉 deleted 这几处的文件夹时另外要说的两件事：技能库一并删掉的旧链接(读这一处的 Agent 在别的技能目录里指向它的符号链接),
+// 以及读这一处的 Agent 在别的技能目录里还有一份一样的，删掉后照样读得到它(stillInstalled 时还会照样显示已装)。都没有时不显示。
+export function StaleNotes({
+  deleted,
+  prefix = "",
+  stillInstalled = true,
+  copies: withCopies = true,
+}: {
+  deleted: SkillScopeInspection[];
+  prefix?: string;
+  stillInstalled?: boolean;
+  copies?: boolean; // 移除 Agent 时那个 Agent 不在了，不说它还读得到哪份
+}) {
+  const s = useSnapshot();
+  const t = useT().actions;
+  const links = staleLinksOf(deleted);
+  const copies = withCopies ? copiesLeft(deleted) : [];
+  return (
+    <>
+      {links.length > 0 && (
+        <Notice className="stale-links">
+          {prefix}
+          <span className="block">{t.staleLinks(links.length)}</span>
+          {links.map((link) => (
+            <span key={link} className="block truncate font-mono text-caption" title={wslTitle(link)}>
+              {shortPath(s, link)}
+            </span>
+          ))}
+        </Notice>
+      )}
+      {copies.length > 0 && (
+        <Notice className="copies-left">
+          {prefix}
+          {copies.map(({ place, copies }) => (
+            <span key={placeKey(place)} className="block">
+              {t.copiesLeft(skillName(s, place.skill_id), copies.map((c) => shortPath(s, c)), shortPath(s, place.folder), stillInstalled)}
+            </span>
+          ))}
+        </Notice>
+      )}
     </>
   );
 }

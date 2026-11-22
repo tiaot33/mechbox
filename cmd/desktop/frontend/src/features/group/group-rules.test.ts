@@ -35,13 +35,19 @@ const place = (skill_id: number, scope: Scope, extra: Partial<SkillScopeInspecti
   ...extra,
 });
 
+// 两个 Agent 的目录各是各的，不合成一处。
+const agentsWithOwnDirectories = [
+  { code: claude, name: "Claude Code", global_directories: ["/home/.claude/skills"], project_directories: [".claude/skills"] } as Agent,
+  { code: codex, name: "Codex", global_directories: ["/home/.codex/skills"], project_directories: [".codex/skills"] } as Agent,
+];
+
 const snapshot = (s: Partial<Snapshot> = {}) =>
   ({
     skills: [1, 2, 3].map((id) => ({ id, name: `s${id}` }) as Skill),
     groups: [{ id: 5, name: "g5", members: [1, 2] } as Group],
     groupInstalls: [],
     skillScopes: [],
-    agents: [{ code: claude, name: "Claude Code" } as Agent, { code: codex, name: "Codex" } as Agent],
+    agents: agentsWithOwnDirectories,
     projects: [],
     info: { home_dir: "/home" },
     ...s,

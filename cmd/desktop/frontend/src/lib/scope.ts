@@ -1,5 +1,5 @@
 // 作用域在界面里的身份(ScopeKey)、「地方」(全局或一个已登记项目),以及 Agent、项目、技能、组的名字。
-// 作用域在界面上叫什么(项目里共用一个目录的几个 Agent 合成一处)见 lib/places。
+// 作用域在界面上叫什么(目录列表相同、合成一处的几个 Agent 合成一处)见 lib/places。
 import { ScopeKind, type AgentCode, type GroupID, type ProjectID, type Scope, type SkillID } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
 

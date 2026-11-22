@@ -195,7 +195,9 @@
 // 记录的 directory 为空时是它这一层级的第 1 个目录。用到这条规则的有两处:store 的 PlaceSkillScopes 按它查单个 Agent 的那一处,
 // place.go 的 installedAt 据此给出这一处的实际目录与文件夹;install.go 的 listSkillScopes 对全库算出每个已添加 Agent 认的那一处。按 Agent 找文件夹的流程
 // (卸载、重新安装、更新、回滚、巡检、移除技能、改目录)都经这两处,不用作用域的第 1 个目录拼路径。删掉一处文件夹时连同 place.go 的
-// staleLinksOf 找出的旧链接(认这一处的 Agent 在别的技能目录里指向它、又没有记录的同名符号链接)。
+// staleLinksOf 找出的旧链接(认这一处的 Agent 在别的技能目录里指向它、又没有记录的同名符号链接)。这些候选由 place.go 的
+// foldersElsewhere 列出;巡检用同一批候选,在读各处文件夹的那一次批量读取里一起读,给出旧链接,
+// 以及和库里这个技能某一版一致的拷贝([SkillScopeInspection].Copies):删掉这一处后 Agent 照样读得到它们。
 //
 // 改动数据库又改动 Agent 目录的操作(安装、卸载、更新、回滚、重新安装等)都经 place.go 的 applyChange 一次提交:
 // 先把要写的文件夹暂存好,再开事务写记录,把文件夹移到位,提交事务,最后清理备份;任何一步失败都倒序撤销,

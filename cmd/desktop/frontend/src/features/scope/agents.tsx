@@ -1,4 +1,4 @@
-// 自定义 Agent:添加、编辑(改目录时可选把装着的技能搬过去)、删除。
+// Agent:从候选池添加、手填添加、编辑(去掉的目录里装着技能时可选把它们搬到新的第 1 个目录)、移除(回到候选池)。
 import { LibraryService } from "@bindings/cmd/desktop";
 import { FolderPolicy, MigrationOutcome, type Agent, type AgentInput } from "@bindings/internal/library";
 import { detachedBy, discardedEdits, lostEdits } from "@/lib/consent";
@@ -10,10 +10,19 @@ import { shortPath } from "@/lib/paths";
 import { ui } from "@/lib/ui";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
-import { DetachNotice, SharedFolders } from "@/components/app/link-notes";
+import { DetachNotice, SharedFolders, StaleNotes } from "@/components/app/link-notes";
 import { runDiscardingEdits } from "@/components/app/discard-edits";
 import { showResults } from "@/components/app/results";
 import { agentDelete, agentEdit } from "./agents-rules";
+
+// addAgentsFromPool 一次添加候选池里勾选的几个 Agent。
+export async function addAgentsFromPool(agents: Agent[]): Promise<boolean> {
+  const t = messages().actions;
+  const added = await ui.run(() => LibraryService.AddAgentsFromPool(agents.map((a) => a.code)), {
+    success: () => t.agentsAdded(agents.map((a) => a.name)),
+  });
+  return added !== undefined;
+}
 
 export async function addAgent(input: AgentInput, onInvalid: (err: LibraryError) => boolean): Promise<boolean> {
   const added = await ui.run(() => LibraryService.AddAgent(input), {
@@ -23,8 +32,9 @@ export async function addAgent(input: AgentInput, onInvalid: (err: LibraryError)
   return !!added;
 }
 
-// editAgent 修改自定义 Agent。某一层级的目录改了、这个 Agent 在那里已装了技能(含因共用目录而算已装的)或有组安装时，
-// 先问是否迁移(不迁移会连组安装一起去掉,空组的组安装也是);迁移后列出因新目录已有同名文件夹而没搬的。input.global_directory 是展开 ~ 后的绝对路径。
+// editAgent 修改 Agent。有安装所在的目录被去掉(含因共用目录而算已装的),或原来的第 1 个目录被去掉、那一层级有组安装时，
+// 先问是否迁移(不迁移会连组安装一起去掉,空组的组安装也是);所在目录还在新列表里的磁盘不动，不问。
+// 迁移后列出因新目录已有同名文件夹而没搬的。input 的全局目录是展开 ~ 后的绝对路径。
 export async function editAgent(agent: Agent, input: AgentInput, onInvalid: (err: LibraryError) => boolean): Promise<boolean> {
   const s = currentSnapshot();
   const t = messages().actions;
@@ -76,42 +86,44 @@ export async function editAgent(agent: Agent, input: AgentInput, onInvalid: (err
   return true;
 }
 
-// deleteAgent 删除自定义 Agent,和注销项目一样让用户选文件夹的去留(被改过的几处按界面上已经读到的状态说，
-// 确认之后才被改过的由技能库删之前核对出来再问一次);还有别的 Agent 在读的文件夹不管怎么选都保留。
-export async function deleteAgent(agent: Agent) {
+// removeAgent 移除 Agent:它回到候选池。和注销项目一样让用户选文件夹的去留，默认保留(从 Mechbox 移除不等于卸载这个 Agent);
+// 被改过的几处按界面上已经读到的状态说，确认之后才被改过的由技能库删之前核对出来再问一次;
+// 还有别的 Agent 在读的文件夹不管怎么选都保留，选删除时写出会一并删掉的旧链接。
+export async function removeAgent(agent: Agent) {
   const s = currentSnapshot();
   const { kept, own } = agentDelete(s, agent.code);
   const t = messages().actions;
   const choice = await ui.confirm({
-    title: t.deleteAgentTitle(agent.name),
+    title: t.removeAgentTitle(agent.name),
     body: (
       <>
-        <Hint>{t.deleteAgentHint}</Hint>
+        <Hint>{t.removeAgentHint}</Hint>
         {kept.length > 0 && (
           <>
-            <Notice>{t.deleteAgentShared(kept.length)}</Notice>
+            <Notice>{t.removeAgentShared(kept.length)}</Notice>
             <SharedFolders places={kept} />
           </>
         )}
         <DetachNotice items={detachedBy(folderPlaces(s, own))} when="delete" prefix={t.ifRemoveToo} />
+        <StaleNotes deleted={own} prefix={t.ifRemoveToo} copies={false} />
       </>
     ),
     choices: own.length
       ? [
+          { value: FolderPolicy.Keep, label: t.keepInstalled, desc: t.keepAgentFoldersDesc },
           {
             value: FolderPolicy.Remove,
             label: t.removeInstalled,
             desc: t.removeFolders(own.length, lostEdits(own).length),
           },
-          { value: FolderPolicy.Keep, label: t.keepInstalled, desc: t.keepAgentFoldersDesc },
         ]
       : undefined,
-    confirm: t.delete,
+    confirm: t.removeAgent,
     danger: true,
   });
   if (!choice) return;
   const policy = choice === FolderPolicy.Keep ? FolderPolicy.Keep : FolderPolicy.Remove;
   await runDiscardingEdits(discardedEdits(own), (discard) => LibraryService.DeleteAgent(agent.code, { folders: policy, discard_edits: discard }), {
-    success: t.agentDeleted(agent.name),
+    success: t.agentRemoved(agent.name),
   });
 }

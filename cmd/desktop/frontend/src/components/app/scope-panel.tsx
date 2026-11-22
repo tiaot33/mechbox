@@ -1,7 +1,7 @@
 // 右栏：作用域——全局与每个已登记项目下，直接列出装有技能的与检测到的 Agent,勾选了显示但没检测到的折进"其他 N 个 Agent";
 // 项目行折叠时用小图标显示在用的 Agent。点一行打开这个作用域的页面(Agent 在那里看得到什么),再点一次回到技能库;
 // 点项目行打开项目页(项目里各 Agent 装了什么)并展开，再点一次回到技能库，只展开、收起点前面的箭头。
-// 项目里共用一个目录的几个 Agent 合成一行，叫那几个 Agent 的名字，点选的是其中代表的作用域。
+// 目录列表相同的几个 Agent(全局和项目里都一样)合成一行，叫那几个 Agent 的名字，点选的是其中代表的作用域。
 // 作用域行接受拖放：技能 = 直接安装，组 = 组安装，集合 = 把集合里的技能逐个直接安装;拖动中按指针轨迹预判要去的折叠项目或"其他 Agent",
 // 指针还没到就展开，拖完收回。
 import { useEffect, useRef, useState } from "react";
@@ -10,7 +10,7 @@ import type { Agent, RegisteredProject } from "@bindings/internal/library";
 import { pressKeys } from "@/lib/keys";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import { agentNameIn, agentsIn, agentsUsedIn, projectFolderNote, sameMergedScope } from "@/lib/places";
+import { agentNameIn, agentsIn, agentsUsedIn, mergedFolderNote, sameMergedScope } from "@/lib/places";
 import { projectSkillCount, scopeHereCount } from "@/lib/pages";
 import { editedHere, needsRepair, reinstallLevel, skillScopesIn } from "@/lib/installs";
 import { parseScope, placeOf, projectName, scopeKey, scopeOf, type Place } from "@/lib/scope";
@@ -39,7 +39,7 @@ export function ScopePanel() {
   const tl = useT().layout;
   const dnd = useDnD();
   const selected = scope ? parseScope(scope) : null;
-  // isSelected:这一行是不是选中的作用域;项目里合成的一行，选中共用的任何一个都算。
+  // isSelected:这一行是不是选中的作用域;合成的一行，选中共用的任何一个都算。
   const isSelected = (a: Agent, place: Place) => !!selected && sameMergedScope(s, selected, scopeOf(a.code, place));
   const rail = useRef<HTMLElement>(null);
 
@@ -76,7 +76,7 @@ export function ScopePanel() {
           {...dropProps(!!dnd.item && !already, () => dnd.dropOnScope(key))}
         >
           <PlaceAgentMark code={agent.code} place={place} />
-          <span className="grow truncate" title={projectFolderNote(s, agent.code, place)}>
+          <span className="grow truncate" title={mergedFolderNote(s, agent.code, place)}>
             {agentNameIn(s, agent.code, place)}
           </span>
           {/* 这里有要重新安装或被手动改过的技能：提醒的图标，按最重的那一处的级别。 */}
