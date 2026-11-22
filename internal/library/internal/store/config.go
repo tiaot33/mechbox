@@ -12,6 +12,7 @@ const (
 	wslDistroKey   = "wsl_distro"
 	syncPrefix     = "sync."
 	proxyPrefix    = "proxy."
+	githubMirror   = proxyPrefix + "github_mirror"
 	appPrefix      = "app."
 	aiPrefix       = "ai."
 )
@@ -202,6 +203,19 @@ func (q queries) ProxySettings(ctx context.Context) (ProxySettings, error) {
 
 func (s *Store) SetProxySettings(ctx context.Context, settings ProxySettings) error {
 	return s.writeConfigFields(ctx, proxyPrefix, settings.fields())
+}
+
+func (q queries) GitHubMirror(ctx context.Context) (bool, error) {
+	value, err := q.config(ctx, githubMirror)
+	return value == "on", err
+}
+
+func (q queries) SetGitHubMirror(ctx context.Context, on bool) error {
+	value := ""
+	if on {
+		value = "on"
+	}
+	return q.setConfig(ctx, githubMirror, value)
 }
 
 func (q queries) AppSettings(ctx context.Context) (map[string]string, error) {

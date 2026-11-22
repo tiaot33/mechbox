@@ -78,6 +78,20 @@ func (s *LibraryService) proxyURL(req *http.Request) (*url.URL, error) {
 	return library.ProxyFunc(s.lib)(req)
 }
 
+// githubMirror 让 next 发出的请求按技能库的 GitHub 镜像加速开关走;每个请求发出时才取技能库,检查新版本的 transport 在技能库打开前就建好了。
+func (s *LibraryService) githubMirror(next http.RoundTripper) http.RoundTripper {
+	return githubMirrorTransport{service: s, next: next}
+}
+
+type githubMirrorTransport struct {
+	service *LibraryService
+	next    http.RoundTripper
+}
+
+func (t githubMirrorTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	return library.GitHubMirrorTransport(t.service.lib, t.next).RoundTrip(req)
+}
+
 func (s *LibraryService) inBackground(ctx context.Context, work func()) {
 	select {
 	case s.background <- struct{}{}:

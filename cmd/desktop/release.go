@@ -115,7 +115,9 @@ type releases struct {
 	installing bool
 }
 
-func newReleases(feedURL, current, stateDir string, u *updater.Updater, target func() installTarget, proxyFunc func(*http.Request) (*url.URL, error)) *releases {
+// mirror 为 nil 时检查和下载都直连;否则新版本信息与安装包经它包过的 transport 发出(GitHub 镜像加速),
+// 校验值仍直连这个版本在 GitHub 上的固定地址(见 checksumURL)。
+func newReleases(feedURL, current, stateDir string, u *updater.Updater, target func() installTarget, proxyFunc func(*http.Request) (*url.URL, error), mirror func(http.RoundTripper) http.RoundTripper) *releases {
 	if feedURL == "" || current == "" || u == nil {
 		return nil
 	}
@@ -124,7 +126,11 @@ func newReleases(feedURL, current, stateDir string, u *updater.Updater, target f
 	if proxyFunc != nil {
 		transport.Proxy = proxyFunc
 	}
-	feed := &githubFeed{url: feedURL, client: &http.Client{Transport: transport}, target: target}
+	direct := &http.Client{Transport: transport}
+	feed := &githubFeed{url: feedURL, client: direct, direct: direct, target: target}
+	if mirror != nil {
+		feed.client = &http.Client{Transport: mirror(transport)}
+	}
 	r := &releases{feed: feed, updater: u, stateDir: stateDir, apply: installStaged, failed: takePending(stateDir, current)}
 	r.init = sync.OnceValue(func() error {
 		return u.Init(updater.Config{CurrentVersion: current, Providers: []updater.Provider{feed}, Window: updater.WindowNone})
@@ -265,6 +271,7 @@ func (r *releases) downloadAndInstall(ctx context.Context, version string, quit 
 type githubFeed struct {
 	url    string
 	client *http.Client
+	direct *http.Client
 	target func() installTarget
 
 	mu      sync.Mutex
@@ -303,7 +310,7 @@ func (g *githubFeed) Check(ctx context.Context, req updater.CheckRequest) (*upda
 
 func (g *githubFeed) check(ctx context.Context, current string) (*updater.Release, error) {
 	var latest githubRelease
-	if err := g.getJSON(ctx, g.url, &latest); err != nil {
+	if err := g.getJSON(ctx, g.client, g.url, &latest); err != nil {
 		return nil, err
 	}
 	version := strings.TrimPrefix(latest.TagName, "v")
@@ -349,7 +356,7 @@ func (g *githubFeed) checksum(ctx context.Context, release githubRelease, name s
 		if asset.Name != checksumsAsset {
 			continue
 		}
-		resp, err := g.get(ctx, asset.URL)
+		resp, err := g.get(ctx, g.direct, g.checksumURL(release.TagName, asset.URL))
 		if err != nil {
 			return nil, err
 		}
@@ -357,6 +364,18 @@ func (g *githubFeed) checksum(ctx context.Context, release githubRelease, name s
 		return parseChecksum(resp.Body, name)
 	}
 	return nil, nil
+}
+
+// checksumURL 是这个版本的 SHA256SUMS.txt 的地址。读的是 GitHub 上 releases/latest/download/release.json 时,
+// 按版本的 tag 拼出 releases/download/<tag>/SHA256SUMS.txt,不用 release.json 里写的地址:
+// 新版本信息可能经 GitHub 镜像转发,校验值的地址也由镜像决定的话,镜像就能连安装包带校验值一起换掉。
+// 读的不是这种地址(开发时 MECHBOX_RELEASE_FEED 指向的假发布页)时用 release.json 里写的地址。
+func (g *githubFeed) checksumURL(tag, listed string) string {
+	base, ok := strings.CutSuffix(g.url, "/latest/download/"+releaseManifest)
+	if !ok || tag == "" {
+		return listed
+	}
+	return base + "/download/" + url.PathEscape(tag) + "/" + checksumsAsset
 }
 
 func parseChecksum(r io.Reader, name string) ([]byte, error) {
@@ -383,7 +402,7 @@ func (g *githubFeed) Download(ctx context.Context, release *updater.Release, dst
 	if url == "" {
 		return &library.Error{Code: library.FailedPrecondition, Message: "no installer to download"}
 	}
-	resp, err := g.get(ctx, url)
+	resp, err := g.get(ctx, g.client, url)
 	if err != nil {
 		return err
 	}
@@ -409,8 +428,8 @@ func (g *githubFeed) Download(ctx context.Context, release *updater.Release, dst
 	}
 }
 
-func (g *githubFeed) getJSON(ctx context.Context, url string, v any) error {
-	resp, err := g.get(ctx, url)
+func (g *githubFeed) getJSON(ctx context.Context, client *http.Client, url string, v any) error {
+	resp, err := g.get(ctx, client, url)
 	if err != nil {
 		return err
 	}
@@ -421,13 +440,13 @@ func (g *githubFeed) getJSON(ctx context.Context, url string, v any) error {
 	return nil
 }
 
-func (g *githubFeed) get(ctx context.Context, url string) (*http.Response, error) {
+func (g *githubFeed) get(ctx context.Context, client *http.Client, url string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, &library.Error{Code: library.Internal, Message: err.Error(), Err: err}
 	}
 	req.Header.Set("User-Agent", "Mechbox")
-	resp, err := g.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, unreachable(ctx, err)
 	}

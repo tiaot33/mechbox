@@ -73,10 +73,10 @@ func TestParseGitHubInputRejectsUnsafeOrAmbiguousInputs(t *testing.T) {
 
 func TestInvalidInputIsRejectedBeforeContactingGitHub(t *testing.T) {
 	t.Setenv("PATH", "")
-	if _, err := Locate(t.Context(), Input{Input: "owner/repo/tree/main/../../outside"}); !isInputError(err) {
+	if _, err := NewClient(nil, nil).Locate(t.Context(), Input{Input: "owner/repo/tree/main/../../outside"}); !isInputError(err) {
 		t.Errorf("Locate = %v", err)
 	}
-	if _, err := InputRefs(t.Context(), "https://token@github.com/owner/repo"); !isInputError(err) {
+	if _, err := NewClient(nil, nil).InputRefs(t.Context(), "https://token@github.com/owner/repo"); !isInputError(err) {
 		t.Errorf("InputRefs = %v", err)
 	}
 }

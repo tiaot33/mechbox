@@ -1165,6 +1165,9 @@ export const en = {
     proxyReadFailed: (message: string) => `Couldn't read proxy settings: ${message}`,
     proxyShow: "Show proxy URL",
     proxyHide: "Hide proxy URL",
+    githubMirror: "GitHub mirror",
+    githubMirrorDesc:
+      "Turn on when GitHub is slow or unreachable: public GitHub repositories, files downloaded from GitHub, and Mechbox update checks go through the third-party site gh-proxy.org. Skill content read this way is relayed by that site, and Mechbox can't verify it wasn't changed. Your GitHub token is never sent to it, and Mechbox installers are still verified against checksums from GitHub. Takes effect on the next request. Stored only on this machine and not synced.",
     wslDistro: "Global directories",
     wslDistroDesc:
       "Where each agent's global directory lives. With a WSL distribution, the directories under its home are used; skills installed in the Windows global directories stay where they are and are no longer managed.",

@@ -23,10 +23,12 @@
 //     [Library.TestAISettings] 用设置页上的一组设置发一条很短的消息,看能不能用。
 //   - [Library.ProxySettings]、[Library.SetProxySettings]、[Library.SystemProxy] 读取与设置联网用的网络代理(跟随系统代理、手动填写 HTTP / SOCKS5 地址、
 //     不用代理),以及读取这台机器当前启用的静态系统代理供展示;覆盖全部 HTTP 请求与启动的 git、gh 命令,[ProxyFunc] 供应用自己的请求(如检查新版本)共用。
+//   - [Library.GitHubMirror]、[Library.SetGitHubMirror] 读取与设置 GitHub 镜像加速:打开后 GitHub 来源与直接下载的 GitHub 链接里
+//     不带令牌的请求和 HTTPS 地址的 git 命令先经 gh-proxy,不可用时改直连;[GitHubMirrorTransport] 供应用自己的请求共用这个开关。
 //   - [Library.ListWSLDistros]、[Library.WSLDistro]、[Library.SetWSLDistro]:Windows 上把各 Agent 的全局目录换到某个 WSL 发行版的主目录下,
 //     或换回 Windows 本机;换了以后只认新目录。[Open] 不自动换过去,调用方启动时取出存着的选择再设置。
 //   - [Library.AppSettings]、[Library.SetAppSettings] 读写应用自己的设置(如桌面端的自动检查、界面语言),库只存取、不解释;随推送、拉回走。
-//     同步设置、同步状态、网络代理与 WSL 发行版只属于这台机器:推送出去的库里不带,拉回时保留本机的。
+//     同步设置、同步状态、网络代理、GitHub 镜像加速与 WSL 发行版只属于这台机器:推送出去的库里不带,拉回时保留本机的。
 //
 // 搜索与入库(fetch.go):
 //   - [Library.SearchSkills] 搜索 skills.sh,结果里带可直接用于入库预览的请求(GitHub 仓库与 well-known 站点的技能)。

@@ -1106,6 +1106,9 @@ export const zh = {
     proxyReadFailed: (message: string) => `读不出网络代理设置：${message}`,
     proxyShow: "显示代理地址",
     proxyHide: "隐藏代理地址",
+    githubMirror: "GitHub 镜像加速",
+    githubMirrorDesc:
+      "直连 GitHub 慢或连不上时打开：读取 GitHub 上的公开仓库、下载 GitHub 上的文件、检查 Mechbox 新版本，都经第三方站点 gh-proxy.org 转发。经它读到的技能内容由这个站点转发，Mechbox 核对不了有没有被改过。GitHub 令牌不会发给它；Mechbox 的安装包仍按 GitHub 上的校验值核对。改完下一次联网即生效。只属于这台机器，不随同步走。",
     wslDistro: "全局目录",
     wslDistroDesc:
       "各 Agent 的全局目录在哪。选了 WSL 发行版时换成发行版主目录下的目录；之前装在 Windows 本机全局目录里的技能留在原处，不再管。",

@@ -282,6 +282,7 @@ CREATE TABLE IF NOT EXISTS rolled_back_renames (
 -- ai.provider / ai.base_url / ai.api_key / ai.model = 调用 AI 用的接口类型(只存 anthropic;没有这一行为 OpenAI 兼容)、服务地址、API Key 与模型;
 -- ai.headers / ai.body = 每个 AI 请求额外带的 HTTP 头(一行一个「名字: 值」)与合并进请求体的 JSON 对象,都是用户填的原文;
 -- proxy.mode / proxy.url = 联网用的网络代理模式(只存 manual / direct;没有这一行为跟随系统)与手动填写的代理地址(可带用户名密码);
+-- proxy.github_mirror = 经 gh-proxy 加速访问公开的 GitHub 资源时为 on,没有这一行为不加速;
 -- wsl_distro = 各 Agent 的全局目录所在的 WSL 发行版,没填为这台机器本身。应用自己的项以 app. 开头,库只存取、不解释。
 -- sync. 开头的、proxy. 开头的与 wsl_distro 只属于这台机器:推送出去的库里删掉,拉回时保留本机的;其余随推送、拉回走,拉回后换成拉回的那份库里的。
 -- 数据库打开时开着 secure_delete:清空或换掉的值在文件里清零,推送出去的库里找不到旧令牌、旧 API Key 与 S3 密钥的原文。

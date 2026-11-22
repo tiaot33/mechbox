@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/tiaot33/mechbox/internal/library/internal/ghproxy"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/gitcmd"
 )
@@ -43,8 +44,10 @@ type discoveredSource struct {
 	ref         string
 }
 
-func fetchGitHubClone(ctx context.Context, locator repoLocator, subpath string) (discoveredSource, error) {
-	checkout, err := gitcmd.Clone(ctx, remotes(locator.Repository), locator.Branch, subpath)
+func fetchGitHubClone(ctx context.Context, mirror *ghproxy.Switch, locator repoLocator, subpath string) (discoveredSource, error) {
+	checkout, err := viaMirror(ctx, mirror, locator.Repository, func(remotes []string) (gitcmd.Checkout, error) {
+		return gitcmd.Clone(ctx, remotes, locator.Branch, subpath)
+	})
 	if err != nil {
 		return discoveredSource{}, err
 	}

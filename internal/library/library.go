@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
+	"github.com/tiaot33/mechbox/internal/library/internal/ghproxy"
 	"github.com/tiaot33/mechbox/internal/library/internal/process"
 	"github.com/tiaot33/mechbox/internal/library/internal/proxy"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/catalog"
@@ -22,6 +23,7 @@ type Library struct {
 	store    *store.Store
 	client   *http.Client
 	proxy    *proxy.State
+	mirror   *ghproxy.Switch
 	environ  func() []string
 	userHome string
 	home     agentdir.Home
@@ -138,12 +140,19 @@ func Open(path string, options ...Option) (lib *Library, err error) {
 		return nil, fmt.Errorf("open library: %w", err)
 	}
 	opened.proxy = proxy.New(internalProxySettings(storedProxy))
+	mirror, err := db.GitHubMirror(context.Background())
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("open library: %w", err)
+	}
+	opened.mirror = &ghproxy.Switch{}
+	opened.mirror.Set(mirror)
 	if opened.client == nil {
 		opened.client = opened.proxy.Client()
 	}
 	opened.store, opened.home = db, home
 	opened.previews, opened.plans = map[FetchPreviewID]*previewState{}, map[UpdatePlanID]*planState{}
-	opened.sources = catalog.New(opened.client, opened.withProcess, maxFetchFiles, maxFetchSize)
+	opened.sources = catalog.New(opened.client, opened.withProcess, opened.mirror, maxFetchFiles, maxFetchSize)
 	opened.sources.SetToken(token)
 	return opened, nil
 }

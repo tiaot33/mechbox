@@ -1,5 +1,5 @@
 // 设置页里几个分区的内容：通用、项目、检查更新、关于。应用设置改了立即经设置页的 save 排队保存;
-// 通用里的网络代理存进技能库本机配置(切换模式立即生效，手动地址点保存生效)。
+// 通用里的网络代理与 GitHub 镜像加速存进技能库本机配置(切换模式、开关立即生效，手动地址点保存生效)。
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Appearance, CheckInterval, Language, LibraryService, type Settings } from "@bindings/cmd/desktop";
@@ -9,6 +9,7 @@ import { setAppearance } from "@/lib/theme";
 import { ui } from "@/lib/ui";
 import { useT } from "@/lib/i18n";
 import {
+  githubMirrorQuery,
   invalidateProxySettings,
   invalidateSystemProxy,
   proxySettingsQuery,
@@ -129,6 +130,7 @@ export function GeneralSection({
       />
     </SetRow>
     <ProxySetting />
+    <GitHubMirrorSetting />
     {(distros.length > 0 || settings.wsl_distro) && (
       <SetRow>
         <Tipped className="grow" tip={t.wslDistroDesc}>
@@ -316,6 +318,28 @@ function ProxyControl({ saved, sysProxy }: { saved: ProxySettings; sysProxy?: Sy
         </SetRow>
       )}
     </>
+  );
+}
+
+// GitHubMirrorSetting 是 GitHub 镜像加速的开关：一点就存，下一次联网生效;读不出设置时不显示(网络代理那一行已给出重试)。
+function GitHubMirrorSetting() {
+  const t = useT().settings;
+  const { data: on } = useQuery(githubMirrorQuery);
+  const [saving, setSaving] = useState(false);
+  if (on === undefined) return null;
+  const toggle = async (next: boolean) => {
+    setSaving(true);
+    const ok = await ui.run(() => LibraryService.SetGitHubMirror(next).then(() => true), { reload: false });
+    setSaving(false);
+    if (ok) queryClient.setQueryData(githubMirrorQuery.queryKey, next);
+  };
+  return (
+    <SetRow className="github-mirror-row">
+      <Tipped className="grow" tip={t.githubMirrorDesc}>
+        {t.githubMirror}
+      </Tipped>
+      <Switch checked={on} disabled={saving} aria-label={t.githubMirror} onCheckedChange={(v) => void toggle(v)} />
+    </SetRow>
   );
 }
 

@@ -110,6 +110,10 @@ export function GetVersionFile(id: library$0.VersionID, path: string): $Cancella
     return $Call.ByID(3433441728, id, path);
 }
 
+export function GitHubMirror(): $CancellablePromise<boolean> {
+    return $Call.ByID(1960793498);
+}
+
 export function GitHubToken(): $CancellablePromise<string> {
     return $Call.ByID(132140442);
 }
@@ -315,6 +319,10 @@ export function SetAISettings(settings: library$0.AISettings): $CancellablePromi
 
 export function SetAppSettings(settings: { [_ in string]?: string } | null): $CancellablePromise<void> {
     return $Call.ByID(2937008032, settings);
+}
+
+export function SetGitHubMirror(on: boolean): $CancellablePromise<void> {
+    return $Call.ByID(3895421714, on);
 }
 
 export function SetGitHubToken(token: string): $CancellablePromise<void> {

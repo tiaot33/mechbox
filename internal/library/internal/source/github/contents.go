@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/tiaot33/mechbox/internal/library/internal/ghproxy"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 	"github.com/tiaot33/mechbox/internal/library/internal/source"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
@@ -472,6 +473,7 @@ type githubSnapshot struct {
 	locator      repoLocator
 	subpath      string
 	client       *githubClient
+	mirror       *ghproxy.Switch
 	skills       []discoveredSkill
 	diagnostics  []discovery.Diagnostic
 	discovered   bool
@@ -502,7 +504,7 @@ func (c *Client) Open(ctx context.Context, loc source.Locator, subpath string, _
 	if err != nil {
 		return nil, err
 	}
-	s := &githubSnapshot{locator: locator, subpath: subpath}
+	s := &githubSnapshot{locator: locator, subpath: subpath, mirror: c.mirror}
 	var apiErr error
 	if owner, repo, ok := ownerRepo(locator.Repository); ok {
 		session := c.session()
@@ -610,7 +612,7 @@ func (s *githubSnapshot) discoverTree(ctx context.Context) error {
 func (s *githubSnapshot) clone(ctx context.Context, ref string) error {
 	locator := s.locator
 	locator.Branch = ref
-	discovered, err := fetchGitHubClone(ctx, locator, s.subpath)
+	discovered, err := fetchGitHubClone(ctx, s.mirror, locator, s.subpath)
 	if err != nil {
 		return err
 	}
