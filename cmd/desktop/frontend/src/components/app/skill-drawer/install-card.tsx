@@ -4,7 +4,7 @@ import { SkillScopeStatus, type Skill } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { ui } from "@/lib/ui";
-import { extraCopy, identicalsOf, identicalState, notTakenOver } from "@/lib/unmanaged";
+import { identicalsOf, identicalState, notTakenOver } from "@/lib/unmanaged";
 import { folderPresent, editedHere, needsReinstall, needsRepair, skillScopeIn, skillScopeStatus, skillScopesOf } from "@/lib/installs";
 import { eachPlace, scopeLabel } from "@/lib/places";
 import { placeOf, projectName, scopeKey } from "@/lib/scope";
@@ -123,8 +123,9 @@ export function InstallCard({ skill }: { skill: Skill }) {
               );
             })}
             {copies.map((u) => {
-              const extra = extraCopy(s, u);
-              const state = identicalState(skill, u, s.info.home_dir, extra);
+              // 这里已经装着它时是多出来的一份(见 lib/unmanaged 的 extraCopy):只列出，不给"入库"。
+              const here = skillScopeIn(s, id, scopeKey(u.scope));
+              const state = identicalState(skill, u, s.info.home_dir, here);
               return (
                 <tr key={u.folder} className="identical-place">
                   <td />
@@ -160,7 +161,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
                         <Badge tone={skillScopeStatus(SkillScopeStatus.SkillScopeStale).tone}>{skillScopeStatus(SkillScopeStatus.SkillScopeStale).label}</Badge>
                       )}
                       {/* 提交在项目仓库里、指向 Agent 目录以外的默认不入库：按钮是普通的灰底，不推用户去入库。 */}
-                      {!extra && (
+                      {!here && (
                         <Button
                           variant={notTakenOver(u) ? "pill" : "pillQuiet"}
                           size="sm"

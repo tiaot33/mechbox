@@ -465,3 +465,25 @@ func TestFetchUnmanagedSkillsErrors(t *testing.T) {
 		t.Fatalf("ListSkills() = %#v, %v, want an empty library", skills, err)
 	}
 }
+
+// 整批入库按请求的顺序写:同样内容的两份一份带来源、一份不带时,带来源的那一份先建成这个来源里的技能,另一份只补记安装。
+func TestFetchUnmanagedSkillsKeepsTheSourceOfTheFirstOfTwoIdenticalFolders(t *testing.T) {
+	t.Parallel()
+	f := newRecognizeFixture(t)
+	f.publish(t, "https://author.example", "alpha", "v1")
+	directory := scopeDirectory(t, f.lib, f.claude)
+	for _, name := range []string{"alpha", "alpha-copy"} {
+		writeFile(t, filepath.Join(directory, name, "SKILL.md"), []byte(skillDocument("alpha", "v1")), 0o644)
+	}
+
+	results := fetchUnmanagedSkills(t, f.lib, library.FetchUnmanagedSkillsRequest{Skills: []library.UnmanagedFetchItem{
+		{Folders: []library.FolderInScope{{Scope: f.claude, Name: "alpha"}}, SourceInput: "https://author.example"},
+		{Folders: []library.FolderInScope{{Scope: f.claude, Name: "alpha-copy"}}},
+	}})
+	if results[0].Error != nil || results[0].Matched || results[0].Skill.CollectionID == 0 {
+		t.Fatalf("results[0] = %#v, want alpha fetched into the author's collection", results[0])
+	}
+	if results[1].Error != nil || !results[1].Matched || results[1].Skill.ID != results[0].Skill.ID {
+		t.Fatalf("results[1] = %#v, want the copy matched to the same skill", results[1])
+	}
+}

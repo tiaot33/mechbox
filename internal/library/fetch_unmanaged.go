@@ -93,8 +93,13 @@ func (l *Library) FetchUnmanaged(ctx context.Context, req FetchUnmanagedRequest)
 		return FetchUnmanagedResult{}, argumentError(operation, "source_ref", "a ref needs a source input")
 	}
 	requested := []FolderInScope{{Scope: req.Scope, Name: req.Name}}
-	result, name, err := l.fetchIfMatched(ctx, operation, requested, input == "")
-	if err != nil || name == "" {
+	if input == "" {
+		ctx, unlock := l.exclusiveOperation(ctx)
+		defer unlock()
+		return l.fetchFolders(ctx, operation, requested, nil)
+	}
+	result, matched, name, err := l.fetchIfMatched(ctx, operation, requested)
+	if err != nil || matched {
 		return result, err
 	}
 	opened, err := l.openSource(ctx, input, req.SourceRef)
@@ -107,7 +112,7 @@ func (l *Library) FetchUnmanaged(ctx context.Context, req FetchUnmanagedRequest)
 	}
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
-	return l.fetchSourced(ctx, operation, requested, name, sourced, input, req.SourceRef)
+	return l.fetchFolders(ctx, operation, requested, &unmanagedSource{name: name, skill: sourced, input: input, ref: req.SourceRef})
 }
 
 type unmanagedFolder struct {
@@ -126,32 +131,38 @@ func representative(folders []unmanagedFolder) diskFiles {
 	return disk
 }
 
-func (l *Library) fetchIfMatched(ctx context.Context, operation string, requested []FolderInScope, withoutSource bool) (FetchUnmanagedResult, string, error) {
+func (l *Library) fetchIfMatched(ctx context.Context, operation string, requested []FolderInScope) (result FetchUnmanagedResult, matched bool, name string, err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
-	folders, matched, err := l.unmanagedFolders(ctx, operation, requested)
+	folders, skillID, err := l.unmanagedFolders(ctx, operation, requested)
 	if err != nil {
-		return FetchUnmanagedResult{}, "", err
+		return FetchUnmanagedResult{}, false, "", err
 	}
-	if matched == 0 && !withoutSource {
-		return FetchUnmanagedResult{}, folders[0].parsed.Name, nil
+	if skillID == 0 {
+		return FetchUnmanagedResult{}, false, folders[0].parsed.Name, nil
 	}
-	result, err := l.fetchWithoutSource(ctx, folders, matched)
-	return result, "", err
+	result, err = l.fetchWithoutSource(ctx, folders, skillID)
+	return result, err == nil, "", err
 }
 
-func (l *Library) fetchSourced(ctx context.Context, operation string, requested []FolderInScope, name string, sourced sourcedSkill, input, ref string) (FetchUnmanagedResult, error) {
+type unmanagedSource struct {
+	name       string
+	skill      sourcedSkill
+	input, ref string
+}
+
+func (l *Library) fetchFolders(ctx context.Context, operation string, requested []FolderInScope, source *unmanagedSource) (FetchUnmanagedResult, error) {
 	folders, matched, err := l.unmanagedFolders(ctx, operation, requested)
 	if err != nil {
 		return FetchUnmanagedResult{}, err
 	}
-	if matched != 0 {
+	if matched != 0 || source == nil {
 		return l.fetchWithoutSource(ctx, folders, matched)
 	}
-	if folders[0].parsed.Name != name {
+	if folders[0].parsed.Name != source.name {
 		return FetchUnmanagedResult{}, preconditionError(operation, "the skill folder changed while the source was read", ErrorDetails{Path: folders[0].path})
 	}
-	return l.fetchWithSource(ctx, operation, folders, sourced, input, ref)
+	return l.fetchWithSource(ctx, operation, folders, source.skill, source.input, source.ref)
 }
 
 func (l *Library) unmanagedFolders(ctx context.Context, operation string, requested []FolderInScope) ([]unmanagedFolder, int64, error) {
@@ -161,7 +172,7 @@ func (l *Library) unmanagedFolders(ctx context.Context, operation string, reques
 		if err != nil {
 			return nil, 0, err
 		}
-		if len(folders) > 0 && !folder.disk.sameAs(folders[0].disk) {
+		if len(folders) > 0 && !folder.disk.same(folders[0].disk.digests) {
 			return nil, 0, preconditionError(operation, "the folders have different content", ErrorDetails{Path: folder.path})
 		}
 		folders = append(folders, folder)
@@ -361,8 +372,8 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folders
 		}
 		version := store.NewVersion{Description: folder.parsed.Description, Files: files, CreatedAt: now}
 		switch {
-		case skillfile.Equal(files, sourced.skill.Files):
-			version.State, version.Revision = string(sourced.skill.State), sourced.revision
+		case skillfile.SameContentFiles(files, sourced.skill.Files):
+			version.Files, version.State, version.Revision = sourced.skill.Files, string(sourced.skill.State), sourced.revision
 		case editedLatest && !untouched:
 			base := store.NewVersion{Description: sourced.skill.Description, Files: sourced.skill.Files, State: string(sourced.skill.State), Revision: sourced.revision, CreatedAt: now}
 			if id, version.Base, err = tx.InsertSkill(ctx, sourceID, name, base); err != nil {
@@ -515,7 +526,7 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 		key := disk.digests["SKILL.md"].Fingerprint
 		same := slices.IndexFunc(byContent[key], func(index int) bool {
 			planned := plan[index]
-			return disks[index].sameAs(disk) &&
+			return disks[index].same(disk.digests) &&
 				planned.SkillID == entry.SkillID && planned.VersionID == entry.VersionID && planned.SourceLatestOf == entry.SourceLatestOf &&
 				!slices.ContainsFunc(planned.Folders, func(folder UnmanagedSkill) bool { return folder.Scope == entry.Scope })
 		})
@@ -634,15 +645,19 @@ func (l *Library) FetchUnmanagedSkills(ctx context.Context, req FetchUnmanagedSk
 	}
 	results = make([]FetchedUnmanagedSkill, len(req.Skills))
 	names := make([]string, len(req.Skills))
+	done := make([]bool, len(req.Skills))
 	for index, item := range req.Skills {
 		results[index].Folders = item.Folders
-		fetched, name, err := l.fetchIfMatched(ctx, operation, item.Folders, strings.TrimSpace(item.SourceInput) == "")
-		if err != nil {
-			results[index].Error = ErrorOf(err)
+		if strings.TrimSpace(item.SourceInput) == "" {
 			continue
 		}
-		if name == "" {
-			results[index].Skill, results[index].Matched = fetched.Skill, fetched.Matched
+		fetched, matched, name, err := l.fetchIfMatched(ctx, operation, item.Folders)
+		if err != nil {
+			results[index].Error, done[index] = ErrorOf(err), true
+			continue
+		}
+		if matched {
+			results[index].Skill, results[index].Matched, done[index] = fetched.Skill, fetched.Matched, true
 		}
 		names[index] = name
 	}
@@ -652,7 +667,7 @@ func (l *Library) FetchUnmanagedSkills(ctx context.Context, req FetchUnmanagedSk
 	sourced := make([]sourcedSkill, len(req.Skills))
 	for index, item := range req.Skills {
 		input := strings.TrimSpace(item.SourceInput)
-		if names[index] == "" {
+		if input == "" || done[index] {
 			continue
 		}
 		key := sourceKey{input, item.SourceRef}
@@ -672,10 +687,14 @@ func (l *Library) FetchUnmanagedSkills(ctx context.Context, req FetchUnmanagedSk
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	for index, item := range req.Skills {
-		if names[index] == "" || results[index].Error != nil {
+		if done[index] || results[index].Error != nil {
 			continue
 		}
-		fetched, err := l.fetchSourced(ctx, operation, item.Folders, names[index], sourced[index], strings.TrimSpace(item.SourceInput), item.SourceRef)
+		var source *unmanagedSource
+		if input := strings.TrimSpace(item.SourceInput); input != "" {
+			source = &unmanagedSource{name: names[index], skill: sourced[index], input: input, ref: item.SourceRef}
+		}
+		fetched, err := l.fetchFolders(ctx, operation, item.Folders, source)
 		if err != nil {
 			results[index].Error = ErrorOf(err)
 			continue

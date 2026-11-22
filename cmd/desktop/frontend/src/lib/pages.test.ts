@@ -83,6 +83,13 @@ describe("作用域页列什么", () => {
     expect(l.hereCount).toBe(3);
   });
 
+  it("全局装着的技能多出来的那一份不在来自全局里另列一行", () => {
+    const extra = { ...unmanaged("a1-copy", "claude-code"), skill_id: 10, version_id: 1 };
+    const l = scopeListing({ ...s, unmanaged: [extra, unmanaged("g", "claude-code")] }, "claude-code@1", "collection", "");
+    expect(ids(l.global)).toEqual([10]);
+    expect(l.globalUnmanaged.map((u) => u.name)).toEqual(["g"]);
+  });
+
   it("右栏和标题的数字：这个目录里的都算(不是 app 装的也算),来自全局的不算", () => {
     const copy = { ...unmanaged("a2", "claude-code", 1), skill_id: 11, version_id: 1 };
     const withFolders = { ...s, unmanaged: [copy, unmanaged("mine", "claude-code", 1), unmanaged("g", "claude-code")] };

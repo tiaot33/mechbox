@@ -293,10 +293,6 @@ func (d diskFiles) same(version map[string]skillfile.Digest) bool {
 	return skillfile.SameContent(d.digests, version)
 }
 
-func (d diskFiles) sameAs(other diskFiles) bool {
-	return skillfile.SameContent(d.digests, other.digests)
-}
-
 func (d diskFiles) as(reference map[string]skillfile.Digest) []skillfile.File {
 	if !d.noModes {
 		return d.files

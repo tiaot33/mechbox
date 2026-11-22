@@ -8,7 +8,6 @@ import (
 	"slices"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
-	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
@@ -115,7 +114,7 @@ func (l *Library) Update(ctx context.Context, req UpdateRequest) (result UpdateR
 		checked := read.checked[i]
 		if item.renameTo != "" {
 			guess, renamed := read.renames[i]
-			if !missingSkill(checked.err) || !renamed || guess.latest.Name != item.renameTo || guess.content != item.content || read.states[i].versionID != item.versionID {
+			if !missingSkill(checked.err) || !renamed || guess.latest.Name != item.renameTo || !item.reviewed(guess.latest.Files) || read.states[i].versionID != item.versionID {
 				return UpdateResult{}, &Error{Code: Conflict, Message: operation + ": skill changed since the update plan", Details: ErrorDetails{SkillID: id}}
 			}
 			continue
@@ -128,7 +127,7 @@ func (l *Library) Update(ctx context.Context, req UpdateRequest) (result UpdateR
 		}
 		same := !checked.changed
 		if item.change == PlannedChanged {
-			same = checked.changed && checked.content == item.content
+			same = checked.changed && item.reviewed(checked.latest.Files)
 		}
 		if read.states[i].versionID != item.versionID || !same {
 			return UpdateResult{}, &Error{Code: Conflict, Message: operation + ": skill changed since the update plan", Details: ErrorDetails{SkillID: id}}
@@ -165,7 +164,7 @@ func (l *Library) applyScopeUpdate(ctx context.Context, operation string, state 
 	if err != nil {
 		return UpdateResult{}, nil, err
 	}
-	if edit.current.versionID != item.versionID || skillfile.Sum(edit.latest.Files) != item.content {
+	if edit.current.versionID != item.versionID || !item.reviewed(edit.latest.Files) {
 		return UpdateResult{}, nil, &Error{Code: Conflict, Message: operation + ": skill changed since the update plan", Details: ErrorDetails{SkillID: id}}
 	}
 	for _, install := range installs {

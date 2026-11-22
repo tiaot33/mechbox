@@ -1,6 +1,6 @@
 // 未纳管技能：归谁管、指向哪里的标注，SKILL.md 哪里写错了，和库里一样但不是 app 装的那一份怎么说。
 import { describe, expect, it } from "vitest";
-import { ScopeKind, SkillFileProblemKind, type Agent, type Skill, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
+import { ScopeKind, SkillFileProblemKind, SkillScopeStatus, type Skill, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
 import { extraCopy, fetchable, folderNotes, identicalsOf, identicalState, skillFileProblemText } from "./unmanaged";
 
@@ -48,30 +48,40 @@ describe("identicalState", () => {
 describe("extraCopy", () => {
   it("这里已经装着那个技能时，另一份一样的文件夹是多出来的一份，写明不用入库", () => {
     const copy = { ...unmanaged("pdf-copy", "claude-code", 1), skill_id: 9, version_id: 3 };
-    const install = (agent: string) => ({ skill_id: 9, scope: where(agent, 1) }) as unknown as SkillScopeInspection;
+    const install = (agent: string, status = SkillScopeStatus.SkillScopeCurrent) => ({ skill_id: 9, scope: where(agent, 1), status }) as unknown as SkillScopeInspection;
     const installed = install("claude-code");
     expect(extraCopy(snapshot({ skillScopes: [] }), copy)).toBe(false);
     expect(extraCopy(snapshot({ skillScopes: [install("codex")] }), copy)).toBe(false);
     expect(extraCopy(snapshot({ skillScopes: [installed] }), copy)).toBe(true);
     expect(extraCopy(snapshot({ skillScopes: [installed] }), unmanaged("other", "claude-code", 1))).toBe(false);
-    const state = identicalState({ id: 9, name: "pdf", version_id: 3 } as Skill, copy, undefined, true);
+    const skill = { id: 9, name: "pdf", version_id: 3 } as Skill;
+    const state = identicalState(skill, copy, undefined, installed);
     expect(state.text).toBe("多一份一样的");
     expect(state.title).toContain("不用入库");
+  });
+
+  it("装着的那一处文件夹不在了时，不说多一份，只说这一份和库里的一样", () => {
+    const copy = { ...unmanaged("my-pdf", "claude-code", 1), skill_id: 9, version_id: 3 };
+    const gone = { skill_id: 9, scope: where("claude-code", 1), status: SkillScopeStatus.SkillScopeMissing } as unknown as SkillScopeInspection;
+    const state = identicalState({ id: 9, name: "pdf", version_id: 3 } as Skill, copy, undefined, gone);
+    expect(state.text).toBe("和库里的一样");
+    expect(state.title).toContain("文件夹不在了");
   });
 });
 
 describe("identicalsOf", () => {
-  it("项目里共用一个目录的几个 Agent 那里是同一个文件夹，只算一处", () => {
-    const agents = [
-      { code: "codex", name: "Codex", project_directory: ".agents/skills", detected: true },
-      { code: "cursor", name: "Cursor", project_directory: ".agents/skills", detected: true },
-    ] as Agent[];
-    const copy = (agent: string, project_id?: number) => ({ ...unmanaged("pdf", agent, project_id), skill_id: 9 });
-    const s = snapshot({ agents, agentsShown: {}, unmanaged: [copy("codex", 1), copy("cursor", 1), copy("codex"), unmanaged("other", "codex")] });
-    expect(identicalsOf(s, 9).map((u) => [u.scope.agent, u.scope.project_id ?? 0])).toEqual([
-      ["codex", 1],
-      ["codex", 0],
-    ]);
+  it("共用一个目录的几个 Agent 那里是同一个文件夹，只算一处;同一处的几份各算一条", () => {
+    const copy = (agent: string, folder: string, project_id?: number) => ({ ...unmanaged("pdf", agent, project_id), folder, skill_id: 9 });
+    const s = snapshot({
+      unmanaged: [
+        copy("codex", "/web/.agents/skills/pdf", 1),
+        copy("cursor", "/web/.agents/skills/pdf", 1),
+        copy("codex", "/home/.codex/skills/pdf"),
+        copy("codex", "/home/.codex/skills/pdf-copy"),
+        unmanaged("other", "codex"),
+      ],
+    });
+    expect(identicalsOf(s, 9).map((u) => u.folder)).toEqual(["/web/.agents/skills/pdf", "/home/.codex/skills/pdf", "/home/.codex/skills/pdf-copy"]);
   });
 });
 

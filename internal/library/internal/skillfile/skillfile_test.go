@@ -154,10 +154,10 @@ func TestComparisonsIgnoreOnlyModes(t *testing.T) {
 		}
 	}
 	regular := WithModesOf(version, Digests([]File{file("run.sh", "", ModeRegular)}))
-	if Sum(version) != Sum(regular) || !Equal(version, regular) {
-		t.Error("Sum or Equal tells apart files that differ only in modes")
+	if Sum(version) != Sum(regular) || !SameContentFiles(version, regular) {
+		t.Error("Sum or SameContentFiles tells apart files that differ only in modes")
 	}
-	if Sum(version) == Sum(withEditedFirst(version)) || Equal(version, withEditedFirst(version)) {
-		t.Error("Sum or Equal misses a content change")
+	if Sum(version) == Sum(withEditedFirst(version)) || SameContentFiles(version, withEditedFirst(version)) {
+		t.Error("Sum or SameContentFiles misses a content change")
 	}
 }

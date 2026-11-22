@@ -347,7 +347,7 @@ func keepEdits(checked []checkedSkill, states []currentVersion) {
 		if !states[i].followsAuthor() || checked[i].err != nil {
 			continue
 		}
-		if checked[i].changed && !skillfile.Equal(checked[i].latest.Files, states[i].files) {
+		if checked[i].changed && !skillfile.SameContentFiles(checked[i].latest.Files, states[i].files) {
 			continue
 		}
 		checked[i] = checkedSkill{latest: source.Skill{Name: states[i].origin.Name, Files: states[i].files}, content: checked[i].content}
@@ -387,7 +387,7 @@ func checkSnapshot(ctx context.Context, snapshot source.Snapshot, have source.Ha
 		return false, source.Skill{}, unreadableSkill(ctx, snapshot, have.Name, err)
 	}
 	latest := fetched[0]
-	return !skillfile.Equal(have.Files, latest.Files), latest, nil
+	return !skillfile.SameContentFiles(have.Files, latest.Files), latest, nil
 }
 
 func unreadableSkill(ctx context.Context, snapshot source.Snapshot, name string, err error) error {

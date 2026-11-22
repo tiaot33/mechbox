@@ -340,7 +340,8 @@ func TestFindUnmanagedSourcesPrefersSourcesTheLibraryFollows(t *testing.T) {
 	}
 }
 
-// SKILL.md 超过列出时只读的上限(1 MiB),列出时也读全部内容来认,和入库时认的一样。
+// SKILL.md 超过列出时只读的上限(1 MiB),列出时也读全部内容来认,和入库时认的一样;
+// 列出时读不到它的 name、查不了 skills-lock.json,所以只认出、不自动纳入,入库只补记这一处。
 func TestUnmanagedCopyWithALargeSkillMDIsRecognizedWhenListed(t *testing.T) {
 	t.Parallel()
 	setTestHome(t, t.TempDir())
@@ -350,8 +351,11 @@ func TestUnmanagedCopyWithALargeSkillMDIsRecognizedWhenListed(t *testing.T) {
 	codex := library.GlobalScope(library.AgentCodex)
 	writeFile(t, filepath.Join(scopeDirectory(t, lib, codex), "large", "SKILL.md"), []byte(skillDocument("large", body)), 0o644)
 
-	if unmanaged := listUnmanagedSkills(t, lib); len(unmanaged) != 0 {
-		t.Fatalf("unmanaged = %#v, want the copy adopted as skill %d", unmanaged, skill.ID)
+	if here := unmanagedIn(t, lib, codex, "large"); here.SkillID != skill.ID || here.VersionID != skill.VersionID {
+		t.Fatalf("unmanaged = %#v, want it recognized as skill %d", here, skill.ID)
+	}
+	if fetched := fetchUnmanaged(t, lib, codex, "large"); !fetched.Matched || fetched.Skill.ID != skill.ID {
+		t.Fatalf("fetched = %#v, want skill %d matched", fetched, skill.ID)
 	}
 	requireScopeStatus(t, lib, skill.ID, codex, library.SkillScopeCurrent)
 }

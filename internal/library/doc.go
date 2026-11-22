@@ -200,8 +200,9 @@
 // 发行版没有响应时,取主目录最多等 30 秒、其他命令最多等 2 分钟,之后按发行版打不开处理。
 //
 // 判断两份技能内容是不是一样(巡检、回滚、检查更新、认出未纳管技能、整批入库时合并几处)都只比文件路径与内容,不比可执行位,
-// 各平台一样:skillfile 的 Sum、Equal、SameContent 与 reinstall.go 的 diskFiles.same / sameAs 都不看可执行位。
-// 可执行位照样记进库、装出去,更新计划的差异与风险里照样列出可执行位的变化。
+// 各平台一样:skillfile 的 Sum、SameContentFiles、SameContent 与 reinstall.go 的 diskFiles.same 都不看可执行位。
+// 可执行位照样记进库、装出去,更新计划的差异与风险里照样列出可执行位的变化;确认更新时要和计划里看过的文件连可执行位一致
+// (plannedState.reviewed),计划之后才改的可执行位不会不经审阅写进库。
 // 认出未纳管技能是库里的哪个技能只在 fetch_unmanaged.go 的 matchingSkill 里做:列出(recognizeUnmanaged)、整批入库计划与找来源
 // 用列出时认出的结果,入库每读一次文件夹认一次。
 // Windows 本机的目录(不经 WSL 的那些)读不出可执行位:agentdir 读出的文件夹带 NoModes,里面的文件都按普通文件给出。

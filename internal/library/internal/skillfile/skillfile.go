@@ -44,7 +44,7 @@ func Ignored(path string) bool {
 	return false
 }
 
-func Equal(first, second []File) bool {
+func SameContentFiles(first, second []File) bool {
 	return slices.EqualFunc(first, second, func(a, b File) bool {
 		return a.Path == b.Path && bytes.Equal(a.Content, b.Content)
 	})

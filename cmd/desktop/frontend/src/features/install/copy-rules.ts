@@ -165,7 +165,7 @@ export function uncopiedProjectUnmanaged(s: Snapshot, from: ProjectID, to: Proje
   return splitUncopied(
     mergeProjectAgents(s, s.agents).flatMap((a) => {
       const there = folderNamesIn(s, scopeKey(scopeOf(a.code, to)));
-      return unmanagedIn(s, scopeKey(scopeOf(a.code, from))).filter((u) => !there.includes(u.name));
+      return unmanagedIn(s, scopeKey(scopeOf(a.code, from))).filter((u) => !there.includes(u.name) && !extraCopy(s, u));
     }),
   );
 }

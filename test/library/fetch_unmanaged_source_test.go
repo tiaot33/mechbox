@@ -565,3 +565,20 @@ func TestFetchUnmanagedTakesTheSourceWithAModeOnlyChangeAsTheVersionTheEditsAreB
 	}
 	requireCheck(t, f.lib, skill.ID, library.UpdateCurrent, false, false)
 }
+
+// 磁盘上那份和来源里只差可执行位(脚本丢了 +x):按来源入库时库里存的是来源里的那一版,装到别处脚本照样可执行。
+func TestFetchUnmanagedWithTheSourceContentKeepsTheSourcesModes(t *testing.T) {
+	t.Parallel()
+	f := newSourcedSkillFixture(t)
+	f.writeDisk(t, "v1")
+	if err := os.Chmod(filepath.Join(f.folder, "scripts", "run.sh"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	result := f.fetch(t)
+	if version := f.currentVersion(t, result.Skill); version.MaybeEdited {
+		t.Fatalf("version = %#v, want the source's version", version)
+	}
+	if file, err := f.lib.GetVersionFile(t.Context(), result.Skill.VersionID, "scripts/run.sh"); err != nil || file.Mode != library.ModeExecutable {
+		t.Fatalf("scripts/run.sh = %+v, %v; want it executable as in the source", file, err)
+	}
+}

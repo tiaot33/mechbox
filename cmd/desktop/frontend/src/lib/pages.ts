@@ -12,7 +12,7 @@ import { globalScopesSeenFrom, mergeProjectAgents, scopeLabel } from "./places";
 import { parseScope, placeOf, projectName, scopeKey, scopeOf, type ScopeKey } from "./scope";
 import { collectionSkills, noSource, sourceLabel } from "./source";
 import { todoSkills, updatableCollections } from "./source-state";
-import { splitIdentical, unmanagedIn } from "./unmanaged";
+import { extraCopy, splitIdentical, unmanagedIn } from "./unmanaged";
 import { collator } from "./utils";
 
 // ---------- 页面 ----------
@@ -184,8 +184,9 @@ function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, search: stri
     s.skillScopes.filter((p) => globalKeys.includes(scopeKey(p.scope)) && !hereIDs.has(p.skill_id)).map((p) => p.skill_id),
   );
   const folders = new Set<string>();
+  // 全局装着的技能多出来的那一份(extraCopy)已经随那个技能列在来自全局里，不另列一行。
   const globalUnmanaged = s.unmanaged.filter((u) => {
-    if (!globalKeys.includes(scopeKey(u.scope)) || folders.has(u.folder)) return false;
+    if (!globalKeys.includes(scopeKey(u.scope)) || folders.has(u.folder) || extraCopy(s, u)) return false;
     folders.add(u.folder);
     return true;
   });
