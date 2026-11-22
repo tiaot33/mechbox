@@ -27,7 +27,7 @@ export async function addSkillToGroup(groupID: GroupID, id: SkillID) {
   if (!results) return;
   const skipped = results.filter((r) => r.outcome === GroupMemberOutcome.MemberSkipped);
   if (skipped.length) {
-    await showResults(t.addedToGroupTitle(skillName(s, id), groupName(s, groupID)), memberRows(s, results), t.addedToGroupPartly);
+    await showResults(t.addedToGroupTitle(skillName(s, id), groupName(s, groupID)), memberRows(s, results, true), t.addedToGroupPartly);
   } else {
     await toastInstalled(placedBy(results), t.addedToGroup(skillName(s, id), groupName(s, groupID), results.length));
     return;

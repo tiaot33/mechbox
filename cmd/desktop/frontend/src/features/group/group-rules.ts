@@ -37,7 +37,7 @@ export function addedToGroup(s: Snapshot, ids: SkillID[], results: readonly (Att
     const r = results[i];
     if (!r) return [];
     if ("error" in r) return [{ label: skillName(s, id), outcome: t.failed, tone: "critical", reason: describeError(r.error) }];
-    if (r.value.length) return memberRows(s, r.value);
+    if (r.value.length) return memberRows(s, r.value, true);
     return [{ label: skillName(s, id), outcome: t.memberAdded, tone: "plain" }];
   });
   return { all: added.length === ids.length && !skipped, skipped, added: added.length, placed: added.flatMap(placedBy), rows };

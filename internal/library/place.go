@@ -130,7 +130,9 @@ func (l *Library) placementConflict(ctx context.Context, operation string, id Sk
 		return nil, err
 	}
 	if other != nil && other.skillID == id {
-		return preconditionError(operation, "another scope already installs this skill into the same directory", ErrorDetails{Path: target.directory}), nil
+		return preconditionError(operation, "another scope already installs this skill into the same directory", ErrorDetails{
+			Path: agentdir.FolderPath(target.directory, other.name), Name: other.name, SkillID: id,
+		}), nil
 	}
 	if other != nil {
 		return preconditionError(operation, "another skill already installs this name into the same directory", ErrorDetails{

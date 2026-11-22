@@ -426,3 +426,45 @@ func TestMissingScopeRootIsNeverCreated(t *testing.T) {
 		{SkillID: skill.ID, Scope: global, Folder: filepath.Join(globalDir, skill.Name), Groups: via},
 	})
 }
+
+// 两个 Agent 的技能目录经符号链接是同一处:往 Claude Code 组安装一个 Codex 已经装在那里的技能,跳过的原因带上这个技能自己和那个文件夹,
+// 界面据此说「这个技能的另一个作用域已装在那里」,不再当成项目不在这台机器上。
+func TestGroupInstallReportsTheSameSkillInALinkedDirectory(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	home := t.TempDir()
+	setTestHome(t, home)
+	shared := filepath.Join(home, ".agents", "skills")
+	if err := os.MkdirAll(shared, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(shared, filepath.Join(home, ".claude", "skills")); err != nil {
+		t.Fatal(err)
+	}
+	lib := openTestLibrary(t)
+	skill := fetchNamedSkill(t, lib, "foo")
+	if err := lib.Install(ctx, skill.ID, library.GlobalScope(library.AgentCodex), library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	group, err := lib.CreateGroup(ctx, "g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.AddSkillToGroup(ctx, group.ID, skill.ID); err != nil {
+		t.Fatal(err)
+	}
+	results, err := lib.InstallGroup(ctx, group.ID, library.GlobalScope(library.AgentClaudeCode), library.InstallOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Outcome != library.MemberSkipped || results[0].Error == nil {
+		t.Fatalf("InstallGroup() = %#v; want the member skipped", results)
+	}
+	details := results[0].Error.Details
+	if results[0].Error.Code != library.FailedPrecondition || details.SkillID != skill.ID || details.Path != filepath.Join(home, ".claude", "skills", "foo") {
+		t.Fatalf("skip error = %#v; want FailedPrecondition with the skill itself and its folder", results[0].Error)
+	}
+}

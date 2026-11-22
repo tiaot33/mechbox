@@ -94,7 +94,7 @@ func TestPlanInstallOccupancyAndUntracked(t *testing.T) {
 	if err != nil || plan.Status != library.InstallOccupied || plan.OccupierSkillID != a.ID {
 		t.Fatalf("cross scope = %#v, %v", plan, err)
 	}
-	requireErrorDetails(t, lib.Install(ctx, a.ID, other, library.InstallOptions{}), library.FailedPrecondition, library.ErrorDetails{Path: filepath.Dir(plan.Folder)})
+	requireErrorDetails(t, lib.Install(ctx, a.ID, other, library.InstallOptions{}), library.FailedPrecondition, library.ErrorDetails{Path: plan.Folder, Name: a.Name, SkillID: a.ID})
 	if err := lib.Uninstall(ctx, a.ID, scope, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
@@ -936,7 +936,7 @@ func TestInstallDoesNotOverwriteAnotherScopeSharingTheDirectory(t *testing.T) {
 	}
 	for _, opts := range []library.InstallOptions{{}, {Overwrite: true}} {
 		err := lib.Install(ctx, skill.ID, projectScope, opts)
-		requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Path: directory})
+		requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Path: filepath.Join(directory, skill.Name), Name: skill.Name, SkillID: skill.ID})
 	}
 	skillScopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
 	want := []library.SkillScope{{SkillID: skill.ID, Scope: global, Folder: filepath.Join(directory, skill.Name), Direct: true}}

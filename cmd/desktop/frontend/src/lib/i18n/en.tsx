@@ -173,7 +173,8 @@ export const en = {
     occupiedNoSource: (folder: string) => `Can't install: a skill with the same name and no Source is already installed at\n${folder}\nUninstall it first, then install`,
     memberUntracked: (folder: string) =>
       `${folder} already exists but wasn't installed by the Library, so it wasn't overwritten. To overwrite it, install the Group again and choose “Overwrite these folders”`,
-    memberDuplicate: (name: string, folder: string) => `Another skill in the Group is also named “${name}” and would go into the same folder ${folder}; only one of them was installed`,
+    memberDuplicate: (name: string, folder: string) => `Several skills in the Group are named “${name}” and would go into the same folder ${folder}; none of them was installed`,
+    memberDuplicateAdded: (name: string, folder: string) => `The Group already has a skill named “${name}” that would go into the same folder ${folder}; this one wasn't installed`,
     memberRootMissing: (root: string) => `${root} isn't on this machine, so nothing can be installed there; relocate the project in the right sidebar first`,
     openOccupier: "Open the skill using it",
     untrackedTitle: "A folder with the same name is already there",

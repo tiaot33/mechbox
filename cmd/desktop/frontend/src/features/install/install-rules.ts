@@ -15,12 +15,11 @@ import {
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import { copiesLeft, detachedBy, lostEdits, staleLinksOf } from "@/lib/consent";
-import { describeError } from "@/lib/errors";
+import { describeError, occupiedReason } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
 import type { Attempt, LibraryError, Snapshot } from "@/lib/library";
 import { installable, missingNames } from "@/lib/mentions";
 import { errorOccupier, folderKey, folderPlaces, occupierOf, skillScopeIn } from "@/lib/installs";
-import { noSource, sourceLabel } from "@/lib/source";
 import { placeOf, scopeKey, skillName } from "@/lib/scope";
 import { agentNameIn, scopeLabel, sharedWithNote } from "@/lib/places";
 import { shortPath } from "@/lib/paths";
@@ -29,13 +28,9 @@ import { placedBy, type ResultRow } from "@/components/app/result-rows";
 // occupied 是被占用、装不上的一处:reason 说明原因，同名的另一个技能(或这个技能的另一个作用域)已装在那个文件夹，用来源区分是哪一个;
 // occupier 是占着的另一个技能，界面上能点开它(见 occupierOf)。
 export function occupied(s: Snapshot, id: SkillID, plan: InstallPlan): { reason: string; occupier?: SkillID } {
-  const t = messages().actions;
-  const folder = shortPath(s, plan.folder);
-  if (plan.occupier_skill_id === id) return { reason: t.occupiedSelf(folder) };
+  if (plan.occupier_skill_id === id) return { reason: occupiedReason(s, id, id, plan.folder) };
   const occupier = occupierOf(s, id, plan.occupier_skill_id);
-  const skill = s.skills.find((x) => x.id === occupier);
-  const reason = !skill ? t.occupiedOther(folder) : noSource(skill.source) ? t.occupiedNoSource(folder) : t.occupiedSource(sourceLabel(s, skill.source), folder);
-  return { reason, occupier };
+  return { reason: occupiedReason(s, id, occupier, plan.folder), occupier };
 }
 
 // ---------- 装好之后的提示 ----------

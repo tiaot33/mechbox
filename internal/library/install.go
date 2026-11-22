@@ -99,6 +99,8 @@ const (
 
 // GroupMemberResult 是一个成员在一个 Scope 上的结果。Error 仅在 MemberSkipped 时非空,按跳过原因:
 //   - 被另一个技能占用:FailedPrecondition,Details.SkillID / Name / Path 为占用者与其文件夹;
+//   - 这个技能的另一个作用域已装在同一个文件夹(两个技能目录经符号链接是同一处):FailedPrecondition,Details.SkillID 为这个技能自己,
+//     Name / Path 为那个文件夹;
 //   - 组里同名:FailedPrecondition,Details.Name 为同名的名字,Path 为共同的文件夹;
 //   - 作用域根目录不存在(仅加入成员时):FailedPrecondition,Details.Path 为根目录,项目带 ProjectID;
 //   - 有不是从库里装的同名文件夹且没同意覆盖:AlreadyExists,Details.Path 为该文件夹。
@@ -211,7 +213,8 @@ func (l *Library) planInstall(ctx context.Context, id SkillID, name string, scop
 // (文件夹丢了也不补回,放回去用 Reinstall)。要写入的目录还有别的 Agent 在读、它们又在别的目录装着这个技能时照装
 // (见 InstallPlan.ReadsTwice),它们仍只认原来那一处。
 // 目标处有不是从库里装的同名文件夹时返回 AlreadyExists(Details.Path),opts.Overwrite 同意时覆盖它;
-// 被另一个技能占用时返回 FailedPrecondition(Details.SkillID / Name / Path),需先卸载占用者。
+// 被另一个技能占用时返回 FailedPrecondition(Details.SkillID / Name / Path),需先卸载占用者;这个技能的另一个作用域
+// 已装在同一个文件夹(两个技能目录经符号链接是同一处)时也返回 FailedPrecondition,Details.SkillID 为这个技能自己。
 // 作用域根目录(全局为用户主目录,项目为已登记路径)不存在时返回 FailedPrecondition;Library 从不创建根目录,
 // 只创建其下的 Agent 目录。
 func (l *Library) Install(ctx context.Context, id SkillID, scope Scope, opts InstallOptions) (err error) {
@@ -403,7 +406,7 @@ func (l *Library) memberBlocker(ctx context.Context, plan *memberPlan, id SkillI
 		return preconditionError(plan.operation, "multiple members install to the same target", ErrorDetails{Name: name, Path: path}), nil
 	}
 	if plan.planned[agentdir.FolderKey(target.directory, name)] != nil {
-		return preconditionError(plan.operation, "another scope already installs this skill into the same directory", ErrorDetails{Path: target.directory}), nil
+		return preconditionError(plan.operation, "another scope already installs this skill into the same directory", ErrorDetails{Path: path, Name: name, SkillID: id}), nil
 	}
 	return l.placementConflict(ctx, plan.operation, id, name, target, plan.opts.Overwrite)
 }
