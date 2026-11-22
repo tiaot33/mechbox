@@ -1,6 +1,5 @@
 // 桌面端读取技能库的入口：经 Wails 绑定调用 Go 侧的 LibraryService,读到的数据放在 TanStack Query 的缓存里。
 // 写操作完成后 reloadLibrary 让缓存失效，界面上正在用的查询随之重读(前端在自己的写操作之后重读，见 ADR 0008)。
-import { useSyncExternalStore } from "react";
 import { QueryClient, queryOptions, useQuery, type Query } from "@tanstack/react-query";
 import { CancelError, type CancellablePromise } from "@wailsio/runtime";
 import { AppService, LibraryService, type AppInfo } from "@bindings/cmd/desktop";
@@ -15,7 +14,6 @@ import {
   type Skill,
   type SkillScopeInspection,
   type SameNameSkill,
-  type PlannedUnmanagedSkill,
   type Scope,
   type SkillID,
   type UnmanagedSkill,
@@ -39,6 +37,10 @@ export function toLibraryError(err: unknown): LibraryError {
   }
   return { code: ErrorCode.Internal, message: err instanceof Error ? err.message : String(err) };
 }
+
+// Attempt 是逐项调用技能库(components/app/results.tsx 的 runEach)时一项的结果：做成的是 value,失败的是转好的错误。
+// 结果按下标与各项一一对应，跳过的、没做到的那一项是 undefined。
+export type Attempt<T> = { value: T } | { error: LibraryError };
 
 // Snapshot 是主界面一次读出的全部只读数据;agentsShown、autoTranslate、foldCollections、foldBelow 来自应用设置，其余来自技能库。
 // 外观不在这里，由 lib/theme.ts 按设置写到根元素上。
@@ -90,13 +92,8 @@ export function reloadLibrary(): Promise<void> {
 
 // forgetLibraryCaches 在拉回整库之后丢掉按旧库缓存的内容，等快照和界面上正在用的查询都按新库重读完：
 // key 里带技能库 ID 的查询(包括写操作后不重读的版本、文件列表与审计)清空重读，新库里同一个 ID 可能是另一个技能或版本;
-// 在 skills.sh 上找到的来源按作用域(带项目 ID)记着，也清掉，还没返回的那一轮作废。其余查询照常重读。
-// 由 view.ts 的 forgetLibrary 调用，界面上按 ID 记下的状态在那里一起作废。
+// 其余查询照常重读。由 view.ts 的 forgetLibrary 调用，界面上按 ID 记下的状态与在 skills.sh 上找到的来源在那里一起作废。
 export async function forgetLibraryCaches(): Promise<void> {
-  foundRound++;
-  found = new Map();
-  searching.clear();
-  for (const listener of listeners) listener();
   await Promise.all([queryClient.resetQueries({ predicate: (q: Query) => !!q.meta?.ids }), reloadLibrary()]);
 }
 
@@ -129,7 +126,6 @@ async function readSnapshot(signal: AbortSignal): Promise<Snapshot> {
     list(wails(signal, LibraryService.ListMissingMentions())).catch(() => []),
     wails(signal, AppService.Settings()),
   ]);
-  findSources(unmanaged);
   const agentsShown = settings.agents_shown ?? {};
   return {
     info,
@@ -345,76 +341,4 @@ export const releaseQuery = queryOptions({
 
 export function invalidateRelease() {
   return queryClient.invalidateQueries({ queryKey: releaseQuery.queryKey });
-}
-
-// ---------- 在 skills.sh 上找到的来源 ----------
-
-// 来源记录认不出来源的未纳管技能，列出之后在后台去 skills.sh 找来源，找到的陆续补到界面上。
-// 认出是库里哪个技能的(和它一样，或是它在来源里的新版)跟着那个技能的来源，不找。
-// found 按作用域与文件夹名记下这次打开 app 以来找过的：值是找到的来源，找过没找到的为 ""，不再重复找;
-// 找的过程中出错(取消、技能库报错)的不记，下次重读时再找。
-let found: ReadonlyMap<string, string> = new Map();
-const searching = new Set<string>();
-// foundRound 在拉回整库时加一：之前发出、晚返回的那一轮按旧库的作用域找的，结果不再记下。
-let foundRound = 0;
-const listeners = new Set<() => void>();
-
-function folderKey(scope: Scope, name: string): string {
-  return `${scopeKey(scope)}/${name}`;
-}
-
-function findSources(unmanaged: UnmanagedSkill[]) {
-  const pending = unmanaged.filter((u) => {
-    const key = folderKey(u.scope, u.name);
-    return !u.source_input && !u.skill_id && !u.source_latest_of && !found.has(key) && !searching.has(key);
-  });
-  if (pending.length === 0) return;
-  const keys = pending.map((u) => folderKey(u.scope, u.name));
-  for (const key of keys) searching.add(key);
-  const round = foundRound;
-  LibraryService.FindUnmanagedSources({ folders: pending.map((u) => ({ scope: u.scope, name: u.name })) }).then(
-    (results) => {
-      if (round !== foundRound) return;
-      const next = new Map(found);
-      for (const key of keys) next.set(key, "");
-      for (const r of results ?? []) next.set(folderKey(r.scope, r.name), r.source_input);
-      for (const key of keys) searching.delete(key);
-      found = next;
-      for (const listener of listeners) listener();
-    },
-    () => {
-      if (round === foundRound) for (const key of keys) searching.delete(key);
-    },
-  );
-}
-
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  return () => void listeners.delete(listener);
-}
-
-// FoundSources 是在 skills.sh 上找到的来源，用 foundSource 取一个未纳管技能的。
-export type FoundSources = ReadonlyMap<string, string>;
-
-// useFoundSources 订阅在 skills.sh 上找到的来源：找到新的时重新渲染。
-export function useFoundSources(): FoundSources {
-  return useSyncExternalStore(subscribe, () => found);
-}
-
-// foundSource 是在 skills.sh 上给这个未纳管技能找到的来源;来源记录认得出、还没找完或没找到时为 undefined。
-// 认出是库里哪个技能的(和它一样，或是它在来源里的新版)跟着那个技能的来源，之前找到的来源不再用。
-export function foundSource(sources: FoundSources, skill: UnmanagedSkill): string | undefined {
-  if (skill.source_input || skill.skill_id || skill.source_latest_of) return undefined;
-  return sources.get(folderKey(skill.scope, skill.name)) || undefined;
-}
-
-// withFoundSource 给来源记录认不出来源的那一条补上在 skills.sh 上找到的来源(取第一处找到的),
-// 和来源记录认出的一样预填、分组。
-export function withFoundSource(sources: FoundSources, planned: PlannedUnmanagedSkill): PlannedUnmanagedSkill {
-  if (planned.source_input || planned.error || planned.skill_id || planned.source_latest_of) return planned;
-  for (const folder of planned.folders ?? []) {
-    const input = foundSource(sources, folder);
-    if (input) return { ...planned, source_input: input, source_ref: undefined };
-  }
-  return planned;
 }

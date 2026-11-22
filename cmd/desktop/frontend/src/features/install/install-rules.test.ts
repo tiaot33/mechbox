@@ -163,7 +163,7 @@ describe("逐处安装：看过安装计划之后", () => {
   it("结果按顺序归并：看计划就出错的在前，装上的、跳过的、失败的照 steps 的先后;执行时才被占上的能点开占着的那个", () => {
     const plans = readInstallPlans(s, items, reads);
     const steps = installSteps(s, plans, true);
-    const r = installResults(s, plans, steps, [null, err(ErrorCode.FailedPrecondition, { skill_id: 3 })]);
+    const r = installResults(s, plans, steps, [{ value: undefined }, { error: err(ErrorCode.FailedPrecondition, { skill_id: 3 }) }]);
     expect(r.rows.map((x) => [x.label, x.outcome])).toEqual([
       ["s4", t.failed],
       ["s1", t.memberInstalled],
@@ -179,7 +179,7 @@ describe("逐处安装：看过安装计划之后", () => {
   it("都装上时不算失败;只有看计划出错时也算失败", () => {
     const plans = readInstallPlans(s, items.slice(0, 1), reads.slice(0, 1));
     const steps = installSteps(s, plans, false);
-    expect(installResults(s, plans, steps, [null])).toMatchObject({ installed: 1, failed: false });
+    expect(installResults(s, plans, steps, [{ value: undefined }])).toMatchObject({ installed: 1, failed: false });
     const unread = readInstallPlans(s, items.slice(3), reads.slice(3));
     expect(installResults(s, unread, [], []).failed).toBe(true);
   });
@@ -269,14 +269,14 @@ describe("从这里卸载勾选的技能", () => {
 
   it("全局共用一个文件夹的几处已被一起撤了(NotFound)不算失败;跳过的在前，失败的写明原因", () => {
     const picked = uninstallPicked(s, [1, 2, 3], [global(claude)]);
-    const r = uninstalledPicked(s, picked, [err(ErrorCode.NotFound), err(ErrorCode.Permission)]);
+    const r = uninstalledPicked(s, picked, [{ error: err(ErrorCode.NotFound) }, { error: err(ErrorCode.Permission) }]);
     expect(r.rows.map((x) => [x.label, x.outcome])).toEqual([
       ["s3 · Claude Code · 全局", t.memberSkipped],
       ["s2 · Claude Code · 全局", t.failed],
     ]);
     expect(r.done).toBe(0);
     expect(r.failed).toBe(true);
-    expect(uninstalledPicked(s, picked, [null, err(ErrorCode.NotFound)])).toMatchObject({ done: 1, failed: false });
+    expect(uninstalledPicked(s, picked, [{ value: undefined }, { error: err(ErrorCode.NotFound) }])).toMatchObject({ done: 1, failed: false });
   });
 });
 

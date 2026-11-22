@@ -76,19 +76,20 @@ export function placeAgain(record: UpdateRecordID, requests: ReinstallRequest[],
 }
 
 // updateWithDefaults 不打开更新计划，按默认勾选更新这些集合，最后一起汇报。改名、删除和会换掉用户修改的更新要在更新计划里由用户回答，这里不动。
-// 读来源、更新、换装出去的地方算一件事：整个过程顶栏的状态圈一直转、写着在更新哪几个，中间不画对勾;
-// 一个都没更新(都没有能直接更新的，或在确认里取消了)时不画对勾，有的集合没更新成时写没有全部完成。
+// 读来源、更新、换装出去的地方算一件事(ui.flow):一个都没更新(都没有能直接更新的，或在确认里取消了)时不画对勾，
+// 有的集合没更新成时写没有全部完成。
 export async function updateWithDefaults(collectionIDs: CollectionID[]) {
   const s = currentSnapshot();
   const t = messages().update;
   const names = collectionIDs.map((id) => collectionName(s, id));
-  const r = await ui.run(
+  const r = await ui.flow(
+    t.updateLabel(names),
     async () => {
       const outcomes: UpdateOutcome[] = [];
       let missed = 0;
       for (const [i, id] of collectionIDs.entries()) {
         const name = names[i];
-        const plan = await ui.run(() => LibraryService.PlanUpdate(id), { reload: false });
+        const plan = await ui.run(() => LibraryService.PlanUpdate(id));
         if (!plan) {
           missed++;
           continue;
@@ -103,17 +104,17 @@ export async function updateWithDefaults(collectionIDs: CollectionID[]) {
         if (o && o !== "conflict") outcomes.push(o);
         else missed++;
       }
-      return { outcomes, missed };
+      return outcomes.length ? { outcomes, missed } : undefined;
     },
-    { reload: false, label: t.updateLabel(names), failed: (r) => r.outcomes.length > 0 && r.missed > 0, canceled: (r) => !r.outcomes.length },
+    { failed: (r) => r.missed > 0 },
   );
   if (r) await reportUpdates(r.outcomes);
 }
 
 // rereadSkill 是本地目录来源的"重新读取":读出目录当前内容成为新版本，并换到装过它的地方(用户改过的、文件夹不在了的地方不动)。
-// 底层就是只勾这一个技能的更新，所以照样有版本历史和回滚。读目录到换完算一件事，顶栏的状态圈中间不画对勾;没读成时不画对勾。
+// 底层就是只勾这一个技能的更新，所以照样有版本历史和回滚。读目录到换完算一件事(ui.flow),没读成时不画对勾。
 export async function rereadSkill(skill: Skill) {
-  const o = await ui.run(() => reread(skill), { reload: false, label: messages().update.rereadLabel(skill.name), canceled: (o) => !o });
+  const o = await ui.flow(messages().update.rereadLabel(skill.name), () => reread(skill));
   if (o) await reportUpdates([o]);
 }
 
@@ -134,15 +135,18 @@ async function reread(skill: Skill): Promise<UpdateOutcome | undefined> {
 // rereadDirectory 是本地目录来源整个目录的"重新读取":目录里改过的技能都读出当前内容成为新版本，并换到装过它们的地方
 // (用户改过的、文件夹不在了的地方不动);和逐个技能的重新读取一样是一次更新，有版本历史、可以回滚。
 // 默认读进来的照更新计划的默认勾选：回滚掉的(跳过)、库里有用户修改的不读。还有要用户拿主意的(目录里删掉或改了名、
-// 会换掉库里用户修改的)时打开更新计划，由用户在那里勾选、确认改名;目录和库里完全一样时只提示一句。读目录到换完算一件事，顶栏的状态圈中间不画对勾;没读进来或转去更新计划时不画对勾。
+// 会换掉库里用户修改的)时打开更新计划，由用户在那里勾选、确认改名;目录和库里完全一样时只提示一句。读目录到换完算一件事(ui.flow),
+// 没读进来或转去更新计划时不画对勾。
 export async function rereadDirectory(collectionID: CollectionID) {
   const label = collectionName(currentSnapshot(), collectionID);
-  const o = await ui.run(() => readDirectory(collectionID, label), {
-    reload: false,
-    label: messages().update.rereadLabel(label),
-    canceled: (o) => !o || o === "decide",
+  let decide = false;
+  const o = await ui.flow(messages().update.rereadLabel(label), async () => {
+    const r = await readDirectory(collectionID, label);
+    if (r !== "decide") return r;
+    decide = true;
+    return undefined;
   });
-  if (o === "decide") return openUpdate(collectionID);
+  if (decide) return openUpdate(collectionID);
   if (o) await reportUpdates([o]);
 }
 

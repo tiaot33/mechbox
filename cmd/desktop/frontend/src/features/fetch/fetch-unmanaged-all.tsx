@@ -13,7 +13,8 @@ import {
 } from "@bindings/internal/library";
 import { describeError, unmanagedSourceError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
-import { toLibraryError, useFoundSources, useLoadedSnapshot, withFoundSource } from "@/lib/library";
+import { toLibraryError, useLoadedSnapshot } from "@/lib/library";
+import { useFoundSources, withFoundSource } from "@/lib/found-sources";
 import { fetchPlan, sameFolderElsewhere, toggleFetchGroup } from "@/lib/consent";
 import { agentNameIn, placeNames, scopeLabel } from "@/lib/places";
 import { homePath } from "@/lib/paths";

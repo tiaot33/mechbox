@@ -15,7 +15,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { DeleteNotes } from "@/components/app/link-notes";
 import { inspectedSnapshot, LostMentions, lostMentions, toastInstalled } from "@/features/install/install";
 import { runEach, showResults } from "@/components/app/results";
-import { memberRows, placedBy } from "@/components/app/result-rows";
+import { failedRows, memberRows, placedBy } from "@/components/app/result-rows";
 import { addedToGroup, groupOnly, inGroup, notInGroup, type AddedToGroup } from "./group-rules";
 
 export async function addSkillToGroup(groupID: GroupID, id: SkillID) {
@@ -167,11 +167,9 @@ export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[])
     if (!choice) return false;
     policy = choice as MemberRemovalPolicy;
   }
-  const rows = await runEach(
-    ids,
-    (id) => LibraryService.RemoveSkillFromGroup(groupID, id, { if_no_other_install: policy }),
-    (id) => skillName(s, id),
-  );
+  const results = await runEach(ids, (id) => LibraryService.RemoveSkillFromGroup(groupID, id, { if_no_other_install: policy }));
+  if (!results) return false;
+  const rows = failedRows(results, (i) => skillName(s, ids[i]));
   if (rows.length) await showResults(t.pickedRemoveFromGroupTitle(ids.length, group), rows);
   else ui.toast(t.pickedRemovedFromGroup(ids.length, group));
   return rows.length < ids.length;

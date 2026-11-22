@@ -18,7 +18,7 @@ import {
 import { detachedBy, lostEdits } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
-import type { LibraryError, Snapshot } from "@/lib/library";
+import type { Attempt, LibraryError, Snapshot } from "@/lib/library";
 import { installable, missingNames } from "@/lib/mentions";
 import { errorOccupier, folderKey, folderPlaces, occupierOf, skillScopeIn } from "@/lib/installs";
 import { noSource, sourceLabel } from "@/lib/source";
@@ -112,11 +112,11 @@ export function installSteps(s: Snapshot, plans: InstallPlans, overwrite: boolea
   });
 }
 
-// installResults 归并逐处安装的结果:errors 与 steps 一一对应，装成的是 null、装不上的是错误，跳过的和没做到的是 undefined。
+// installResults 归并逐处安装的结果:results 与 steps 一一对应(runEach 的结果),跳过的和没做到的是 undefined。
 // rows 是结果列表(看计划就出错的在前，其余按 steps 的先后);placed 是装上的各处，installed 是装上了几处;
 // failed 是有没装成的(看计划就出错的也算),顶栏画叉。计划算的时候还没被占、执行时被同一批里先装的同名技能占上了的，
 // 错误里有占着的那个，结果里照样能点开。
-export function installResults(s: Snapshot, plans: InstallPlans, steps: InstallStep[], errors: (LibraryError | null | undefined)[]) {
+export function installResults(s: Snapshot, plans: InstallPlans, steps: InstallStep[], results: readonly (Attempt<unknown> | undefined)[]) {
   const t = messages().actions;
   const rows = [...plans.unread];
   const placed: SkillInScope[] = [];
@@ -126,14 +126,14 @@ export function installResults(s: Snapshot, plans: InstallPlans, steps: InstallS
       rows.push(step.skip);
       return;
     }
-    const err = errors[i];
-    if (err === undefined) return;
-    if (err === null) {
+    const r = results[i];
+    if (!r) return;
+    if ("value" in r) {
       rows.push({ label: step.label, outcome: t.memberInstalled, tone: "plain" });
       placed.push({ skill_id: step.item.skill.id, scope: step.item.scope });
       return;
     }
-    rows.push({ label: step.label, outcome: t.failed, tone: "critical", reason: describeError(err), occupier: errorOccupier(s, step.item.skill.id, err) });
+    rows.push({ label: step.label, outcome: t.failed, tone: "critical", reason: describeError(r.error), occupier: errorOccupier(s, step.item.skill.id, r.error) });
     failed = true;
   });
   return { rows, placed, installed: placed.length, failed };
@@ -197,24 +197,24 @@ export function uninstallPicked(s: Snapshot, ids: SkillID[], scopes: Scope[]) {
   };
 }
 
-// uninstalledPicked 归并逐处卸载的结果:errors 与 picked.direct 一一对应，卸成的是 null、没做到的是 undefined。
+// uninstalledPicked 归并逐处卸载的结果:results 与 picked.direct 一一对应(runEach 的结果),没做到的是 undefined。
 // 只随组安装的跳过并写明;全局共用一个文件夹的几处，卸载其中一处时其余几处的直接安装已一起撤了(NotFound),不算失败。
 // done 是卸载了几处，failed 是有卸不掉的(顶栏画叉)。
-export function uninstalledPicked(s: Snapshot, picked: ReturnType<typeof uninstallPicked>, errors: (LibraryError | null | undefined)[]) {
+export function uninstalledPicked(s: Snapshot, picked: ReturnType<typeof uninstallPicked>, results: readonly (Attempt<unknown> | undefined)[]) {
   const t = messages().actions;
   const label = (p: SkillScopeInspection) => `${skillName(s, p.skill_id)} · ${scopeLabel(s, p.scope)}`;
   const rows: ResultRow[] = picked.viaGroup.map((p) => ({ label: label(p), outcome: t.memberSkipped, tone: "warn", reason: t.onlyViaGroup }));
   let done = 0;
   let failed = false;
   picked.direct.forEach((p, i) => {
-    const err = errors[i];
-    if (err === undefined) return;
-    if (err === null) {
+    const r = results[i];
+    if (!r) return;
+    if ("value" in r) {
       done++;
       return;
     }
-    if (err.code === ErrorCode.NotFound) return;
-    rows.push({ label: label(p), outcome: t.failed, tone: "critical", reason: describeError(err) });
+    if (r.error.code === ErrorCode.NotFound) return;
+    rows.push({ label: label(p), outcome: t.failed, tone: "critical", reason: describeError(r.error) });
     failed = true;
   });
   return { rows, done, failed };
