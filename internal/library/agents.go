@@ -125,14 +125,7 @@ func (l *Library) ListAgents(ctx context.Context) (agents []Agent, err error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, row := range rows {
-		agent, err := l.agentOf(row)
-		if err != nil {
-			return nil, err
-		}
-		agents = append(agents, agent)
-	}
-	return agents, nil
+	return l.agentsOf(ctx, rows)
 }
 
 // AddAgent 添加一个自定义 Agent,生成它的代码;之后它和内置 Agent 一样组成全局与各已登记项目的作用域,可以安装。
@@ -150,7 +143,7 @@ func (l *Library) AddAgent(ctx context.Context, agent CustomAgent) (added Agent,
 	if err := l.store.AddAgent(ctx, row); err != nil {
 		return Agent{}, err
 	}
-	return l.agentOf(row)
+	return l.agentOf(ctx, row)
 }
 
 // EditAgent 修改自定义 Agent 的名称和目录,代码不变;填写规则同 AddAgent。未知代码返回 NotFound,内置 Agent 返回
@@ -289,7 +282,7 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent CustomAge
 	if err != nil {
 		return EditAgentResult{}, err
 	}
-	result.Agent, err = l.agentOf(row)
+	result.Agent, err = l.agentOf(ctx, row)
 	return result, err
 }
 
@@ -450,22 +443,39 @@ func (l *Library) customAgent(ctx context.Context, operation string, code AgentC
 	return agent, nil
 }
 
-func (l *Library) agentOf(row store.Agent) (Agent, error) {
-	agent := Agent{
-		Code: AgentCode(row.Code), Name: row.Name, Custom: row.Custom,
-		GlobalDirectory: l.home.Join(row.GlobalPath), ProjectDirectory: row.ProjectPath,
+func (l *Library) agentOf(ctx context.Context, row store.Agent) (Agent, error) {
+	agents, err := l.agentsOf(ctx, []store.Agent{row})
+	if err != nil {
+		return Agent{}, err
 	}
-	if !row.Custom {
-		agent.SameName = sameNameRules[agent.Code]
-	}
-	if row.DetectPath != "" {
-		detected, err := agentdir.DirectoryExists(l.home.Join(row.DetectPath))
-		if err != nil {
-			return Agent{}, fmt.Errorf("detect agent: %w", err)
+	return agents[0], nil
+}
+
+func (l *Library) agentsOf(ctx context.Context, rows []store.Agent) ([]Agent, error) {
+	agents := make([]Agent, len(rows))
+	var detect []string
+	var detected []int
+	for i, row := range rows {
+		agents[i] = Agent{
+			Code: AgentCode(row.Code), Name: row.Name, Custom: row.Custom,
+			GlobalDirectory: l.home.Join(row.GlobalPath), ProjectDirectory: row.ProjectPath,
 		}
-		agent.Detected = detected
+		if !row.Custom {
+			agents[i].SameName = sameNameRules[agents[i].Code]
+		}
+		if row.DetectPath != "" {
+			detect = append(detect, l.home.Join(row.DetectPath))
+			detected = append(detected, i)
+		}
 	}
-	return agent, nil
+	states, err := agentdir.StatFolders(ctx, detect)
+	if err != nil {
+		return nil, fmt.Errorf("detect agent: %w", err)
+	}
+	for i, state := range states {
+		agents[detected[i]].Detected = state.Directory
+	}
+	return agents, nil
 }
 
 func (l *Library) customAgentRow(operation string, agent CustomAgent) (store.Agent, error) {
