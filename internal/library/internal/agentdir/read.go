@@ -21,7 +21,7 @@ func Exists(path string) (bool, error) {
 	if err == nil {
 		return true, nil
 	}
-	if errors.Is(err, fs.ErrNotExist) {
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 		return false, nil
 	}
 	return false, err

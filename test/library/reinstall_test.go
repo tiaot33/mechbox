@@ -1038,3 +1038,32 @@ func TestReinstallCancelReturnsCompletedItems(t *testing.T) {
 	}
 	requireInspectionStatuses(t, lib, library.SkillScopeCurrent, library.SkillScopeStale)
 }
+
+// 附加目录被换成了一个普通文件:巡检去读这个目录下的候选时把它当作不存在,不让整个巡检失败(主界面要等巡检结果)。
+func TestInspectSkipsAnAdditionalDirectoryThatIsAFile(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	home := t.TempDir()
+	setTestHome(t, home)
+	lib := openTestLibrary(t)
+	agent, err := lib.AddAgent(ctx, library.AgentInput{
+		Name: "Cursor", GlobalDirectories: []string{filepath.Join(home, ".agents", "skills"), filepath.Join(home, ".cursor", "skills")}, ProjectDirectories: []string{".agents/skills"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill := fetchNamedSkill(t, lib, "foo")
+	if err := lib.Install(ctx, skill.ID, library.GlobalScope(agent.Code), library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(home, ".cursor", "skills"), []byte("not a directory\n"), 0o644)
+	inspections, err := lib.InspectSkillScopes(ctx, library.SkillScopeFilter{})
+	if err != nil {
+		t.Fatalf("InspectSkillScopes() with an additional directory that is a file: %v", err)
+	}
+	for _, inspection := range inspections {
+		if inspection.SkillID == skill.ID && inspection.Status != library.SkillScopeCurrent {
+			t.Fatalf("inspection = %#v; want the installed copy reported as current", inspection)
+		}
+	}
+}
