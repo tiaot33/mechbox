@@ -3,13 +3,13 @@ import { LibraryService } from "@bindings/cmd/desktop";
 import { FolderPolicy, type RegisteredProject } from "@bindings/internal/library";
 import { detachedBy, lostEdits } from "@/lib/consent";
 import { messages } from "@/lib/i18n";
-import { currentSnapshot } from "@/lib/library";
 import { projectName, shortPath } from "@/lib/model";
 import { wslLocation } from "@/lib/paths";
 import { ui } from "@/lib/ui";
 import { Hint } from "@/components/ui/field";
 import { DetachNotice } from "@/components/app/link-notes";
 import { offerProject } from "@/features/fetch/fetch-unmanaged-all";
+import { inspectedSnapshot } from "@/features/install/install";
 
 // registerProject 登记项目;登记之后把用户带到这个项目里不是库装的技能，一次确认全部入库。
 export async function registerProject(path: string): Promise<boolean> {
@@ -33,8 +33,10 @@ export async function relocateProject(project: RegisteredProject, path: string):
   return !!moved;
 }
 
+// unregisterProject 注销项目。删掉的文件夹里哪几处被手动改过，先现查磁盘再说;读不成时不注销。
 export async function unregisterProject(project: RegisteredProject) {
-  const s = currentSnapshot();
+  const s = await inspectedSnapshot({});
+  if (!s) return;
   const places = s.skillScopes.filter((p) => p.scope.project_id === project.id);
   const installed = places.length;
   const t = messages().actions;

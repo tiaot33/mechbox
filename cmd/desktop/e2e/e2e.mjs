@@ -4336,6 +4336,137 @@ await step("卸载被手动改过的文件夹：单个卸载、勾选几个一�
   await clearScope();
 });
 
+await step("删掉被手动改过的文件夹：移除技能、勾选几个移除、注销项目、删除自定义 Agent,先现查磁盘，确认里写出几处被改过，取消则不动", async () => {
+  for (const name of ["re-a", "re-b", "re-c", "re-d"]) {
+    fs.mkdirSync(`${HOME}/code/remove-edited/${name}`, { recursive: true });
+    fs.writeFileSync(`${HOME}/code/remove-edited/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name}"\n---\n`);
+  }
+  const proj = `${HOME}/code/re-proj`;
+  fs.mkdirSync(proj, { recursive: true });
+  await clearScope();
+  await fetchLocal(`${HOME}/code/remove-edited`);
+  await toast("已入库 4 个技能");
+  await settle();
+  await page.locator(".a-right .nav-sec button[title='登记项目']").click();
+  await modal().locator('[data-slot="input"]').fill(proj);
+  await btn(modal(), "登记").click();
+  await toast("已登记项目");
+  await settle();
+  const agents = () => section("Agent");
+  const agentRow = () => agents().locator(".set-row", { hasText: "Edited Agent" });
+  const openSettings = async () => {
+    await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+    await page.locator('.settings [role="switch"]').first().waitFor();
+  };
+  const back = async () => {
+    await page.locator(".titlebar button[title='返回技能库']").click();
+    await page.waitForSelector(".a-list");
+    await settle();
+  };
+  await openSettings();
+  await btn(agents(), "添加 Agent").click();
+  const fields = modal().locator('[data-slot="input"]');
+  await fields.nth(0).fill("Edited Agent");
+  await fields.nth(1).fill("~/.re-agent/skills");
+  await fields.nth(2).fill(".re-agent/skills");
+  await btn(modal(), "添加").click();
+  await toast("已添加 Agent「Edited Agent」");
+  await settle();
+  await back();
+  // re-a、re-b 装在 Claude Code 全局，re-c 装在项目里，re-d 装在自定义 Agent 的全局目录。
+  const installs = [
+    ["re-a", "0", "Claude Code"],
+    ["re-b", "0", "Claude Code"],
+    ["re-c", { label: "re-proj" }, "Claude Code"],
+    ["re-d", "0", "Edited Agent"],
+  ];
+  for (const [name, where, agent] of installs) {
+    await openDrawer(name);
+    await drawer().locator(".install-to select").nth(0).selectOption(where);
+    await pickAgents(drawer(), [agent]);
+    await btn(drawer(), "安装").click();
+    await toast(`已安装「${name}」`);
+    await settle();
+  }
+  const folders = {
+    "re-a": `${HOME}/.claude/skills/re-a`,
+    "re-b": `${HOME}/.claude/skills/re-b`,
+    "re-c": `${proj}/.claude/skills/re-c`,
+    "re-d": `${HOME}/.re-agent/skills/re-d`,
+  };
+  for (const dir of Object.values(folders)) assert(fs.existsSync(`${dir}/SKILL.md`), `应已装到 ${dir}`);
+  // 窗口一直在前台时在磁盘上改：快照里还是当前版本，确认前要现查出来。
+  const edit = (name) => fs.appendFileSync(`${folders[name]}/SKILL.md`, "\nedited by hand\n");
+  const kept = (name) => assert(fs.readFileSync(`${folders[name]}/SKILL.md`, "utf8").includes("edited by hand"), `取消后被改过的 ${name} 应原样留着`);
+  const lostOne = async (what) => {
+    await modal().locator('[data-slot="choice"]', { hasText: "其中 1 处被改过，改动会丢掉" }).waitFor({ timeout: 5000 }).catch(async () => assert.fail(`${what}，确认里应写出 1 处被改过:${await modal().textContent()}`));
+  };
+
+  // 技能详情里的「移除技能」:详情先开着，再在磁盘上改。
+  await openDrawer("re-a");
+  edit("re-a");
+  await btn(drawer(), "移除技能").click();
+  await lostOne("移除技能");
+  await btn(modal(), "取消").click();
+  await modal().waitFor({ state: "detached" });
+  kept("re-a");
+  await closeDrawer();
+
+  // 勾选后操作栏上的「移除技能」
+  edit("re-b");
+  const bar = page.locator(".pick-bar");
+  await card("re-b").locator(".pick-box").click();
+  await bar.locator("span", { hasText: "已选 1 个" }).waitFor();
+  await btn(bar, "移除技能").click();
+  await lostOne("勾选移除技能");
+  await btn(modal(), "取消").click();
+  await modal().waitFor({ state: "detached" });
+  await page.keyboard.press("Escape");
+  kept("re-b");
+
+  // 注销项目
+  edit("re-c");
+  const projRow = page.locator(".a-right .nav-item.proj", { hasText: "re-proj" });
+  await projRow.hover();
+  await projRow.locator(".row-actions button[title='注销项目']").click();
+  await lostOne("注销项目");
+  await btn(modal(), "取消").click();
+  await modal().waitFor({ state: "detached" });
+  kept("re-c");
+
+  // 删除自定义 Agent:设置页先开着，再在磁盘上改。
+  await openSettings();
+  edit("re-d");
+  await btn(agentRow(), "删除").click();
+  await lostOne("删除自定义 Agent");
+  await btn(modal(), "取消").click();
+  await modal().waitFor({ state: "detached" });
+  kept("re-d");
+
+  // 收尾：都删掉，确认后才动磁盘。
+  await btn(agentRow(), "删除").click();
+  await modal().locator('[data-slot="choice"]', { hasText: "同时删除已安装的文件夹" }).click();
+  await btn(modal(), "删除").click();
+  await toast("已删除 Agent「Edited Agent」");
+  await settle();
+  assert(!fs.existsSync(folders["re-d"]), "确认删除 Agent 后才删掉 re-d");
+  await back();
+  await projRow.hover();
+  await projRow.locator(".row-actions button[title='注销项目']").click();
+  await btn(modal(), "注销").click();
+  await toast("已注销项目");
+  await settle();
+  assert(!fs.existsSync(folders["re-c"]), "确认注销后才删掉 re-c");
+  await clearScope();
+  for (const name of ["re-a", "re-b", "re-c", "re-d"]) await card(name).locator(".pick-box").click();
+  await bar.locator("span", { hasText: "已选 4 个" }).waitFor();
+  await btn(bar, "移除技能").click();
+  await btn(modal(), "移除").click();
+  await toast("已移除 4 个技能");
+  await settle();
+  assert(!fs.existsSync(folders["re-a"]) && !fs.existsSync(folders["re-b"]), "确认移除后才删掉 re-a、re-b");
+});
+
 // ============ 晚返回的请求 ============
 group("late-replies", []);
 await step("备注保存得慢：切到别的技能再切回来重新写，前一次保存返回时不关掉新的这次", async () => {
