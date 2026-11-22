@@ -2,6 +2,7 @@
 // 默认勾不勾(归项目仓库管的、指向 Agent 目录以外的默认不接)是默认勾选的规则，见 lib/consent。
 import { SkillFileProblemKind, type Skill, type SkillFileProblem, type SkillID, type UnmanagedSkill } from "@bindings/internal/library";
 import { messages } from "./i18n";
+import { skillScopeIn } from "./installs";
 import type { Snapshot } from "./library";
 import { homePath } from "./paths";
 import { eachPlace } from "./places";
@@ -80,6 +81,12 @@ export function identicalIn(s: Snapshot, key: ScopeKey, skillID: SkillID): Unman
   return unmanagedIn(s, key).find((u) => u.skill_id === skillID);
 }
 
+// extraCopy 是这个作用域已经装着它那个技能时，同一个作用域里另一份一样的文件夹：它也是那个技能，但一个技能在一个作用域只记一处安装，
+// 入库没什么可做(技能库不另记，整批入库的计划里也没有它),不给"入库",不算进要入库的个数。
+export function extraCopy(s: Snapshot, u: UnmanagedSkill): boolean {
+  return !!u.skill_id && !!skillScopeIn(s, u.skill_id, scopeKey(u.scope));
+}
+
 // identicalsOf 是各处这个技能的、不是库装的文件夹(见 identicalIn),逐处一条：项目里共用一个目录的几个 Agent 那里是同一个文件夹，只算一处。
 export function identicalsOf(s: Snapshot, skillID: SkillID): UnmanagedSkill[] {
   return eachPlace(s, s.unmanaged.filter((u) => u.skill_id === skillID));
@@ -87,10 +94,12 @@ export function identicalsOf(s: Snapshot, skillID: SkillID): UnmanagedSkill[] {
 
 // identicalState 是这个技能那一份不是库装的文件夹(identicalIn)怎么说：不是 app 装的，接着写归谁管、指向哪里(folderNotes),
 // 符号链接时 title 里写出指向哪里(指向 Agent 目录以外的，folderNotes 已经写了，不再写一遍);stale 表示和库里的旧版本一样。作用域页的行和技能详情的安装表都用它。
-export function identicalState(skill: Skill, u: UnmanagedSkill, home?: string): { text: string; title: string; stale: boolean } {
+// extra 表示它是这个作用域里多出来的一份(extraCopy),写明这里已经装着这个技能、不用入库。
+export function identicalState(skill: Skill, u: UnmanagedSkill, home?: string, extra = false): { text: string; title: string; stale: boolean } {
   const t = messages().list;
   // 归谁管写在前面(在项目仓库里、链到哪里),一眼看得出这一份不是库装过来的。
-  const notes = [...folderNotes(u, home), { text: t.identicalHere, title: t.identicalHereTitle(skill.name) }];
+  const own = extra ? { text: t.extraCopy, title: t.extraCopyTitle(skill.name) } : { text: t.identicalHere, title: t.identicalHereTitle(skill.name) };
+  const notes = [...folderNotes(u, home), own];
   const titles = [...notes.map((x) => x.title), ...(u.link_target && !u.link_outside ? [t.linkTitle(u.link_target)] : [])];
   return { text: notes.map((x) => x.text).join(" · "), title: titles.join("\n"), stale: u.version_id !== skill.version_id };
 }

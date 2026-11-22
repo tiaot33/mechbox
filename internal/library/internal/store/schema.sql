@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS skills (
     -- 结论这几列仍是之前读成的那一次,回滚据此知道来源里现在是哪一份。再读成来源、更新或回滚时清回 0
     update_check_failed INTEGER NOT NULL DEFAULT 0 CHECK(update_check_failed IN (0, 1)),
     update_check_revision TEXT NOT NULL DEFAULT '',    -- 最近一次读成来源时看到的来源版本:GitHub 为 commit,URL 为压缩包内容哈希;本地目录为空
-    -- 来源里这个技能现在那份内容的指纹(各文件路径、模式与内容指纹合成):结论为 available、current 时是这个技能的,
+    -- 来源里这个技能现在那份内容的指纹(各文件路径与内容指纹合成,不含可执行位):结论为 available、current 时是这个技能的,
     -- 结论为 deleted 且推测出改名时是新名字那个技能的;其他结论为空,升级前写下的 current 结论也为空。
     -- available 与推测出改名时据此和 skipped_changes 比对是否跳过了这次改动;回滚据此跳过来源里现在的那一份
     update_check_content TEXT NOT NULL DEFAULT '',

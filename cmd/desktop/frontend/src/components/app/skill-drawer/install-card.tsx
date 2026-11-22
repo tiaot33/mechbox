@@ -4,7 +4,7 @@ import { SkillScopeStatus, type Skill } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { ui } from "@/lib/ui";
-import { identicalsOf, identicalState, notTakenOver } from "@/lib/unmanaged";
+import { extraCopy, identicalsOf, identicalState, notTakenOver } from "@/lib/unmanaged";
 import { folderPresent, editedHere, needsReinstall, needsRepair, skillScopeIn, skillScopeStatus, skillScopesOf } from "@/lib/installs";
 import { eachPlace, scopeLabel } from "@/lib/places";
 import { placeOf, projectName, scopeKey } from "@/lib/scope";
@@ -24,7 +24,7 @@ import { PlaceAgentMark, Tipped } from "@/components/app/parts";
 
 // InstallCard 是各作用域的安装与状态：直接安装开关、经哪个组装上、是不是当前版本;不是当前版本的可以单条重新安装，
 // 被手动改过的可以"用这里的修改更新";改成了作者新版的(在 app 外更新过)说清楚，给"更新"。能做的事收在状态后面的「⋯」里，行高固定。
-// 别处和它一模一样、不是 app 装的文件夹(就是这个技能)也列出来，可以"入库"。文件夹在的地方，路径后面可以在文件管理器中显示。下面是"安装到…"。开关只控制直接安装的说明在卡片标题的提示里。
+// 别处和它一模一样、不是 app 装的文件夹(就是这个技能)也列出来，可以"入库";已经装着它的地方多出来的一份(extraCopy)只列出，不给"入库"。文件夹在的地方，路径后面可以在文件管理器中显示。下面是"安装到…"。开关只控制直接安装的说明在卡片标题的提示里。
 export function InstallCard({ skill }: { skill: Skill }) {
   const s = useSnapshot();
   const { drawer: d, common } = useT();
@@ -122,54 +122,60 @@ export function InstallCard({ skill }: { skill: Skill }) {
                 </tr>
               );
             })}
-            {copies.map((u) => (
-              <tr key={u.folder} className="identical-place">
-                <td />
-                <td>
-                  <div className="flex min-w-0 items-center gap-1.5">
-                    <PlaceAgentMark code={u.scope.agent} place={placeOf(u.scope)} />
-                    <span className="min-w-0 truncate" title={scopeLabel(s, u.scope)}>
-                      {scopeLabel(s, u.scope)}
+            {copies.map((u) => {
+              const extra = extraCopy(s, u);
+              const state = identicalState(skill, u, s.info.home_dir, extra);
+              return (
+                <tr key={u.folder} className="identical-place">
+                  <td />
+                  <td>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <PlaceAgentMark code={u.scope.agent} place={placeOf(u.scope)} />
+                      <span className="min-w-0 truncate" title={scopeLabel(s, u.scope)}>
+                        {scopeLabel(s, u.scope)}
+                      </span>
+                    </div>
+                    <div className="flex min-w-0 items-center gap-0.5">
+                      <span className="truncate font-mono text-caption text-muted-foreground" title={u.folder}>{shortPath(s, u.folder)}</span>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="reveal-folder shrink-0"
+                        title={common.reveal()}
+                        aria-label={common.reveal()}
+                        onClick={() => void ui.read(() => AppService.RevealInFileManager(u.folder))}
+                      >
+                        <Icon name="folder" />
+                      </Button>
+                    </div>
+                  </td>
+                  <td>
+                    <span className="identical-notes block truncate text-caption text-muted-foreground" title={state.title}>
+                      {state.text}
                     </span>
-                  </div>
-                  <div className="flex min-w-0 items-center gap-0.5">
-                    <span className="truncate font-mono text-caption text-muted-foreground" title={u.folder}>{shortPath(s, u.folder)}</span>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="reveal-folder shrink-0"
-                      title={common.reveal()}
-                      aria-label={common.reveal()}
-                      onClick={() => void ui.read(() => AppService.RevealInFileManager(u.folder))}
-                    >
-                      <Icon name="folder" />
-                    </Button>
-                  </div>
-                </td>
-                <td>
-                  <span className="identical-notes block truncate text-caption text-muted-foreground" title={identicalState(skill, u, s.info.home_dir).title}>
-                    {identicalState(skill, u, s.info.home_dir).text}
-                  </span>
-                </td>
-                <td>
-                  <div className="flex min-w-0 items-center gap-1">
-                    {identicalState(skill, u, s.info.home_dir).stale && (
-                      <Badge tone={skillScopeStatus(SkillScopeStatus.SkillScopeStale).tone}>{skillScopeStatus(SkillScopeStatus.SkillScopeStale).label}</Badge>
-                    )}
-                    {/* 提交在项目仓库里、指向 Agent 目录以外的默认不入库：按钮是普通的灰底，不推用户去入库。 */}
-                    <Button
-                      variant={notTakenOver(u) ? "pill" : "pillQuiet"}
-                      size="sm"
-                      className="take-over"
-                      onClick={() => void fetchUnmanaged(u)}
-                      title={identicalState(skill, u, s.info.home_dir).title}
-                    >
-                      {d.takeOver}
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td>
+                    <div className="flex min-w-0 items-center gap-1">
+                      {state.stale && (
+                        <Badge tone={skillScopeStatus(SkillScopeStatus.SkillScopeStale).tone}>{skillScopeStatus(SkillScopeStatus.SkillScopeStale).label}</Badge>
+                      )}
+                      {/* 提交在项目仓库里、指向 Agent 目录以外的默认不入库：按钮是普通的灰底，不推用户去入库。 */}
+                      {!extra && (
+                        <Button
+                          variant={notTakenOver(u) ? "pill" : "pillQuiet"}
+                          size="sm"
+                          className="take-over"
+                          onClick={() => void fetchUnmanaged(u)}
+                          title={state.title}
+                        >
+                          {d.takeOver}
+                        </Button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}

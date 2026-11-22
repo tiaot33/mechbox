@@ -127,7 +127,13 @@ func TestWithModesOf(t *testing.T) {
 	}
 }
 
-func TestSameContentIgnoresOnlyModes(t *testing.T) {
+func withEditedFirst(files []File) []File {
+	edited := slices.Clone(files)
+	edited[0].Content = []byte("edited")
+	return edited
+}
+
+func TestComparisonsIgnoreOnlyModes(t *testing.T) {
 	file := func(path, content string, mode Mode) File {
 		return File{Path: path, Content: []byte(content), Mode: mode}
 	}
@@ -147,7 +153,11 @@ func TestSameContentIgnoresOnlyModes(t *testing.T) {
 			t.Errorf("%s: SameContent = %v; want %v", test.name, got, test.want)
 		}
 	}
-	if Sum(version) == Sum(WithModesOf(version, Digests([]File{file("run.sh", "", ModeRegular)}))) {
-		t.Error("Sum ignores modes; want it to tell them apart")
+	regular := WithModesOf(version, Digests([]File{file("run.sh", "", ModeRegular)}))
+	if Sum(version) != Sum(regular) || !Equal(version, regular) {
+		t.Error("Sum or Equal tells apart files that differ only in modes")
+	}
+	if Sum(version) == Sum(withEditedFirst(version)) || Equal(version, withEditedFirst(version)) {
+		t.Error("Sum or Equal misses a content change")
 	}
 }

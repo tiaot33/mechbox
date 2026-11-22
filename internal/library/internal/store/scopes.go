@@ -291,13 +291,18 @@ func (t *Tx) RecordSkillScope(ctx context.Context, skillID int64, scope Scope, d
 	return nil
 }
 
-func (t *Tx) RecordFetchedSkillScope(ctx context.Context, skillID int64, scope Scope, folder string, createdAt time.Time) error {
-	if _, err := t.q.ExecContext(ctx, `INSERT INTO skill_scopes(skill_id, agent, project_id, direct, created_at, folder)
-		VALUES (?, ?, ?, 1, ?, CASE WHEN ? = (SELECT name FROM skills WHERE id = ?) THEN '' ELSE ? END)`,
-		skillID, scope.Agent, scope.ProjectID, formatTime(createdAt), folder, skillID, folder); err != nil {
-		return fmt.Errorf("record skill scope: %w", wrap(err))
+func (t *Tx) RecordFetchedSkillScope(ctx context.Context, skillID int64, scope Scope, folder string, createdAt time.Time) (bool, error) {
+	result, err := t.q.ExecContext(ctx, `INSERT INTO skill_scopes(skill_id, agent, project_id, direct, created_at, folder)
+		VALUES (?, ?, ?, 1, ?, CASE WHEN ? = (SELECT name FROM skills WHERE id = ?) THEN '' ELSE ? END) ON CONFLICT DO NOTHING`,
+		skillID, scope.Agent, scope.ProjectID, formatTime(createdAt), folder, skillID, folder)
+	if err != nil {
+		return false, fmt.Errorf("record skill scope: %w", wrap(err))
 	}
-	return nil
+	recorded, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("record skill scope: %w", wrap(err))
+	}
+	return recorded > 0, nil
 }
 
 func (t *Tx) RecordGroupInstall(ctx context.Context, groupID int64, scope Scope, createdAt time.Time) error {

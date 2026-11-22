@@ -15,7 +15,7 @@ import { globalScopesSeenFrom } from "@/lib/places";
 import { sameNameInLibrary, sameNameNote, skillSameNameNote } from "@/lib/same-name";
 import { groupName, parseScope, scopeKey, type ScopeKey } from "@/lib/scope";
 import { sourceState } from "@/lib/source-state";
-import { folderNotes, identicalIn, identicalState, notTakenOver, skillFileProblemText } from "@/lib/unmanaged";
+import { extraCopy, folderNotes, identicalIn, identicalState, notTakenOver, skillFileProblemText, unmanagedIn } from "@/lib/unmanaged";
 
 // RowAlert 是一行状态里的一条：级别、一句话(label)、悬停的说明(tip);className 是测试钩子。
 // plan 表示点它打开这个技能所在集合的更新计划;twins 是库里同名的另外几个技能，点它弹出菜单选一个打开。这两样由行组件接上。
@@ -113,6 +113,8 @@ function skillAlerts(s: Snapshot, skill: Skill, { at, here, place }: RowInstall)
   // 装在这里的技能提到的、在这里找不到的技能(按规则和已存下的 AI 判断结论)。
   // 项目里共用目录的几个 Agent 是一行，它们各自找不到的都算(见 lib/mentions 的 missingAt)。
   const unfound = at && here ? missingAt(s, s.missingMentions, [{ skill_id: skill.id, scope: parseScope(at.scope) }]) : [];
+  // 装在这里的技能，这里还多一份一样的文件夹(extraCopy):提示一下，悬停写出它在哪里。
+  const extra = at && here ? unmanagedIn(s, at.scope).find((u) => u.skill_id === skill.id && extraCopy(s, u)) : undefined;
   return [
     // 在 app 外更新到了作者新版的那一处是更新：点它打开更新计划。
     ...places.map((x) => ({ ...x, plan: x.tone === "update" })),
@@ -130,6 +132,7 @@ function skillAlerts(s: Snapshot, skill: Skill, { at, here, place }: RowInstall)
     // 本地目录来源：目录里的这个技能改过了(读目录时比出来的),在详情里或集合的「…」里重新读取。
     sourceState(skill).kind === "localChanged" && { tone: "update" as const, label: t.localChanged, tip: t.localChangedTitle, className: "local-changed" },
     unfoundAlert(unfound),
+    extra && { tone: "info" as const, label: t.extraCopy, tip: `${t.extraCopyTitle(skill.name)}\n${extra.folder}`, className: "extra-copy" },
   ];
 }
 

@@ -1,8 +1,8 @@
 // 未纳管技能：归谁管、指向哪里的标注，SKILL.md 哪里写错了，和库里一样但不是 app 装的那一份怎么说。
 import { describe, expect, it } from "vitest";
-import { ScopeKind, SkillFileProblemKind, type Agent, type Skill, type UnmanagedSkill } from "@bindings/internal/library";
+import { ScopeKind, SkillFileProblemKind, type Agent, type Skill, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { fetchable, folderNotes, identicalsOf, identicalState, skillFileProblemText } from "./unmanaged";
+import { extraCopy, fetchable, folderNotes, identicalsOf, identicalState, skillFileProblemText } from "./unmanaged";
 
 const where = (agent: string, project_id?: number) =>
   project_id ? { kind: ScopeKind.ScopeProject, agent, project_id } : { kind: ScopeKind.ScopeGlobal, agent };
@@ -42,6 +42,21 @@ describe("identicalState", () => {
     const state = identicalState({ id: 9, name: "screenshot", version_id: 3 } as Skill, u);
     expect(state.text).toBe("已在库里 · 这一份不是 app 装的");
     expect(state.stale).toBe(false);
+  });
+});
+
+describe("extraCopy", () => {
+  it("这里已经装着那个技能时，另一份一样的文件夹是多出来的一份，写明不用入库", () => {
+    const copy = { ...unmanaged("pdf-copy", "claude-code", 1), skill_id: 9, version_id: 3 };
+    const install = (agent: string) => ({ skill_id: 9, scope: where(agent, 1) }) as unknown as SkillScopeInspection;
+    const installed = install("claude-code");
+    expect(extraCopy(snapshot({ skillScopes: [] }), copy)).toBe(false);
+    expect(extraCopy(snapshot({ skillScopes: [install("codex")] }), copy)).toBe(false);
+    expect(extraCopy(snapshot({ skillScopes: [installed] }), copy)).toBe(true);
+    expect(extraCopy(snapshot({ skillScopes: [installed] }), unmanaged("other", "claude-code", 1))).toBe(false);
+    const state = identicalState({ id: 9, name: "pdf", version_id: 3 } as Skill, copy, undefined, true);
+    expect(state.text).toBe("多一份一样的");
+    expect(state.title).toContain("不用入库");
   });
 });
 

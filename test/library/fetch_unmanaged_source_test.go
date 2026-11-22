@@ -532,8 +532,8 @@ func TestFetchUnmanagedEditedAfterInstallingTheLatestFollowsOnlyTheAuthor(t *tes
 }
 
 // 项目记录里的内容哈希不算可执行位:作者只改了脚本的可执行位时,记录照样等于来源现在的那份,却不能断定装的就是这一版。
-// 磁盘上的文件模式和来源里的不一样时,保守地当作说不清有没有修改:第一次检查更新就报有新版本,作者的权限改动不被漏掉。
-func TestFetchUnmanagedDoesNotTakeAModeOnlyChangeAsTheVersionTheEditsAreBasedOn(t *testing.T) {
+// 认是不是来源里现在这一版不比可执行位:来源里只改了可执行位,磁盘上的修改照样认作基于来源现在这一版,检查更新没有更新。
+func TestFetchUnmanagedTakesTheSourceWithAModeOnlyChangeAsTheVersionTheEditsAreBasedOn(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	f := newSourcedSkillFixture(t)
@@ -559,8 +559,9 @@ func TestFetchUnmanagedDoesNotTakeAModeOnlyChangeAsTheVersionTheEditsAreBasedOn(
 		t.Fatal(err)
 	}
 	skill := result.Skill
-	if version := f.currentVersion(t, skill); !version.MaybeEdited || version.BasedOn != 0 || skill.Revision != "" {
-		t.Fatalf("version = %#v, skill = %#v, want a possible edit with an unknown source version", version, skill)
+	head := gitRevParse(t, f.repo, "HEAD")
+	if version := f.currentVersion(t, skill); version.MaybeEdited || version.BasedOn == 0 || skill.Revision != head {
+		t.Fatalf("version = %#v, skill = %#v, want an edit based on the source's version at %s", version, skill, head)
 	}
-	requireCheck(t, f.lib, skill.ID, library.UpdateAvailable, false, true)
+	requireCheck(t, f.lib, skill.ID, library.UpdateCurrent, false, false)
 }

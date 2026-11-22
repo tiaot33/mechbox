@@ -788,6 +788,8 @@ export const zh = {
     identicalHere: "已在库里 · 这一份不是 app 装的",
     identicalHereTitle: (name: string) => `它已经在技能库里：这里的文件夹和库里的「${name}」一模一样，只是这一份不是 app 装的。点「入库」交给 app 管：只记下它装在这里，文件夹原样不动；不点也照样能用`,
     takeOver: "入库",
+    extraCopy: "多一份一样的",
+    extraCopyTitle: (name: string) => `这里已经装着库里的「${name}」，这个文件夹和它一模一样，是多出来的一份。一个技能在一个地方只记一处安装，这一份不用入库，文件夹原样不动`,
     sameAsLibrary: (name: string) => `和库里的「${name}」一样`,
     sourceLatestOf: (name: string) => `库里「${name}」的新版`,
     // adopted:这一处之后会自动记为安装(不是提交在项目仓库里、记在 skills-lock.json 里或指向 Agent 目录以外的)。

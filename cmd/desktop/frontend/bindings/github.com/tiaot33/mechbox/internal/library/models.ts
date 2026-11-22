@@ -1341,7 +1341,7 @@ export interface PlannedSkill {
 }
 
 /**
- * PlannedUnmanagedSkill 是整批入库计划里的一个技能:这几个作用域里内容完全一致(文件路径、内容与可执行位都相同,Windows 本机的目录只比路径与内容)的
+ * PlannedUnmanagedSkill 是整批入库计划里的一个技能:这几个作用域里内容一致(文件路径与内容都相同,不比可执行位)的
  * 不是库装的技能文件夹合成一条,入库成库里的一个技能,各处都记为安装。
  */
 export interface PlannedUnmanagedSkill {
@@ -2136,7 +2136,7 @@ export interface SkillScopeInspection {
      * SourceLatest 只在 modified 时可能为 true:这里的内容和来源里这个技能现在的那一版完全一致(最近一次检查更新或更新计划看到的、
      * 比库里新的那一版),是在库外更新到了作者现在这一版,不是用户的修改。界面据此不说「用户改过」,引导用更新把库里的技能换成这一版;
      * 换上之后这一处就是 current,更新时勾不勾这一处都不会覆盖它。用目录里的修改更新的计划(PlanUpdateFromScope)里为 false:
-     * 那次换上的是那一处的修改,这一处照样算被改过。Windows 本机的目录里,来源的新版加了可执行文件或改了可执行位时认不出(见包说明「实现」一节)。
+     * 那次换上的是那一处的修改,这一处照样算被改过。
      */
     "source_latest"?: boolean;
 
@@ -2161,7 +2161,7 @@ export interface SkillScopeInspection {
  * SkillScopeStatus 是一处安装现在的状态,每种状态对应界面上的一个动作。判定按下列顺序,前一条命中即停:
  * root_missing、missing,然后与库里的版本比对。技能文件夹本身是符号链接时(如 npx skills 的布局),比对它指向的文件夹里的内容,
  * 链接指向不存在之处算 modified;链接本身见 SkillScopeInspection.LinkTarget。状态值以后可能增加,调用方遇到不认识的值按「需要用户查看」处理。
- * 「一致」指文件路径、内容与可执行位都相同;Windows 本机的目录读不出可执行位,那里只比路径与内容(见包说明「实现」一节)。
+ * 「一致」指文件路径与内容都相同,不比可执行位(见包说明「实现」一节)。
  */
 export enum SkillScopeStatus {
     /**
@@ -2626,12 +2626,13 @@ export interface UnmanagedSkill {
     "in_project_lock"?: boolean;
 
     /**
-     * SkillID 不为 0 时,文件夹的内容(文件路径、内容与可执行位都相同,Windows 本机的目录只比路径与内容)和库里这个技能的某个版本完全一致,VersionID 是那个版本:
-     * 和当前版本一致的优先,其次是最新的旧版本。这样的文件夹列出时(ListUnmanagedSkills、PlanFetchUnmanaged)自动记为这个技能装在这里,
-     * 不再出现在结果里;留下的只有不自动纳入的几种:提交在项目仓库里的(InRepository)、记在 skills-lock.json 里的(InProjectLock)、
-     * 指向 Agent 目录以外的符号链接(LinkOutside)。它们就是库里的这个技能,只是这一处不是库装的,界面把它显示在这个技能下;
-     * 入库(FetchUnmanaged、FetchUnmanagedSkills)只给这个技能补记这一处安装,不论带不带来源、带的是哪个来源。
-     * 已经装在这个作用域的技能不算:一个技能在一个作用域只记一处安装。
+     * SkillID 不为 0 时,文件夹的内容(文件路径与内容都相同,不比可执行位;符号链接按它指向的文件夹)和库里这个技能的某个版本一致,
+     * VersionID 是那个版本:和当前版本一致的优先,其次是最新的旧版本;库里几个技能都有这样一版时取同一个,不看这个作用域装没装过哪个。
+     * 这样的文件夹列出时(ListUnmanagedSkills、PlanFetchUnmanaged)自动记为这个技能装在这里,不再出现在结果里;留下的有不自动纳入的几种:
+     * 提交在项目仓库里的(InRepository)、记在 skills-lock.json 里的(InProjectLock)、指向 Agent 目录以外的符号链接(LinkOutside),
+     * 入库(FetchUnmanaged、FetchUnmanagedSkills)只给这个技能补记这一处安装,不论带不带来源、带的是哪个来源;
+     * 还有这个作用域已经装着这个技能时,同一个作用域里另一份一样的文件夹:一个技能在一个作用域只记一处安装,入库不另记,整批入库的计划里没有它。
+     * 它们就是库里的这个技能,只是这一处不是库装的,界面把它显示在这个技能下。
      */
     "skill_id"?: SkillID;
     "version_id"?: VersionID;
@@ -2640,7 +2641,6 @@ export interface UnmanagedSkill {
      * SourceLatestOf 不为 0 时,文件夹的内容和库里这个技能在来源里现在的那一版完全一致(最近一次检查更新看到的、比库里新的那一版):
      * 是这个技能的新版,在库外更新过。按来源入库会因集合里已有同名技能返回 AlreadyExists;界面引导用更新(PlanUpdate、Update)
      * 把库里的技能换成这一版,之后这一处和库里的当前版本一致,SkillID 就是它。SkillID 不为 0 时为 0。
-     * Windows 本机的目录里,来源的新版加了可执行文件或改了可执行位时认不出(见包说明「实现」一节)。
      */
     "source_latest_of"?: SkillID;
 

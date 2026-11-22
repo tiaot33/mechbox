@@ -191,7 +191,8 @@ func TestInspectSkillScopesCurrentStaleModifiedAndInstallAgain(t *testing.T) {
 	requireInspection(t, lib, library.SkillScopeModified, 0)
 }
 
-func TestInspectSkillScopesReportsModifiedForExtraFileAndExecutableBit(t *testing.T) {
+// 多出文件算改过;只改了可执行位不算。
+func TestInspectSkillScopesReportsModifiedForExtraFileButNotExecutableBit(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "example-skill")
@@ -224,7 +225,7 @@ func TestInspectSkillScopesReportsModifiedForExtraFileAndExecutableBit(t *testin
 	if err := os.Chmod(script, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	requireInspectionStatuses(t, lib, library.SkillScopeModified)
+	requireInspectionStatuses(t, lib, library.SkillScopeCurrent)
 }
 
 // Finder 留下的 .DS_Store、运行脚本生成的 __pycache__ 不算改过已装的文件夹。
