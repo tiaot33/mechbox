@@ -3,16 +3,16 @@
 // 编辑表单改名称、技能目录(第 1 个装新技能，其余是附加目录)和检测目录。
 import { useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { LibraryService } from "@bindings/cmd/desktop";
+import { AppService, LibraryService } from "@bindings/cmd/desktop";
 import { ErrorCode, type Agent, type AgentInput } from "@bindings/internal/library";
 import { addAgent, addAgentsFromPool, editAgent, removeAgent } from "./agents";
-import { alreadyRead, poolMatches, sortPool } from "./agents-rules";
+import { alreadyRead, detectedPicks, poolMatches, sortPool, undetected } from "./agents-rules";
 import { describeError } from "@/lib/errors";
-import { useT } from "@/lib/i18n";
-import { toLibraryError, useHasWSL, useSnapshot, type LibraryError, type Snapshot } from "@/lib/library";
+import { messages, useT } from "@/lib/i18n";
+import { currentSnapshot, toLibraryError, useHasWSL, useSnapshot, type LibraryError, type Snapshot } from "@/lib/library";
 import { agentShown, directoriesAt } from "@/lib/places";
 import { insideHome, isWSLPath, resolveLocalPath, nativePath, shortPath, slashPath } from "@/lib/paths";
-import { Modal, useUI } from "@/lib/ui";
+import { Modal, ui, useUI } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FieldError, Hint } from "@/components/ui/field";
@@ -52,7 +52,7 @@ export function AgentSection({
             <AgentMark name={a.name} />
             {/* 一行：名字、没检测到时标出，后面是它的全部技能目录(放不下就截断，悬停逐个看)。 */}
             <span className="shrink-0">{a.name}</span>
-            {!a.detected && <Badge title={t.notDetectedTitle}>{t.notDetected}</Badge>}
+            {undetected(a) && <Badge title={t.notDetectedTitle}>{t.notDetected}</Badge>}
             <span className="min-w-0 grow truncate font-mono text-caption text-muted-foreground select-text" title={dirs.title}>
               {dirs.text}
             </span>
@@ -74,18 +74,45 @@ export function AgentSection({
 
 // AddAgentDialog 是「添加 Agent」:默认列出候选池，检测到的排在前面并标出，可以按名称、目录搜索、勾选几个一次添加;
 // 独有的目录已经有已添加的 Agent 在读的标出「已有 Agent 读这个目录」,不阻止勾选。底部能切到手填表单。
-export function AddAgentDialog({ onClose }: { onClose: () => void }) {
+// picks 是打开时已经勾上的，title、lead 换掉标题、在搜索框上面加一句说明(升级后提示添加时用)。
+export function AddAgentDialog({ onClose, picks, title, lead }: { onClose: () => void; picks?: string[]; title?: string; lead?: string }) {
   const [manual, setManual] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set(picks));
   if (manual) return <AgentDialog onClose={onClose} onBack={() => setManual(false)} />;
-  return <AgentPoolDialog onClose={onClose} onManual={() => setManual(true)} />;
+  return <AgentPoolDialog onClose={onClose} onManual={() => setManual(true)} picked={picked} setPicked={setPicked} title={title} lead={lead} />;
 }
 
-function AgentPoolDialog({ onClose, onManual }: { onClose: () => void; onManual: () => void }) {
+// offerAgentPool 在从旧版本升级上来的数据库升级后第一次打开时弹一次「添加 Agent」:升级时原有的 Agent 保持已添加，
+// 其余收录的进了候选池，按检测结果添加只在第一次打开时做过。候选池里检测到的默认勾上(已有 Agent 读它独有目录的不勾),
+// 用户确认后才添加;候选池里一个都没检测到时不弹。
+export async function offerAgentPool() {
+  if (!(await AppService.OfferAgentPool().catch(() => false))) return;
+  const pool = await LibraryService.ListAgentPool().catch(() => null);
+  if (!pool?.some((a) => a.detected)) return;
+  const t = messages().agents;
+  const picks = detectedPicks(pool, currentSnapshot().agents);
+  await ui.open((close) => <AddAgentDialog onClose={close} picks={picks} title={t.upgradeTitle} lead={t.upgradeLead} />);
+}
+
+function AgentPoolDialog({
+  onClose,
+  onManual,
+  picked,
+  setPicked,
+  title,
+  lead,
+}: {
+  onClose: () => void;
+  onManual: () => void;
+  picked: Set<string>;
+  setPicked: (update: (set: Set<string>) => Set<string>) => void;
+  title?: string;
+  lead?: string;
+}) {
   const s = useSnapshot();
   const t = useT().agents;
   const pool = useQuery({ queryKey: ["agent-pool"], queryFn: () => LibraryService.ListAgentPool(), gcTime: 0, staleTime: 0 });
   const [search, setSearch] = useState("");
-  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [working, setWorking] = useState(false);
   const all = sortPool(pool.data ?? []);
   const rows = all.filter((a) => poolMatches(a, search));
@@ -107,7 +134,7 @@ function AgentPoolDialog({ onClose, onManual }: { onClose: () => void; onManual:
   };
   return (
     <Modal
-      title={t.addTitle}
+      title={title ?? t.addTitle}
       wide
       onClose={onClose}
       footer={
@@ -122,6 +149,7 @@ function AgentPoolDialog({ onClose, onManual }: { onClose: () => void; onManual:
         </>
       }
     >
+      {lead && <Hint className="agent-pool-lead">{lead}</Hint>}
       <Input autoFocus placeholder={t.searchPool} value={search} onChange={(e) => setSearch(e.target.value)} />
       {pool.isPending ? (
         <Hint>{t.loadingPool}</Hint>

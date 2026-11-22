@@ -17,7 +17,7 @@ import (
 func TestSettingsDefaultWhenNothingStored(t *testing.T) {
 	got, done := settingsFrom(nil)
 	want := Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true, FoldBelow: 3}
-	if !reflect.DeepEqual(got, want) || done {
+	if !reflect.DeepEqual(got, want) || done != (openedMarks{}) {
 		t.Fatalf("settingsFrom(nil) = %+v, %v; want defaults %+v and not opened", got, done, want)
 	}
 }
@@ -28,16 +28,16 @@ func TestSettingsRoundTrip(t *testing.T) {
 		FoldCollections: true, FoldBelow: 5,
 		AgentsShown: map[library.AgentCode]bool{library.AgentCodex: false, "custom-0a1b2c3d4e5f": true},
 	}
-	for _, opened := range []bool{false, true} {
+	for _, opened := range []openedMarks{{}, {firstOpen: true}, {firstOpen: true, agentPool: true}} {
 		got, done := settingsFrom(want.appValues(opened))
 		if !reflect.DeepEqual(got, want) || done != opened {
 			t.Fatalf("settingsFrom(appValues(%v)) = %+v, %v; want %+v", opened, got, done, want)
 		}
 	}
-	if v := defaultSettings().appValues(false)["language"]; v != "" {
+	if v := defaultSettings().appValues(openedMarks{})["language"]; v != "" {
 		t.Fatalf("following the system language stores language %q; want nothing", v)
 	}
-	if v := defaultSettings().appValues(false)["appearance"]; v != "" {
+	if v := defaultSettings().appValues(openedMarks{})["appearance"]; v != "" {
 		t.Fatalf("following the system appearance stores appearance %q; want nothing", v)
 	}
 }

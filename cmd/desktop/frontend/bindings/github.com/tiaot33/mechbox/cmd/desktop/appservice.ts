@@ -57,6 +57,15 @@ export function Language(): $CancellablePromise<$models.Language> {
 }
 
 /**
+ * OfferAgentPool 在从旧版本升级上来的数据库(第一次打开的流程在升级前就做过了,当时还没有按检测结果添加 Agent)
+ * 升级后第一次打开时返回 true,并记下已经提示过,之后(含重启、拉回)都返回 false;前端据此弹一次「添加 Agent」,
+ * 检测到的默认勾上。第一次打开的流程里已经按检测结果添加过,不再提示。记不下来时照样返回 true,下次启动会再提示一次。
+ */
+export function OfferAgentPool(): $CancellablePromise<boolean> {
+    return $Call.ByID(3169348243);
+}
+
+/**
  * PushProblem 返回上一次推送出的问题;上一次推送完全成功、或之后改了同步设置时为 nil。
  * 设置页、左栏与同步弹窗据此提示，免得用户以为一直在备份。只记在内存里，重启后由下一次推送重新得出。
  */

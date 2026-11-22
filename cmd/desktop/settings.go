@@ -67,13 +67,23 @@ func foldBelowValid(n int) bool {
 	return n >= minFoldBelow && n <= maxFoldBelow
 }
 
-const firstOpenDoneKey = "first_open_done"
+const (
+	firstOpenDoneKey    = "first_open_done"
+	agentPoolOfferedKey = "agent_pool_offered"
+)
+
+// openedMarks 记着这个数据库在 app 里已经做过的一次性的事:firstOpen 是第一次打开的流程,agentPool 是按检测结果提示添加 Agent
+// (第一次打开时随之做过;从旧版本升级上来的数据库还没做过,升级后第一次打开时提示一次)。
+type openedMarks struct {
+	firstOpen bool
+	agentPool bool
+}
 
 func defaultSettings() Settings {
 	return Settings{AutoCheck: true, CheckInterval: CheckDaily, StayInMenuBar: true, DockBadge: true, AutoTranslate: true, FoldBelow: 3}
 }
 
-func (s Settings) appValues(firstOpenDone bool) map[string]string {
+func (s Settings) appValues(marks openedMarks) map[string]string {
 	values := map[string]string{
 		"auto_check":       strconv.FormatBool(s.AutoCheck),
 		"check_interval":   string(s.CheckInterval),
@@ -89,13 +99,16 @@ func (s Settings) appValues(firstOpenDone bool) map[string]string {
 		shown, _ := json.Marshal(s.AgentsShown)
 		values["agents_shown"] = string(shown)
 	}
-	if firstOpenDone {
+	if marks.firstOpen {
 		values[firstOpenDoneKey] = "true"
+	}
+	if marks.agentPool {
+		values[agentPoolOfferedKey] = "true"
 	}
 	return values
 }
 
-func settingsFrom(values map[string]string) (Settings, bool) {
+func settingsFrom(values map[string]string) (Settings, openedMarks) {
 	s := defaultSettings()
 	flag := func(name string, field *bool) {
 		if v, err := strconv.ParseBool(values[name]); err == nil {
@@ -123,6 +136,8 @@ func settingsFrom(values map[string]string) (Settings, bool) {
 	if json.Unmarshal([]byte(values["agents_shown"]), &shown) == nil && len(shown) > 0 {
 		s.AgentsShown = shown
 	}
-	done, _ := strconv.ParseBool(values[firstOpenDoneKey])
-	return s, done
+	var marks openedMarks
+	marks.firstOpen, _ = strconv.ParseBool(values[firstOpenDoneKey])
+	marks.agentPool, _ = strconv.ParseBool(values[agentPoolOfferedKey])
+	return s, marks
 }

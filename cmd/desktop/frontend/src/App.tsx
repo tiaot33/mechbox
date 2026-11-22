@@ -11,6 +11,7 @@ import { DrawerDock } from "@/components/app/skill-drawer/skill-drawer";
 import { SkillList } from "@/components/app/skill-list/skill-list";
 import { Toolbar } from "@/components/app/toolbar";
 import { offerFirstOpen } from "@/features/fetch/fetch-unmanaged-all";
+import { offerAgentPool } from "@/features/scope/agent-settings";
 import { checkLocalDirectories } from "@/features/update/check";
 import { useAutoTranslate } from "@/features/skill/translate";
 import { checkReleaseFromMenu, useInstallFailureNotice } from "@/features/release/release";
@@ -78,7 +79,8 @@ function Main() {
     firstOpen.current = true;
     // 打开 app 时读一遍本地目录来源的目录(见 checkLocalDirectories)。
     void checkLocalDirectories();
-    void offerFirstOpen(s.agents);
+    // 从旧版本升级上来的数据库没走过按检测结果添加 Agent:升级后第一次打开时提示一次(新数据库在第一次打开的流程里已经做过)。
+    void offerFirstOpen(s.agents).then(offerAgentPool);
   }, [s]);
 
   // 设置里选的 WSL 发行版启动时没能打开：说明界面上暂时是 Windows 本机的全局目录，让用户再试或改回 Windows 本机。

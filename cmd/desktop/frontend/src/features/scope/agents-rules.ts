@@ -70,3 +70,14 @@ export function alreadyRead(pool: Agent[], added: Agent[], agent: Agent): Alread
     }),
   );
 }
+
+// detectedPicks 是升级上来以后提示添加 Agent 时默认勾上的：候选池里在这台机器上检测到的;独有的目录已经有已添加的 Agent 在读的
+// (多半是以前手填添加的同一个 Agent,见 alreadyRead)不勾，免得两个 Agent 读同一个目录。
+export function detectedPicks(pool: Agent[], added: Agent[]): string[] {
+  return pool.filter((a) => a.detected && !alreadyRead(pool, added, a).length).map((a) => a.code);
+}
+
+// undetected 是设置页一行要不要标「未检测到」:有检测目录、又都不存在时才标;检测目录为空的不检测，不标。
+export function undetected(agent: Agent): boolean {
+  return !agent.detected && (agent.detect_directories ?? []).length > 0;
+}

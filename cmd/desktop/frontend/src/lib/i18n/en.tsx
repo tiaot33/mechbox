@@ -1447,6 +1447,8 @@ export const en = {
     projectInside: "Must be inside the project root (not the project root itself)",
     editTitle: (name: string) => `Edit Agent “${name}”`,
     addTitle: "Add Agents",
+    upgradeLead: "You can now add Agents from the built-in list. The ones detected on this machine are checked below; nothing is added until you confirm. Ones marked “Directory already read” are left unchecked — most likely the same Agent you added by hand earlier.",
+    upgradeTitle: "Add the Agents on this machine",
     addManualTitle: "Add an Agent by hand",
     searchPool: "Search by name or directory",
     loadingPool: "Reading the candidates…",

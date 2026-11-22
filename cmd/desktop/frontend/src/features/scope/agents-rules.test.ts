@@ -11,7 +11,7 @@ import {
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import type { Snapshot } from "@/lib/library";
-import { agentDelete, agentEdit, alreadyRead, poolMatches, sortPool } from "./agents-rules";
+import { agentDelete, agentEdit, alreadyRead, detectedPicks, poolMatches, sortPool, undetected } from "./agents-rules";
 
 const mine = "my-agent" as AgentCode;
 const claude = AgentCode.AgentClaudeCode;
@@ -136,5 +136,29 @@ describe("候选池", () => {
       { dir: ".cursor/skills", project: true, by: [old] },
     ]);
     expect(alreadyRead(pool, [old, codex], cline)).toEqual([]);
+  });
+});
+
+describe("升级后提示添加 Agent", () => {
+  const pooled = (code: string, detected: boolean, global: string[]) =>
+    ({ code, name: code, detected, global_directories: global, project_directories: [".agents/skills"], detect_directories: [] }) as unknown as Agent;
+  it("检测到的默认勾上;独有的目录已经有已添加的 Agent 在读的不勾，没检测到的不勾", () => {
+    const pool = [
+      pooled("cursor", true, ["/home/.agents/skills", "/home/.cursor/skills"]),
+      pooled("gemini-cli", true, ["/home/.agents/skills", "/home/.gemini/skills"]),
+      pooled("cline", false, ["/home/.agents/skills"]),
+    ];
+    const added = [{ code: "custom-1", name: "cursor", global_directories: ["/home/.cursor/skills"], project_directories: [".cursor/skills"] } as unknown as Agent];
+    expect(detectedPicks(pool, added)).toEqual(["gemini-cli"]);
+  });
+});
+
+describe("设置页的「未检测到」", () => {
+  const withDetect = (detected: boolean, detect_directories: string[]) => ({ ...agent, detected, detect_directories }) as Agent;
+  it("有检测目录、都不存在时才标;检测目录为空的是不检测，不标", () => {
+    expect(undetected(withDetect(false, ["/home/.mine"]))).toBe(true);
+    expect(undetected(withDetect(true, ["/home/.mine"]))).toBe(false);
+    expect(undetected(withDetect(false, []))).toBe(false);
+    expect(undetected({ ...agent, detected: false } as Agent)).toBe(false);
   });
 });

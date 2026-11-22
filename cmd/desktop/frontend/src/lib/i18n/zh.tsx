@@ -1377,6 +1377,8 @@ export const zh = {
     projectInside: "要在项目根目录里面（不能是项目根本身）",
     editTitle: (name: string) => `编辑 Agent「${name}」`,
     addTitle: "添加 Agent",
+    upgradeLead: "现在可以从收录的 Agent 里添加了。下面在这台机器上检测到的已经勾上，确认后才添加；标着「已有 Agent 读这个目录」的没有勾，多半是你以前手填添加过的同一个 Agent。",
+    upgradeTitle: "添加这台机器上的 Agent",
     addManualTitle: "手填添加 Agent",
     searchPool: "按名称或目录搜索",
     loadingPool: "正在读取候选池…",
