@@ -174,9 +174,11 @@ describe("改目录并迁移之后", () => {
     from: `/home/.mine/skills/s${skill_id}`,
     to: `/home/.agents/skills/s${skill_id}`,
   });
-  it("新目录里已经装着同一个技能的算迁移了，照常算已装，不弹结果列表", () => {
+  it("都原样搬过去了只提示;新目录里已经装着同一个技能的算迁移了，也列出来说清旧文件夹留在原处", () => {
+    expect(migrationReport(s, [migration(1, MigrationOutcome.MigrationMoved)])).toMatchObject({ listed: false, migrated: 1, skipped: 0 });
     const r = migrationReport(s, [migration(1, MigrationOutcome.MigrationMoved), migration(2, MigrationOutcome.MigrationAlreadyInstalled)]);
-    expect(r).toMatchObject({ listed: false, migrated: 2, skipped: 0 });
+    expect(r).toMatchObject({ listed: true, migrated: 2, skipped: 0 });
+    expect(r.rows[0].reason).toContain("旧文件夹留在原处：~/.mine/skills/s2");
   });
   it("有没迁移的才列出;已经装着的那处写明改认新目录里那一份，不说成没迁移", () => {
     const r = migrationReport(s, [migration(2, MigrationOutcome.MigrationAlreadyInstalled), migration(3, MigrationOutcome.MigrationSkipped)]);

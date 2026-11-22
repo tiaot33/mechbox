@@ -404,7 +404,7 @@ export const en = {
     alreadyMigratedReason: (to: string, from: string) =>
       `The new directory already has this skill (installed for another Agent): ${to}\nThis Agent now uses that one and still counts it as installed; the old folder stays where it is: ${from}`,
     migratedPartly: (migrated: number, skipped: number) =>
-      `Migrated ${count(migrated, "install")}; ${count(skipped, "install")} ${skipped === 1 ? "wasn't" : "weren't"} migrated, and this Agent no longer counts ${skipped === 1 ? "it" : "them"} as installed there.`,
+      `Migrated ${count(migrated, "install")}${skipped ? `; ${count(skipped, "install")} ${skipped === 1 ? "wasn't" : "weren't"} migrated, and this Agent no longer counts ${skipped === 1 ? "it" : "them"} as installed there` : ""}.`,
     agentSavedMigrated: (name: string, n: number) => `Saved Agent “${name}” and migrated ${count(n, "install")}`,
     readsTwice: (agents: string[], skill: string) =>
       `${and(agents)} also read this directory and already have ${skill} in another of their directories, so they'll see two copies`,
