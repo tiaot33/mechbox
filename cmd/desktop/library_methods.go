@@ -384,6 +384,14 @@ func (s *LibraryService) SystemProxy(ctx context.Context) (library.SystemProxy, 
 	return settle(s.lib.SystemProxy(ctx))(ctx)
 }
 
+func (s *LibraryService) GitHubMirror(ctx context.Context) (bool, error) {
+	return settle(s.lib.GitHubMirror(ctx))(ctx)
+}
+
+func (s *LibraryService) SetGitHubMirror(ctx context.Context, on bool) error {
+	return settleErr(ctx, s.lib.SetGitHubMirror(ctx, on))
+}
+
 func (s *LibraryService) SyncSettings(ctx context.Context) (library.SyncSettings, error) {
 	return settle(s.lib.SyncSettings(ctx))(ctx)
 }

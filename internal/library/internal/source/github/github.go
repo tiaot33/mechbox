@@ -9,19 +9,21 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/tiaot33/mechbox/internal/library/internal/ghproxy"
 	"github.com/tiaot33/mechbox/internal/library/internal/source"
 )
 
 const Type = "github"
 
 type Client struct {
-	http *http.Client
-	auth githubAuth
-	memo githubObjectMemo
+	http   *http.Client
+	mirror *ghproxy.Switch
+	auth   githubAuth
+	memo   githubObjectMemo
 }
 
-func NewClient(httpClient *http.Client) *Client {
-	client := &Client{http: httpClient, memo: newGitHubMemo()}
+func NewClient(httpClient *http.Client, mirror *ghproxy.Switch) *Client {
+	client := &Client{http: mirror.Client(httpClient), mirror: mirror, memo: newGitHubMemo()}
 	client.auth.current.Store(&githubCredentials{})
 	return client
 }
@@ -30,6 +32,11 @@ func (c *Client) SetToken(token string) {
 	if c.auth.current.Load().token != token {
 		c.auth.current.Store(&githubCredentials{token: token})
 	}
+}
+
+func (c *Client) Forget() {
+	c.auth.anonymousReset.Store(0)
+	c.memo.forget()
 }
 
 func (c *Client) Close() {

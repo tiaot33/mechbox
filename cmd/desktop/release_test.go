@@ -64,7 +64,7 @@ func newFakeGitHub(t *testing.T, tag string, assets map[string][]byte) *fakeGitH
 			"assets":       list,
 		})
 	})
-	mux.HandleFunc("GET /download/{name}", func(w http.ResponseWriter, r *http.Request) {
+	serveAsset := func(w http.ResponseWriter, r *http.Request) {
 		name := r.PathValue("name")
 		if name == checksumsAsset {
 			for file, data := range g.assets {
@@ -82,6 +82,15 @@ func newFakeGitHub(t *testing.T, tag string, assets map[string][]byte) *fakeGitH
 			return
 		}
 		_, _ = w.Write(data)
+	}
+	mux.HandleFunc("GET /download/{name}", serveAsset)
+	// 安装包和校验值不按 release.json 里写的地址读，读的是这个版本在 GitHub 上的固定地址。
+	mux.HandleFunc("GET /releases/download/{tag}/{name}", func(w http.ResponseWriter, r *http.Request) {
+		if r.PathValue("tag") != g.tag {
+			http.NotFound(w, r)
+			return
+		}
+		serveAsset(w, r)
 	})
 	g.server = httptest.NewServer(mux)
 	t.Cleanup(g.server.Close)
@@ -89,7 +98,7 @@ func newFakeGitHub(t *testing.T, tag string, assets map[string][]byte) *fakeGitH
 }
 
 func (g *fakeGitHub) releases(t *testing.T, current string, target installTarget) *releases {
-	return newReleases(g.server.URL+"/releases/latest/download/"+releaseManifest, current, t.TempDir(), updater.New(stubUpdaterHost{}), func() installTarget { return target }, nil)
+	return newReleases(g.server.URL+"/releases/latest/download/"+releaseManifest, current, t.TempDir(), updater.New(stubUpdaterHost{}), func() installTarget { return target }, nil, nil)
 }
 
 const testAsset = "Mechbox-1.2.0-macos-universal.zip"
@@ -219,7 +228,7 @@ func TestInstallReleaseRejectsChecksumMismatch(t *testing.T) {
 }
 
 func TestReleasesDisabledWithoutFeed(t *testing.T) {
-	r := newReleases("", "1.0.0", t.TempDir(), updater.New(stubUpdaterHost{}), func() installTarget { return installTarget{} }, nil)
+	r := newReleases("", "1.0.0", t.TempDir(), updater.New(stubUpdaterHost{}), func() installTarget { return installTarget{} }, nil, nil)
 	if status := r.status(); status.Checks {
 		t.Fatalf("status = %+v", status)
 	}
@@ -464,9 +473,9 @@ func TestReleaseCheckAndDownloadUseLibraryProxy(t *testing.T) {
 		switch r.URL.Path {
 		case "/releases/latest/download/" + releaseManifest:
 			_, _ = w.Write(manifest)
-		case "/download/" + checksumsAsset:
+		case "/releases/download/v2.0.0/" + checksumsAsset:
 			fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), assetName)
-		case "/download/" + assetName:
+		case "/releases/download/v2.0.0/" + assetName:
 			_, _ = w.Write(assetData)
 		default:
 			http.NotFound(w, r)
@@ -483,7 +492,7 @@ func TestReleaseCheckAndDownloadUseLibraryProxy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := newReleases("http://releases.proxy-test.example/releases/latest/download/"+releaseManifest, "1.0.0", t.TempDir(), updater.New(stubUpdaterHost{}), func() installTarget { return installTarget{asset: "-linux-amd64.AppImage"} }, library.ProxyFunc(lib))
+	r := newReleases("http://releases.proxy-test.example/releases/latest/download/"+releaseManifest, "1.0.0", t.TempDir(), updater.New(stubUpdaterHost{}), func() installTarget { return installTarget{asset: "-linux-amd64.AppImage"} }, library.ProxyFunc(lib), nil)
 	applied := false
 	r.apply = func(context.Context, *updater.Updater, string, string, func()) error {
 		applied = true
@@ -499,5 +508,86 @@ func TestReleaseCheckAndDownloadUseLibraryProxy(t *testing.T) {
 	}
 	if len(proxiedPaths) != 3 {
 		t.Fatalf("proxied requests = %v; want manifest, checksums, and asset", proxiedPaths)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// 打开 GitHub 镜像加速时，新版本信息与安装包经镜像，校验值直连这个版本在 GitHub 上的固定地址：
+// 镜像改了安装包、在 release.json 里换上自己的校验值地址，也装不上。
+func TestReleaseMirrorCannotReplaceInstaller(t *testing.T) {
+	const assetName = "Mechbox-1.2.0-linux-amd64.AppImage"
+	for _, honest := range []bool{true, false} {
+		t.Run(fmt.Sprintf("honest=%v", honest), func(t *testing.T) {
+			g := newFakeGitHub(t, "v1.2.0", map[string][]byte{assetName: []byte("genuine image")})
+			forged := []byte("forged image")
+			forgedSum := sha256.Sum256(forged)
+			var mirrored []string
+			mirror := func(next http.RoundTripper) http.RoundTripper {
+				return roundTripFunc(func(r *http.Request) (*http.Response, error) {
+					mirrored = append(mirrored, r.URL.Path)
+					if honest {
+						return next.RoundTrip(r)
+					}
+					recorder := httptest.NewRecorder()
+					switch r.URL.Path {
+					case "/releases/latest/download/" + releaseManifest:
+						_ = json.NewEncoder(recorder).Encode(map[string]any{
+							"tag_name": "v1.2.0",
+							"html_url": "https://phishing.example/mechbox",
+							"assets": []map[string]any{
+								{"name": assetName, "browser_download_url": g.server.URL + "/forged/" + assetName, "size": len(forged)},
+								{"name": checksumsAsset, "browser_download_url": g.server.URL + "/forged/" + checksumsAsset},
+							},
+						})
+					case "/releases/download/v1.2.0/" + assetName, "/forged/" + assetName:
+						_, _ = recorder.Write(forged)
+					case "/forged/" + checksumsAsset:
+						fmt.Fprintf(recorder, "%s  %s\n", hex.EncodeToString(forgedSum[:]), assetName)
+					default:
+						recorder.WriteHeader(http.StatusNotFound)
+					}
+					return recorder.Result(), nil
+				})
+			}
+			r := newReleases(g.server.URL+"/releases/latest/download/"+releaseManifest, "1.1.0", t.TempDir(), updater.New(stubUpdaterHost{}), func() installTarget { return installTarget{asset: "-linux-amd64.AppImage"} }, nil, mirror)
+			var staged []byte
+			r.apply = func(_ context.Context, _ *updater.Updater, path, _ string, _ func()) error {
+				var err error
+				staged, err = os.ReadFile(path)
+				return errors.Join(err, os.RemoveAll(filepath.Dir(path)))
+			}
+			latest, err := r.check(t.Context())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if latest.PageURL != g.server.URL+"/releases/tag/v1.2.0" {
+				t.Fatalf("page URL = %q; want the release page built from the tag", latest.PageURL)
+			}
+			err = r.install(t.Context(), "1.2.0", func() {})
+			if honest && (err != nil || string(staged) != "genuine image") {
+				t.Fatalf("install through honest mirror = %v, staged %q", err, staged)
+			}
+			if !honest && (errorCode(err) != library.SourceInvalid || staged != nil) {
+				t.Fatalf("install through forging mirror = %v, staged %q; want digest mismatch", err, staged)
+			}
+			want := []string{"/releases/latest/download/" + releaseManifest, "/releases/download/v1.2.0/" + assetName}
+			if strings.Join(mirrored, " ") != strings.Join(want, " ") {
+				t.Fatalf("through mirror %q; want manifest and installer only, checksums direct", mirrored)
+			}
+		})
+	}
+}
+
+func TestCheckReleaseRejectsOversizedManifest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"tag_name":"v9.0.0","body":"%s"}`, strings.Repeat("x", maxManifestSize))
+	}))
+	defer server.Close()
+	r := newReleases(server.URL+"/releases/latest/download/"+releaseManifest, "1.0.0", t.TempDir(), updater.New(stubUpdaterHost{}), func() installTarget { return installTarget{asset: "-linux-amd64.AppImage"} }, nil, nil)
+	if _, err := r.check(t.Context()); errorCode(err) != library.SourceInvalid {
+		t.Fatalf("check with an oversized release.json = %v; want SourceInvalid", err)
 	}
 }

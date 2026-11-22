@@ -3271,6 +3271,25 @@ await step("设置页：网络代理（跟随系统、手动含用户名密码�
   await page.waitForSelector(".a-list");
 });
 
+await step("设置页:GitHub 镜像加速开关立即存进数据库", async () => {
+  await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+  const row = section("通用").locator(".github-mirror-row");
+  await row.waitFor();
+  const toggle = row.locator("[data-slot=switch]");
+  assert.equal(await toggle.getAttribute("aria-checked"), "false", "GitHub 镜像加速默认关闭");
+  assert.equal(config()["proxy.github_mirror"], undefined, "默认关闭时不写 proxy.github_mirror");
+  await toggle.click();
+  await settle();
+  assert.equal(await toggle.getAttribute("aria-checked"), "true", "点开关后应打开");
+  assert.equal(config()["proxy.github_mirror"], "on", "打开后应立即写入 proxy.github_mirror=on");
+  await toggle.click();
+  await settle();
+  assert.equal(await toggle.getAttribute("aria-checked"), "false", "再点应关闭");
+  assert.equal(config()["proxy.github_mirror"], undefined, "关闭后删除 proxy.github_mirror");
+  await page.locator(".titlebar button[title='返回技能库']").click();
+  await page.waitForSelector(".a-list");
+});
+
 await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认这里填的", async () => {
   // sync.device、sync.last_pushed_at、sync.last_pushed_to 是同步状态(设备目录与上次推送),不是设置页填的
   const isSyncSetting = (k) => k.startsWith("sync.") && !["sync.device", "sync.last_pushed_at", "sync.last_pushed_to"].includes(k);

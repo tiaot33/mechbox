@@ -4,12 +4,14 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/tiaot33/mechbox/internal/library/internal/ghproxy"
 	"github.com/tiaot33/mechbox/internal/library/internal/source"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/gitcmd"
@@ -100,8 +102,8 @@ func PlainRepository(input string) (string, bool) {
 	return strings.TrimSuffix(strings.TrimPrefix(parsed.repository, "https://github.com/"), ".git"), true
 }
 
-func Locate(ctx context.Context, input Input) (source.Target, error) {
-	locator, subpath, name, err := resolveGitHubInput(ctx, input)
+func (c *Client) Locate(ctx context.Context, input Input) (source.Target, error) {
+	locator, subpath, name, err := resolveGitHubInput(ctx, c.mirror, input)
 	if err != nil {
 		return source.Target{}, err
 	}
@@ -116,7 +118,7 @@ func Locate(ctx context.Context, input Input) (source.Target, error) {
 	return target, nil
 }
 
-func resolveGitHubInput(ctx context.Context, github Input) (locator repoLocator, subpath, name string, err error) {
+func resolveGitHubInput(ctx context.Context, mirror *ghproxy.Switch, github Input) (locator repoLocator, subpath, name string, err error) {
 	ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
@@ -126,21 +128,27 @@ func resolveGitHubInput(ctx context.Context, github Input) (locator repoLocator,
 	if err != nil {
 		return locator, "", "", err
 	}
-	parsed.ref, parsed.subpath, err = gitcmd.Resolve(ctx, remotes(parsed.repository), parsed.ref, parsed.tree, parsed.subpath)
+	resolved, err := viaMirror(ctx, mirror, parsed.repository, func(ctx context.Context, remotes []string) ([2]string, error) {
+		ref, subpath, err := gitcmd.Resolve(ctx, remotes, parsed.ref, parsed.tree, parsed.subpath)
+		return [2]string{ref, subpath}, err
+	})
+	parsed.ref, parsed.subpath = resolved[0], resolved[1]
 	if err != nil {
 		return locator, "", "", err
 	}
 	return repoLocator{Repository: parsed.repository, Branch: parsed.ref}, parsed.subpath, parsed.name, nil
 }
 
-func InputRefs(ctx context.Context, input string) (gitcmd.Refs, error) {
+func (c *Client) InputRefs(ctx context.Context, input string) (gitcmd.Refs, error) {
 	ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
 	defer cancel()
 	parsed, err := parseGitHubInput(Input{Input: input})
 	if err != nil {
 		return gitcmd.Refs{}, err
 	}
-	return gitcmd.ListRefs(ctx, remotes(parsed.repository), parsed.ref, parsed.tree)
+	return viaMirror(ctx, c.mirror, parsed.repository, func(ctx context.Context, remotes []string) (gitcmd.Refs, error) {
+		return gitcmd.ListRefs(ctx, remotes, parsed.ref, parsed.tree)
+	})
 }
 
 func remotes(repository string) []string {
@@ -148,6 +156,30 @@ func remotes(repository string) []string {
 		return []string{repository, "git@github.com:" + repo}
 	}
 	return []string{repository}
+}
+
+func viaMirror[T any](ctx context.Context, mirror *ghproxy.Switch, repository string, run func(context.Context, []string) (T, error)) (T, error) {
+	if got, done, err := tryMirror(ctx, mirror, repository, run); done {
+		return got, err
+	}
+	return run(ctx, remotes(repository))
+}
+
+func tryMirror[T any](ctx context.Context, mirror *ghproxy.Switch, repository string, run func(context.Context, []string) (T, error)) (got T, done bool, err error) {
+	mirrored, ok := mirror.URL(repository)
+	if !ok {
+		return got, false, nil
+	}
+	attempt, cancel := ghproxy.Attempt(ctx)
+	defer cancel()
+	got, err = run(gitcmd.ThroughMirror(attempt), []string{mirrored})
+	if err == nil || ctx.Err() != nil {
+		return got, true, err
+	}
+	if errors.Is(err, source.ErrUnreachable) || errors.Is(err, source.ErrPermission) || errors.Is(err, context.DeadlineExceeded) {
+		return got, false, nil
+	}
+	return got, true, err
 }
 
 func Matches(input string) bool {

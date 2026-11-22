@@ -40,6 +40,12 @@ func runStdout(ctx context.Context, stdin io.Reader, args ...string) ([]byte, er
 
 type remoteKey struct{}
 
+type mirrorKey struct{}
+
+func ThroughMirror(ctx context.Context) context.Context {
+	return context.WithValue(ctx, mirrorKey{}, true)
+}
+
 func withRemote(ctx context.Context, remote string) context.Context {
 	if remote == "" {
 		return ctx
@@ -66,6 +72,14 @@ func run(ctx context.Context, stdin io.Reader, combined bool, args ...string) ([
 		"-c", "filter.lfs.process=",
 		"-c", "filter.lfs.required=false",
 		"-c", "protocol.ext.allow=never",
+	}
+	if through, _ := ctx.Value(mirrorKey{}).(bool); through {
+		gitArgs = append(gitArgs,
+			"-c", "http.extraHeader=",
+			"-c", "credential.helper=",
+			"-c", "http.lowSpeedLimit=1000",
+			"-c", "http.lowSpeedTime=10",
+		)
 	}
 	remote := remoteFrom(ctx)
 	if proxyValue, ok := process.GitProxy(ctx, remote); ok {

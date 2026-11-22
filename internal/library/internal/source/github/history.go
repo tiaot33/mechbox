@@ -30,7 +30,7 @@ type githubCompareResponse struct {
 func (s *githubSnapshot) Names(ctx context.Context) ([]string, error) {
 	whole := s
 	if s.subpath != "" && s.subpath != "." {
-		whole = &githubSnapshot{ref: s.ref, rootTree: s.rootTree, entries: s.entries, byPath: s.byPath, owner: s.owner, repo: s.repo, locator: s.locator, client: s.client, storedBlobs: s.storedBlobs}
+		whole = &githubSnapshot{ref: s.ref, rootTree: s.rootTree, entries: s.entries, byPath: s.byPath, owner: s.owner, repo: s.repo, locator: s.locator, client: s.client, mirror: s.mirror, storedBlobs: s.storedBlobs}
 		if s.client == nil {
 			if err := whole.clone(ctx, s.ref); err != nil {
 				return nil, err
@@ -52,8 +52,14 @@ func (s *githubSnapshot) Commits(ctx context.Context, since string) ([]source.Co
 	if !gitcmd.FullCommit.MatchString(since) || since == s.ref {
 		return nil, nil
 	}
+	gitCommits := func(ctx context.Context, remotes []string) ([]source.Commit, error) {
+		return gitcmd.Commits(ctx, remotes, since, s.ref)
+	}
+	if commits, done, err := tryMirror(ctx, s.mirror, s.locator.Repository, gitCommits); done && (err == nil || ctx.Err() != nil || s.client == nil) {
+		return commits, err
+	}
 	if s.client == nil {
-		return gitcmd.Commits(ctx, remotes(s.locator.Repository), since, s.ref)
+		return gitCommits(ctx, remotes(s.locator.Repository))
 	}
 	var commits []source.Commit
 	for page := 1; ; page++ {

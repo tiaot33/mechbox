@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/tiaot33/mechbox/internal/library/internal/ghproxy"
 	"github.com/tiaot33/mechbox/internal/library/internal/source"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/download"
@@ -27,9 +28,9 @@ type Catalog struct {
 	local     local.Kind
 }
 
-func New(httpClient *http.Client, withCtx func(context.Context) context.Context, maxFiles int, maxBytes int64) *Catalog {
-	client := github.NewClient(httpClient)
-	direct := download.New(httpClient, maxFiles, maxBytes)
+func New(httpClient *http.Client, withCtx func(context.Context) context.Context, mirror *ghproxy.Switch, maxFiles int, maxBytes int64) *Catalog {
+	client := github.NewClient(httpClient, mirror)
+	direct := download.New(mirror.Client(httpClient), maxFiles, maxBytes)
 	known := wellknown.New(httpClient, maxFiles, maxBytes)
 	directory := local.New(maxFiles, maxBytes)
 	return &Catalog{
@@ -66,6 +67,10 @@ func (c *Catalog) Describe(sourceType string, loc source.Locator) (source.Descri
 
 func (c *Catalog) SetToken(token string) {
 	c.github.SetToken(token)
+}
+
+func (c *Catalog) ForgetGitHub() {
+	c.github.Forget()
 }
 
 func (c *Catalog) Close() {
@@ -128,7 +133,7 @@ func (c *Catalog) locate(ctx context.Context, in Input, home string) (source.Tar
 		}
 		return download.Locate(input)
 	case gitHubRepository:
-		return github.Locate(ctx, github.Input{Input: input, Ref: in.Ref, Subpath: in.Subpath})
+		return c.github.Locate(ctx, github.Input{Input: input, Ref: in.Ref, Subpath: in.Subpath})
 	case gitRepository:
 		return git.Locate(ctx, git.Input{Input: input, Ref: in.Ref, Subpath: in.Subpath})
 	case otherLink:
@@ -182,7 +187,7 @@ func (c *Catalog) Refs(ctx context.Context, input string) (gitcmd.Refs, error) {
 	case localDirectory, hostedDownload:
 		return gitcmd.Refs{}, &source.InputError{Reason: "branches and tags are only listed for Git repositories"}
 	case gitHubRepository:
-		return github.InputRefs(ctx, input)
+		return c.github.InputRefs(ctx, input)
 	case gitRepository:
 		return git.InputRefs(ctx, input)
 	}

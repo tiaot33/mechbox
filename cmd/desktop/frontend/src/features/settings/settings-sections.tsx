@@ -1,5 +1,5 @@
 // 设置页里几个分区的内容：通用、项目、检查更新、关于。应用设置改了立即经设置页的 save 排队保存;
-// 通用里的网络代理存进技能库本机配置(切换模式立即生效，手动地址点保存生效)。
+// 通用里的网络代理与 GitHub 镜像加速存进技能库本机配置(切换模式、开关立即生效，手动地址点保存生效)。
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Appearance, CheckInterval, Language, LibraryService, type Settings } from "@bindings/cmd/desktop";
@@ -9,6 +9,8 @@ import { setAppearance } from "@/lib/theme";
 import { ui } from "@/lib/ui";
 import { useT } from "@/lib/i18n";
 import {
+  githubMirrorQuery,
+  invalidateGitHubMirror,
   invalidateProxySettings,
   invalidateSystemProxy,
   proxySettingsQuery,
@@ -129,6 +131,7 @@ export function GeneralSection({
       />
     </SetRow>
     <ProxySetting />
+    <GitHubMirrorSetting />
     {(distros.length > 0 || settings.wsl_distro) && (
       <SetRow>
         <Tipped className="grow" tip={t.wslDistroDesc}>
@@ -319,6 +322,38 @@ function ProxyControl({ saved, sysProxy }: { saved: ProxySettings; sysProxy?: Sy
   );
 }
 
+// GitHubMirrorSetting 是 GitHub 镜像加速的开关：一点就存，下一次联网生效;保存期间先显示要切到的状态，存好后重读。
+function GitHubMirrorSetting() {
+  const { settings: t, credentials } = useT();
+  const { data: on, error, refetch } = useQuery(githubMirrorQuery);
+  const [pending, setPending] = useState<boolean>();
+  if (error) {
+    return (
+      <SetRow className="h-auto min-h-10 py-2">
+        <Hint className="grow">{t.githubMirrorReadFailed(describeError(toLibraryError(error)))}</Hint>
+        <Button onClick={() => void refetch()}>{credentials.retry}</Button>
+      </SetRow>
+    );
+  }
+  if (on === undefined) return null;
+  const toggle = async (next: boolean) => {
+    setPending(next);
+    const ok = await ui.run(() => LibraryService.SetGitHubMirror(next).then(() => true), { reload: false });
+    if (ok) await invalidateGitHubMirror();
+    setPending(undefined);
+  };
+  return (
+    <SettingRow
+      className="github-mirror-row"
+      label={t.githubMirror}
+      desc={t.githubMirrorDesc}
+      on={pending ?? on}
+      disabled={pending !== undefined}
+      onChange={(v) => void toggle(v)}
+    />
+  );
+}
+
 // ProjectsSection 是项目分区：已登记的项目，可以改位置、注销;项目目录不在这台机器上时带标记。
 export function ProjectsSection() {
   const s = useSnapshot();
@@ -419,13 +454,27 @@ export function AboutSection() {
 }
 
 
-function SettingRow({ label, desc, on, onChange }: { label: string; desc: string; on: boolean; onChange: (on: boolean) => void }) {
+function SettingRow({
+  label,
+  desc,
+  on,
+  onChange,
+  className,
+  disabled,
+}: {
+  label: string;
+  desc: string;
+  on: boolean;
+  onChange: (on: boolean) => void;
+  className?: string;
+  disabled?: boolean;
+}) {
   return (
-    <SetRow>
+    <SetRow className={className}>
       <Tipped className="grow" tip={desc}>
         {label}
       </Tipped>
-      <Switch checked={on} onCheckedChange={onChange} />
+      <Switch checked={on} disabled={disabled} aria-label={label} onCheckedChange={onChange} />
     </SetRow>
   );
 }
