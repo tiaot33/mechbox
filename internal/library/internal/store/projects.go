@@ -155,6 +155,16 @@ func (t *Tx) DisableAgent(ctx context.Context, code string) error {
 	return nil
 }
 
+func (t *Tx) ForgetAgent(ctx context.Context, code string) error {
+	if err := t.RemoveAgentInstalls(ctx, code, true, true); err != nil {
+		return err
+	}
+	if _, err := t.q.ExecContext(ctx, `DELETE FROM agents WHERE code = ?`, code); err != nil {
+		return fmt.Errorf("forget agent: %w", wrap(err))
+	}
+	return nil
+}
+
 func (q queries) RegisterProject(ctx context.Context, path string) (Project, bool, error) {
 	result, err := q.q.ExecContext(ctx, `INSERT OR IGNORE INTO projects(path) VALUES (?)`, path)
 	if err != nil {

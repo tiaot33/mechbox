@@ -259,6 +259,14 @@ func (s *LibraryService) DeleteAgent(ctx context.Context, code library.AgentCode
 	return settle(s.lib.DeleteAgent(ctx, code, opts))(ctx)
 }
 
+func (s *LibraryService) ListAgentDefaults(ctx context.Context) ([]library.Agent, error) {
+	return settle(s.lib.ListAgentDefaults(ctx))(ctx)
+}
+
+func (s *LibraryService) ResetAgents(ctx context.Context, opts library.ResetAgentsOptions) (library.ResetAgentsResult, error) {
+	return settle(s.lib.ResetAgents(ctx, opts))(ctx)
+}
+
 func (s *LibraryService) RegisterProject(ctx context.Context, path string) (library.RegisteredProject, error) {
 	return settle(s.lib.RegisterProject(ctx, path))(ctx)
 }

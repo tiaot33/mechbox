@@ -93,6 +93,8 @@ export type {
     ReinstallResult,
     RemoveFromGroupOptions,
     RemoveSkillOptions,
+    ResetAgentsOptions,
+    ResetAgentsResult,
     RollbackInstall,
     RollbackResult,
     SameNameFolder,

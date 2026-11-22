@@ -1,5 +1,7 @@
 package store
 
+import "slices"
+
 var catalog = []Agent{
 	{Code: "aider-desk", Name: "AiderDesk", GlobalPaths: []string{".aider-desk/skills"}, ProjectPaths: []string{".aider-desk/skills"}, DetectPaths: []string{".aider-desk"}},
 	{Code: "amp", Name: "Amp", GlobalPaths: []string{".agents/skills", ".config/agents/skills"}, ProjectPaths: []string{".agents/skills"}, DetectPaths: []string{".config/amp"}},
@@ -76,4 +78,15 @@ var catalog = []Agent{
 	{Code: "neovate", Name: "Neovate", GlobalPaths: []string{".neovate/skills"}, ProjectPaths: []string{".neovate/skills"}, DetectPaths: []string{".neovate"}},
 	{Code: "pochi", Name: "Pochi", GlobalPaths: []string{".pochi/skills"}, ProjectPaths: []string{".pochi/skills"}, DetectPaths: []string{".pochi"}},
 	{Code: "adal", Name: "AdaL", GlobalPaths: []string{".adal/skills"}, ProjectPaths: []string{".adal/skills"}, DetectPaths: []string{".adal"}},
+}
+
+func Catalog() []Agent {
+	agents := make([]Agent, len(catalog))
+	for i, agent := range catalog {
+		agent.GlobalPaths = slices.Clone(agent.GlobalPaths)
+		agent.ProjectPaths = slices.Clone(agent.ProjectPaths)
+		agent.DetectPaths = slices.Clone(agent.DetectPaths)
+		agents[i] = agent
+	}
+	return agents
 }

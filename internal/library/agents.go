@@ -1,6 +1,7 @@
 package library
 
 import (
+	"cmp"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -81,7 +82,10 @@ type MigrationOutcome string
 const (
 	MigrationMoved   MigrationOutcome = "moved"   // 文件夹原样搬到了新目录
 	MigrationCopied  MigrationOutcome = "copied"  // 旧目录还有别的 Agent 在读:文件夹原样复制到新目录,旧文件夹留给它们,认这一处的照常算已装
-	MigrationSkipped MigrationOutcome = "skipped" // 新目录里已有同名文件夹,或库里已有别的技能装在那里:不覆盖、不搬,旧文件夹留在原处,这个 Agent 在这一处不再算已装
+	MigrationSkipped MigrationOutcome = "skipped" // 新目录里已有不是这个技能的同名文件夹,或库里已有别的技能装在那里:不覆盖、不搬,旧文件夹留在原处,这个 Agent 在这一处不再算已装
+	// 新目录里已经装着库里的这个技能(别的 Agent 装的,文件夹名可以不同):不复制、不搬,这个 Agent 改认那一处,照常算已装;
+	// 旧文件夹留在原处,还有别的 Agent 在读的连同安装记录留给它们,没有的库不再管理它。
+	MigrationAlreadyInstalled MigrationOutcome = "already_installed"
 )
 
 // AgentMigration 是改目录并迁移时一处安装的结果:这个 Agent 的某个作用域里的一个技能,含只因共用目录而算已装的。
@@ -237,7 +241,7 @@ func (l *Library) AddAgent(ctx context.Context, agent AgentInput) (added Agent, 
 	if err != nil {
 		return Agent{}, err
 	}
-	row.Code = "custom-" + hex.EncodeToString(randomBytes(6))
+	row.Code = customAgentPrefix + hex.EncodeToString(randomBytes(6))
 	row.Enabled = true
 	if err := l.store.AddAgent(ctx, row); err != nil {
 		return Agent{}, err
@@ -249,7 +253,8 @@ func (l *Library) AddAgent(ctx context.Context, agent AgentInput) (added Agent, 
 // 返回 NotFound。这个 Agent 的每处安装(含只因共用目录而算已装的)按编辑前的实际目录处理:
 //   - 这个目录还在新列表里:磁盘不动,安装记录跟着新列表换算。
 //   - 不在了、选了迁移:文件夹原样搬到新的第 1 个目录,不从库里重新安装,这个 Agent 在那里照常算已装;旧目录还有别的已添加 Agent
-//     在读时复制过去,旧文件夹和它的安装记录留给它们。新目录里已有同名文件夹、或库里已有别的技能装在那里的不覆盖、不搬,
+//     在读时复制过去,旧文件夹和它的安装记录留给它们。新目录里已经装着库里的这个技能(别的 Agent 装的)时不复制、不搬,
+//     这个 Agent 改认那一处,照常算已装。新目录里已有别的同名文件夹、或库里已有别的技能装在那里的不覆盖、不搬,
 //     旧文件夹留在原处,这个 Agent 在这一处不再算已装。逐处结果见 EditAgentResult.Migrations。新的第 1 个目录落在某个要迁移的
 //     技能文件夹里面时返回 InvalidArgument(Details.Field 为对应目录字段),什么都不改;复制期间新目录里出现了同名文件夹时
 //     返回 AlreadyExists(Details.Path 为该文件夹),什么都不改。
@@ -266,6 +271,10 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent AgentInpu
 	if err != nil {
 		return EditAgentResult{}, err
 	}
+	return l.editAgent(ctx, operation, code, row, opts)
+}
+
+func (l *Library) editAgent(ctx context.Context, operation string, code AgentCode, row store.Agent, opts EditAgentOptions) (result EditAgentResult, err error) {
 	current, err := l.enabledAgent(ctx, string(code))
 	if err != nil {
 		return EditAgentResult{}, err
@@ -324,15 +333,15 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent AgentInpu
 		destination := migrationDestination(item, row)
 		name := agentdir.FolderName(item.Folder)
 		migration := AgentMigration{SkillID: item.SkillID, Scope: item.Scope, From: item.Folder, To: agentdir.FolderPath(destination.directory, name)}
-		renamed, err := l.installedUnderAnotherName(ctx, item.SkillID, name, destination)
+		already, err := l.installedInDestination(ctx, item.SkillID, destination)
 		if err != nil {
 			return EditAgentResult{}, err
 		}
-		if renamed {
+		if already {
 			if item.own != nil {
 				dropped = append(dropped, item.own.ID)
 			}
-			migration.Outcome = MigrationSkipped
+			migration.Outcome = MigrationAlreadyInstalled
 			result.Migrations = append(result.Migrations, migration)
 			continue
 		}
@@ -429,14 +438,14 @@ func migrationDestination(item agentInstall, row store.Agent) resolvedScope {
 	return item.place.target.in(row.Paths(item.project())[0])
 }
 
-func (l *Library) installedUnderAnotherName(ctx context.Context, id SkillID, name string, destination resolvedScope) (bool, error) {
+func (l *Library) installedInDestination(ctx context.Context, id SkillID, destination resolvedScope) (bool, error) {
 	want := agentdir.Canonical(destination.directory)
 	installed, err := l.listSkillScopes(ctx, id, nil)
 	if err != nil {
 		return false, err
 	}
 	for _, other := range installed {
-		if agentdir.Canonical(agentdir.FolderDirectory(other.Folder)) == want && agentdir.FolderName(other.Folder) != name {
+		if agentdir.Canonical(agentdir.FolderDirectory(other.Folder)) == want {
 			return true, nil
 		}
 	}
@@ -493,6 +502,10 @@ func (l *Library) DeleteAgent(ctx context.Context, code AgentCode, opts DeleteAg
 	if err := validateFolderPolicy(operation, opts.Folders); err != nil {
 		return DeleteAgentResult{}, err
 	}
+	return l.deleteAgent(ctx, operation, code, opts, false)
+}
+
+func (l *Library) deleteAgent(ctx context.Context, operation string, code AgentCode, opts DeleteAgentOptions, forget bool) (result DeleteAgentResult, err error) {
 	agent, err := l.enabledAgent(ctx, string(code))
 	if err != nil {
 		return DeleteAgentResult{}, err
@@ -554,12 +567,135 @@ func (l *Library) DeleteAgent(ctx context.Context, code AgentCode, opts DeleteAg
 				return err
 			}
 		}
+		if forget {
+			return tx.ForgetAgent(ctx, string(code))
+		}
 		return tx.DisableAgent(ctx, string(code))
 	})
 	if err != nil {
 		return DeleteAgentResult{}, err
 	}
 	return result, nil
+}
+
+// ListAgentDefaults 列出应用内置收录的 Agent 的默认设置,按代码排序:名称、技能目录、检测目录与同名规则都是这一版应用内置的值,
+// 不是数据库里那一行,用户改过的照样按内置值列出;用户手填添加的、本版应用没有收录的不在里面。编辑 Agent 时给目录输入列候选、
+// 「恢复默认」前看哪些 Agent 会改,都用它。全局目录与检测目录按当前用户主目录(选了 WSL 发行版时是发行版里的)写成绝对路径。
+// 不检测,Detected 始终为 false。
+func (l *Library) ListAgentDefaults(ctx context.Context) (agents []Agent, err error) {
+	_, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	rows := store.Catalog()
+	slices.SortFunc(rows, func(a, b store.Agent) int { return strings.Compare(a.Code, b.Code) })
+	for _, row := range rows {
+		agent := Agent{
+			Code: AgentCode(row.Code), Name: row.Name, SameName: SameNameRule(row.SameName),
+			GlobalDirectories: []string{}, ProjectDirectories: slices.Clone(row.ProjectPaths), DetectDirectories: []string{},
+		}
+		for _, path := range row.GlobalPaths {
+			agent.GlobalDirectories = append(agent.GlobalDirectories, l.home.Join(path))
+		}
+		for _, path := range row.DetectPaths {
+			agent.DetectDirectories = append(agent.DetectDirectories, l.home.Join(path))
+		}
+		agents = append(agents, agent)
+	}
+	return agents, nil
+}
+
+// ResetAgentsOptions 是 ResetAgents 的选项,只管移除用户手填添加的 Agent 时只有它在读的技能文件夹,含义同 DeleteAgentOptions:
+// Folders 默认(零值或 Remove)删除,显式 Keep 保留;DiscardEdits 是确认时告诉用户被改过、修改会丢掉的文件夹。
+type ResetAgentsOptions struct {
+	Folders      FolderPolicy `json:"folders"`
+	DiscardEdits []string     `json:"discard_edits,omitempty"`
+}
+
+// ResetAgentsResult 是 ResetAgents 的结果,各项按代码(技能 ID、作用域)排序。
+type ResetAgentsResult struct {
+	// Removed 是移除了的用户手填添加的 Agent,含候选池里的。
+	Removed []AgentCode `json:"removed"`
+	// Reset 是换回了内置值的收录 Agent(已添加的和候选池里的),只列原来和内置值不一样的。
+	Reset []AgentCode `json:"reset"`
+	// Migrations 是已添加的收录 Agent 去掉了的目录里那几处安装的迁移结果,同 EditAgentResult.Migrations。
+	Migrations []AgentMigration `json:"migrations"`
+	// Kept 是移除手填添加的 Agent 时因为还有别的已添加 Agent 在读而保留的技能文件夹,同 DeleteAgentResult.Kept。
+	Kept []SkillScope `json:"kept"`
+}
+
+// ResetAgents 是设置页的「恢复默认」:把 Agent 设置和这一版应用内置的默认同步,免得同一个 Agent 有两个(用户手填的和收录的)。
+// 用户在确认框里确认过才调用:应用升级、拉回库时照旧不改写已有的 Agent,也不自动合并手填的 Agent,只有这里一次改写。
+//   - 用户手填添加的 Agent(代码以 custom- 开头)一律移除,不判断它和哪个收录的 Agent 重复,也不回到候选池。已添加的按 DeleteAgent 的规则
+//     处理安装:还有别的已添加 Agent 在读的文件夹总是保留并转交记录,只有它读的按 opts 删除或保留。先移除它们,再改收录的 Agent,
+//     这样手填 Agent 和收录 Agent 共用的文件夹先交给收录的那个,再随它迁移。
+//   - 收录的 Agent(已添加的和候选池里的)名称、技能目录、检测目录都换回内置值。已添加的按 EditAgent 选了迁移的规则处理:
+//     实际目录不在内置目录里的安装迁移到内置的第 1 个目录。不改哪些 Agent 已添加。
+//   - 本版应用没有收录、又不是手填的(从装了更新版本应用的机器同步来的)原样不动。
+//
+// 逐个 Agent 提交:中途失败时已经处理完的 Agent 保持处理后的样子,其余不动,再调用一次会接着做完;
+// 要删的文件夹确认之后才被改过时返回 Conflict(见 DeleteAgentOptions),那个 Agent 和之后的都没动。
+func (l *Library) ResetAgents(ctx context.Context, opts ResetAgentsOptions) (result ResetAgentsResult, err error) {
+	ctx, unlock := l.exclusiveOperation(ctx)
+	defer unlock()
+	defer func() { err = typedError(err) }()
+	const operation = "reset agents"
+	if err := validateFolderPolicy(operation, opts.Folders); err != nil {
+		return ResetAgentsResult{}, err
+	}
+	result = ResetAgentsResult{Removed: []AgentCode{}, Reset: []AgentCode{}, Migrations: []AgentMigration{}, Kept: []SkillScope{}}
+	rows, err := l.store.ListAgents(ctx)
+	if err != nil {
+		return ResetAgentsResult{}, err
+	}
+	for _, row := range rows {
+		if !strings.HasPrefix(row.Code, customAgentPrefix) {
+			continue
+		}
+		if row.Enabled {
+			deleted, err := l.deleteAgent(ctx, operation, AgentCode(row.Code), DeleteAgentOptions{Folders: opts.Folders, DiscardEdits: opts.DiscardEdits}, true)
+			if err != nil {
+				return ResetAgentsResult{}, err
+			}
+			result.Kept = append(result.Kept, deleted.Kept...)
+		} else if err := l.store.InTx(ctx, func(tx *store.Tx) error { return tx.ForgetAgent(ctx, row.Code) }); err != nil {
+			return ResetAgentsResult{}, err
+		}
+		result.Removed = append(result.Removed, AgentCode(row.Code))
+	}
+	rows, err = l.store.ListAgents(ctx)
+	if err != nil {
+		return ResetAgentsResult{}, err
+	}
+	for _, defaults := range store.Catalog() {
+		i := slices.IndexFunc(rows, func(row store.Agent) bool { return row.Code == defaults.Code })
+		if i < 0 || sameAgentSettings(rows[i], defaults) {
+			continue
+		}
+		if rows[i].Enabled {
+			edited, err := l.editAgent(ctx, operation, AgentCode(defaults.Code), defaults, EditAgentOptions{Migrate: true})
+			if err != nil {
+				return ResetAgentsResult{}, err
+			}
+			result.Migrations = append(result.Migrations, edited.Migrations...)
+		} else if err := l.store.InTx(ctx, func(tx *store.Tx) error { return tx.EditAgent(ctx, defaults) }); err != nil {
+			return ResetAgentsResult{}, err
+		}
+		result.Reset = append(result.Reset, AgentCode(defaults.Code))
+	}
+	slices.Sort(result.Reset)
+	slices.SortFunc(result.Migrations, func(a, b AgentMigration) int { return compareSkillInScope(a.SkillID, a.Scope, b.SkillID, b.Scope) })
+	slices.SortFunc(result.Kept, func(a, b SkillScope) int { return compareSkillInScope(a.SkillID, a.Scope, b.SkillID, b.Scope) })
+	return result, nil
+}
+
+const customAgentPrefix = "custom-"
+
+func compareSkillInScope(aID SkillID, a Scope, bID SkillID, b Scope) int {
+	return cmp.Or(cmp.Compare(aID, bID), cmp.Compare(a.Agent, b.Agent), cmp.Compare(a.ProjectID, b.ProjectID))
+}
+
+func sameAgentSettings(a, b store.Agent) bool {
+	return a.Name == b.Name && slices.Equal(a.GlobalPaths, b.GlobalPaths) && slices.Equal(a.ProjectPaths, b.ProjectPaths) &&
+		slices.Equal(slices.Sorted(slices.Values(a.DetectPaths)), slices.Sorted(slices.Values(b.DetectPaths)))
 }
 
 func (l *Library) groupHeirs(ctx context.Context, agent store.Agent) (map[bool]AgentCode, error) {

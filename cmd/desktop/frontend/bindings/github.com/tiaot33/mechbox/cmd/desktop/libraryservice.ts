@@ -165,6 +165,10 @@ export function KeepDeletedSkill(id: library$0.SkillID): $CancellablePromise<lib
     return $Call.ByID(2236391569, id);
 }
 
+export function ListAgentDefaults(): $CancellablePromise<library$0.Agent[] | null> {
+    return $Call.ByID(3665394065);
+}
+
 export function ListAgentPool(): $CancellablePromise<library$0.Agent[] | null> {
     return $Call.ByID(1173585253);
 }
@@ -319,6 +323,10 @@ export function ReorderCollections(ids: library$0.CollectionID[] | null): $Cance
 
 export function ReorderGroups(ids: library$0.GroupID[] | null): $CancellablePromise<void> {
     return $Call.ByID(3016330733, ids);
+}
+
+export function ResetAgents(opts: library$0.ResetAgentsOptions): $CancellablePromise<library$0.ResetAgentsResult> {
+    return $Call.ByID(1537500011, opts);
 }
 
 export function RetryUpdateInstalls(id: library$0.UpdateRecordID, installs: library$0.ReinstallRequest[] | null): $CancellablePromise<library$0.ReinstallResult[] | null> {

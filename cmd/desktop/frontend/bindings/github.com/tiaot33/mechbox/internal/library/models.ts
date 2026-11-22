@@ -1299,9 +1299,15 @@ export enum MigrationOutcome {
     MigrationCopied = "copied",
 
     /**
-     * 新目录里已有同名文件夹,或库里已有别的技能装在那里:不覆盖、不搬,旧文件夹留在原处,这个 Agent 在这一处不再算已装
+     * 新目录里已有不是这个技能的同名文件夹,或库里已有别的技能装在那里:不覆盖、不搬,旧文件夹留在原处,这个 Agent 在这一处不再算已装
      */
     MigrationSkipped = "skipped",
+
+    /**
+     * 新目录里已经装着库里的这个技能(别的 Agent 装的,文件夹名可以不同):不复制、不搬,这个 Agent 改认那一处,照常算已装;
+     * 旧文件夹留在原处,还有别的 Agent 在读的连同安装记录留给它们,没有的库不再管理它。
+     */
+    MigrationAlreadyInstalled = "already_installed",
 };
 
 /**
@@ -1717,6 +1723,40 @@ export interface RemoveSkillOptions {
      * 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
      */
     "discard_edits"?: string[] | null;
+}
+
+/**
+ * ResetAgentsOptions 是 ResetAgents 的选项,只管移除用户手填添加的 Agent 时只有它在读的技能文件夹,含义同 DeleteAgentOptions:
+ * Folders 默认(零值或 Remove)删除,显式 Keep 保留;DiscardEdits 是确认时告诉用户被改过、修改会丢掉的文件夹。
+ */
+export interface ResetAgentsOptions {
+    "folders": FolderPolicy;
+    "discard_edits"?: string[] | null;
+}
+
+/**
+ * ResetAgentsResult 是 ResetAgents 的结果,各项按代码(技能 ID、作用域)排序。
+ */
+export interface ResetAgentsResult {
+    /**
+     * Removed 是移除了的用户手填添加的 Agent,含候选池里的。
+     */
+    "removed": AgentCode[] | null;
+
+    /**
+     * Reset 是换回了内置值的收录 Agent(已添加的和候选池里的),只列原来和内置值不一样的。
+     */
+    "reset": AgentCode[] | null;
+
+    /**
+     * Migrations 是已添加的收录 Agent 去掉了的目录里那几处安装的迁移结果,同 EditAgentResult.Migrations。
+     */
+    "migrations": AgentMigration[] | null;
+
+    /**
+     * Kept 是移除手填添加的 Agent 时因为还有别的已添加 Agent 在读而保留的技能文件夹,同 DeleteAgentResult.Kept。
+     */
+    "kept": SkillScope[] | null;
 }
 
 /**
