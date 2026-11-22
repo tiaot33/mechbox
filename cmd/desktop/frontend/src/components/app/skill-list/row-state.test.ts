@@ -255,6 +255,9 @@ describe("未纳管技能一行的状态", () => {
     expect(same.library).toBe(pdf);
     expect(same.state.map((x) => x.text)).toEqual(["和库里的「pdf」一样"]);
     expect(same.alerts).toEqual([]);
+    // 没有来源的 pdf:来源记录记着的来源不写在这一行，入库只补记安装，不跟着它。
+    const recorded = unmanagedRowState(s, unmanaged("pdf", at(claude), { skill_id: 1, source_input: "matt/skills" }));
+    expect(recorded.notes.map((x) => x.className)).not.toContain("unmanaged-source-label");
     const newer = unmanagedRowState(s, unmanaged("pdf", at(claude), { source_latest_of: 1 }));
     expect(newer.newer).toBe(pdf);
     expect(newer.state.map((x) => x.text)).toEqual(["库里「pdf」的新版"]);

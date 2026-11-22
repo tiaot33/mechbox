@@ -343,7 +343,7 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folders
 	records := l.sourceRecords()
 	for _, each := range folders {
 		if entry, ok := records.find(each.target, each.parsed.Name, each.name); ok {
-			if !entry.recognized || entry.input != input || entry.ref != ref {
+			if !entry.from(input, ref) {
 				continue
 			}
 			eachFiles := each.disk.as(reference)
@@ -356,20 +356,11 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folders
 	var row store.Skill
 	err = l.store.InTx(ctx, func(tx *store.Tx) error {
 		now := clockNow()
-		sourceID, err := tx.UpsertSource(ctx, sourced.record)
+		sourceID, err := joinCollection(ctx, tx, operation, sourced, name, true)
 		if err != nil {
 			return err
 		}
-		if err := tx.ListSourceSkills(ctx, sourceID, append(sourced.names, name), sourced.revision, true); err != nil {
-			return err
-		}
-		id, err := tx.FindSkill(ctx, sourceID, name)
-		if err != nil {
-			return err
-		}
-		if id != 0 {
-			return existsError(operation, "the collection already has a skill with this name and different content", ErrorDetails{SkillID: SkillID(id), Name: name})
-		}
+		var id int64
 		version := store.NewVersion{Description: folder.parsed.Description, Files: files, CreatedAt: now}
 		switch {
 		case skillfile.SameContentFiles(files, sourced.skill.Files):
@@ -404,6 +395,29 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folders
 		return FetchUnmanagedResult{}, err
 	}
 	return FetchUnmanagedResult{Skill: skill}, nil
+}
+
+func joinCollection(ctx context.Context, tx *store.Tx, operation string, sourced sourcedSkill, name string, seenAll bool) (int64, error) {
+	sourceID, err := tx.UpsertSource(ctx, sourced.record)
+	if err != nil {
+		return 0, err
+	}
+	if seenAll {
+		err = tx.ListSourceSkills(ctx, sourceID, append(sourced.names, name), sourced.revision, true)
+	} else {
+		err = tx.MarkSeen(ctx, sourceID, []string{name})
+	}
+	if err != nil {
+		return 0, err
+	}
+	other, err := tx.FindSkill(ctx, sourceID, name)
+	if err != nil {
+		return 0, err
+	}
+	if other != 0 {
+		return 0, existsError(operation, "the collection already has a skill with this name", ErrorDetails{SkillID: SkillID(other), Name: name})
+	}
+	return sourceID, nil
 }
 
 // PlanFetchUnmanagedRequest 指定整批入库要看哪些作用域。
@@ -776,6 +790,10 @@ type sourceRecord struct {
 
 func (l *Library) sourceRecords() *sourceRecords {
 	return &sourceRecords{home: l.home, read: map[string]skilllock.Records{}}
+}
+
+func (r sourceRecord) from(input, ref string) bool {
+	return r.recognized && r.input == input && r.ref == ref
 }
 
 func (f *sourceRecords) find(target resolvedScope, names ...string) (sourceRecord, bool) {

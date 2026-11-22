@@ -4,7 +4,7 @@ import { SourceType, type Skill, type SkillVersion } from "@bindings/internal/li
 import { formatDate } from "@/lib/content";
 import { messages, useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import { collectionSkills, isLocal, noSource, recordedSources, revisionSummary, revisionText, sourceKindLabel, sourceLabel } from "@/lib/source";
+import { collectionSkills, isLocal, noSource, recordedSources, revisionSummary, revisionText, sourceKindLabel, sourceLabel, sourceWithRef } from "@/lib/source";
 import { placeNames } from "@/lib/places";
 import { attachSource } from "@/features/skill/attach-source";
 import { twinNote, sameNameInLibrary } from "@/lib/same-name";
@@ -59,7 +59,7 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
             <dt className="self-start">{d.recordedSource}</dt>
             <dd className="recorded-sources flex min-w-0 flex-col gap-1">
               {recorded.map((r) => {
-                const label = r.ref ? `${r.input} · ${r.ref}` : r.input;
+                const label = sourceWithRef(r.input, r.ref);
                 return (
                   <span key={label} className="recorded-source flex min-w-0 items-center gap-2">
                     <Truncated always tip={d.recordedSourceTitle(placeNames(s, r.places), label)}>

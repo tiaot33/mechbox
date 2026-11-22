@@ -210,8 +210,9 @@ export function unmanagedRowState(
 ): UnmanagedRowState {
   const t = messages().list;
   const same = sameNameNote(s, scopeKey(skill.scope), skill.folder);
-  const source = skill.source_input || found;
   const library = s.skills.find((x) => x.id === skill.skill_id);
+  // 认出是库里技能的不写来源：入库只补记安装，不跟着这个来源(没有来源的技能在技能详情里接上来源)。
+  const source = library ? undefined : skill.source_input || found;
   const newer = s.skills.find((x) => x.id === skill.source_latest_of);
   const invalid = skill.invalid ? skillFileProblemText(skill.invalid) : "";
   const state = [

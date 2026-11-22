@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { SourceType, type Collection, type Scope, type Skill, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { collectionName, foldCollections, recordedSources, sourceShort } from "./source";
+import { collectionName, foldCollections, recordedSources, sourceShort, sourceWithRef } from "./source";
 
 const collection = (id: number, label: string, skills: number[] = []) => ({ id, skills, source: { type: SourceType.SourceGitHub, label } }) as Collection;
 const snapshot = (s: Partial<Snapshot>) =>
@@ -74,5 +74,12 @@ describe("recordedSources", () => {
   it("技能有来源时没有", () => {
     const s = { skillScopes: [installed(codex, "owner/repo")], unmanaged: [] };
     expect(recordedSources(s, { ...sourceless, source: { type: SourceType.SourceGitHub, label: "owner/repo" } } as Skill)).toEqual([]);
+  });
+});
+
+describe("sourceWithRef", () => {
+  it("有分支时接在链接后面，没有时只写链接", () => {
+    expect(sourceWithRef("owner/repo", "main")).toBe("owner/repo · main");
+    expect(sourceWithRef("owner/repo")).toBe("owner/repo");
   });
 });

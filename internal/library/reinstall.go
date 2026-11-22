@@ -87,6 +87,7 @@ type SkillScopeInspection struct {
 	LinkedBy []Scope `json:"linked_by,omitempty"`
 	// SourceInput、SourceRef 只在技能没有来源、这一处的文件夹还在时可能不为空:npx skills 的来源记录里记着这一处来自哪个来源,
 	// 规则与格式同 UnmanagedSkill.SourceInput、SourceRef(按技能名、再按文件夹名对上记录)。界面据此提示可以把这个来源接到技能上(AttachSource)。
+	// 只有 InspectSkillScopes 给出,更新计划里的各处(UpdatePlan.Installs)不带。
 	SourceInput string `json:"source_input,omitempty"`
 	SourceRef   string `json:"source_ref,omitempty"`
 }
@@ -122,13 +123,16 @@ func (l *Library) InspectSkillScopes(ctx context.Context, filter SkillScopeFilte
 	if err != nil {
 		return nil, err
 	}
-	return l.inspectSkillScopes(ctx, operation, skillScopes)
+	inspections, err = l.inspectSkillScopes(ctx, operation, skillScopes)
+	if err != nil {
+		return nil, err
+	}
+	return inspections, l.recordedSources(ctx, operation, inspections)
 }
 
 func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skillScopes []SkillScope) ([]SkillScopeInspection, error) {
 	inspections := make([]SkillScopeInspection, len(skillScopes))
 	heads := make([]int64, len(skillScopes))
-	targets := make([]resolvedScope, len(skillScopes))
 	rootsMissing := map[string]bool{}
 	var present, absent folderGroups
 	skills := map[SkillID]bool{}
@@ -152,7 +156,7 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 			missing = failure != nil
 			rootsMissing[target.root] = missing
 		}
-		heads[i], targets[i] = head, target
+		heads[i] = head
 		if missing {
 			inspections[i].Status = SkillScopeRootMissing
 			absent.add(folder, i)
@@ -200,9 +204,6 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 	if len(skills) == 0 {
 		return inspections, nil
 	}
-	if err := l.recordedSources(ctx, inspections, targets); err != nil {
-		return nil, err
-	}
 	var id SkillID
 	if len(skills) == 1 {
 		id = skillScopes[0].SkillID
@@ -221,7 +222,7 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 	return inspections, nil
 }
 
-func (l *Library) recordedSources(ctx context.Context, inspections []SkillScopeInspection, targets []resolvedScope) error {
+func (l *Library) recordedSources(ctx context.Context, operation string, inspections []SkillScopeInspection) error {
 	sourceless, err := l.store.SourcelessSkills(ctx)
 	if err != nil || len(sourceless) == 0 {
 		return err
@@ -233,7 +234,11 @@ func (l *Library) recordedSources(ctx context.Context, inspections []SkillScopeI
 		if !ok || inspection.Status == SkillScopeMissing || inspection.Status == SkillScopeRootMissing {
 			continue
 		}
-		if record, ok := records.find(targets[i], name, agentdir.FolderName(inspection.Folder)); ok && record.recognized {
+		target, err := l.resolveScope(ctx, operation, inspection.Scope)
+		if err != nil {
+			return err
+		}
+		if record, ok := records.find(target, name, agentdir.FolderName(inspection.Folder)); ok && record.recognized {
 			inspection.SourceInput, inspection.SourceRef = record.input, record.ref
 		}
 	}

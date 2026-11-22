@@ -204,3 +204,94 @@ func TestAttachSourceErrors(t *testing.T) {
 		t.Fatalf("ListCollections() = %#v, %v, want none", collections, err)
 	}
 }
+
+// updateFromClaude 让 Claude Code 全局的 pdf 写成 body,再用这份修改更新库里的 pdf。
+func (f sourcedSkillFixture) updateFromClaude(t *testing.T, id library.SkillID, body string) library.Skill {
+	t.Helper()
+	f.writeDisk(t, body)
+	plan, err := f.lib.PlanUpdateFromScope(t.Context(), id, f.claude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := f.lib.Update(t.Context(), library.UpdateRequest{Plan: plan.ID, Skills: []library.SkillID{id}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill := result.Skills[0].Skill
+	if version := f.currentVersion(t, skill); version.BasedOn == 0 {
+		t.Fatalf("version = %#v, want an edit from the scope", version)
+	}
+	return skill
+}
+
+func TestAttachSourceAfterUpdatingFromAScope(t *testing.T) {
+	t.Parallel()
+	t.Run("the edit is what the author has now", func(t *testing.T) {
+		f := newSourcedSkillFixture(t)
+		pdf := f.sourcelessPDF(t, "v1")
+		f.updateFromClaude(t, pdf.ID, "v2")
+		f.publish(t, "v2")
+
+		skill := f.attach(t, pdf.ID)
+		if skill.Edited || skill.Revision != gitRevParse(t, f.repo, "HEAD") {
+			t.Fatalf("AttachSource() = %#v, want the author's version, not an edit", skill)
+		}
+		if version := f.currentVersion(t, skill); version.BasedOn != 0 {
+			t.Fatalf("version = %#v, want no longer based on the earlier version", version)
+		}
+		requireCheck(t, f.lib, pdf.ID, library.UpdateCurrent, false, false)
+		// 作者退回 v1:库里是 v2,照常报有新版本，不当成用户的修改。
+		f.publish(t, "v1")
+		requireCheck(t, f.lib, pdf.ID, library.UpdateAvailable, false, true)
+		if _, planned := f.planned(t, skill); planned.Edited {
+			t.Fatalf("planned = %#v, want a plain change", planned)
+		}
+	})
+	t.Run("the record confirms the author's older version", func(t *testing.T) {
+		f := newSourcedSkillFixture(t)
+		pdf := f.sourcelessPDF(t, "mine")
+		f.updateFromClaude(t, pdf.ID, "v1")
+		f.recordGlobal(t, f.v1Tree)
+		f.publish(t, "v2")
+
+		skill := f.attach(t, pdf.ID)
+		if skill.Edited {
+			t.Fatalf("AttachSource() = %#v, want the author's older version, not an edit", skill)
+		}
+		requireCheck(t, f.lib, pdf.ID, library.UpdateAvailable, false, true)
+		if _, planned := f.planned(t, skill); planned.Edited {
+			t.Fatalf("planned = %#v, want a plain change", planned)
+		}
+	})
+	t.Run("other edits stay edits", func(t *testing.T) {
+		f := newSourcedSkillFixture(t)
+		pdf := f.sourcelessPDF(t, "v1")
+		f.updateFromClaude(t, pdf.ID, "edited")
+
+		skill := f.attach(t, pdf.ID)
+		if !skill.Edited {
+			t.Fatalf("AttachSource() = %#v, want the edit kept", skill)
+		}
+		// 修改基于的 v1 就是作者现在的:作者没再改，不报有新版本。
+		requireCheck(t, f.lib, pdf.ID, library.UpdateCurrent, false, false)
+	})
+}
+
+func TestAttachSourceKeepsTheNewSkillsOfTheCollection(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	f := newSourcedSkillFixture(t)
+	docx := fetchSkills(t, f.lib, mustPreview(t, f.lib, gitHubRequest()), []string{"docx"})[0]
+	writeFile(t, filepath.Join(f.repo, "skills", "xlsx", "SKILL.md"), []byte(skillDocument("xlsx", "v1")), 0o644)
+	commitGit(t, f.repo, "add xlsx")
+	f.api.Swap(inspectGitHubRepo(t, f.repo))
+	requireCheck(t, f.lib, docx.ID, library.UpdateCurrent, false, false)
+	pdf := f.sourcelessPDF(t, "v1")
+
+	skill := f.attach(t, pdf.ID)
+	collections, err := f.lib.ListCollections(ctx)
+	if err != nil || len(collections) != 1 || collections[0].ID != skill.CollectionID ||
+		!reflect.DeepEqual(collections[0].Skills, []library.SkillID{docx.ID, pdf.ID}) || !reflect.DeepEqual(collections[0].NewSkills, []string{"xlsx"}) {
+		t.Fatalf("ListCollections() = %#v, %v, want docx and pdf, xlsx still new", collections, err)
+	}
+}

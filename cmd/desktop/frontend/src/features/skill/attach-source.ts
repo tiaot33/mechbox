@@ -3,13 +3,13 @@ import { LibraryService } from "@bindings/cmd/desktop";
 import { ErrorCode, type Skill } from "@bindings/internal/library";
 import { attachSourceError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
-import type { RecordedSource } from "@/lib/source";
+import { sourceWithRef, type RecordedSource } from "@/lib/source";
 import { ui } from "@/lib/ui";
 import { openDrawer } from "@/lib/view";
 
 export async function attachSource(skill: Skill, recorded: RecordedSource): Promise<void> {
   const t = messages().drawer;
-  const source = recorded.ref ? `${recorded.input} · ${recorded.ref}` : recorded.input;
+  const source = sourceWithRef(recorded.input, recorded.ref);
   const ok = await ui.confirm({ title: t.attachSourceTitle(skill.name, source), body: t.attachSourceBody, confirm: t.attachSource });
   if (!ok) return;
   await ui.run(() => LibraryService.AttachSource({ skill_id: skill.id, source_input: recorded.input, source_ref: recorded.ref }), {

@@ -2177,6 +2177,7 @@ export interface SkillScopeInspection {
     /**
      * SourceInput、SourceRef 只在技能没有来源、这一处的文件夹还在时可能不为空:npx skills 的来源记录里记着这一处来自哪个来源,
      * 规则与格式同 UnmanagedSkill.SourceInput、SourceRef(按技能名、再按文件夹名对上记录)。界面据此提示可以把这个来源接到技能上(AttachSource)。
+     * 只有 InspectSkillScopes 给出,更新计划里的各处(UpdatePlan.Installs)不带。
      */
     "source_input"?: string;
     "source_ref"?: string;

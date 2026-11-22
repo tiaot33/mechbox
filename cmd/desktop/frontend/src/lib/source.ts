@@ -154,6 +154,11 @@ export function revisionText(summary: RevisionSummary | undefined): string {
 
 // ---------- 来源记录记着的来源 ----------
 
+// sourceWithRef 是界面上写一个来源链接连同分支的样子:「owner/repo · main」，没有分支时只写链接。
+export function sourceWithRef(input: string, ref?: string): string {
+  return ref ? `${input} · ${ref}` : input;
+}
+
 // RecordedSource 是没有来源的技能在 npx skills 的来源记录里记着的一个来源:places 是记着它的那几处(装着的，或显示在技能下面的未纳管技能)。
 export interface RecordedSource {
   input: string;

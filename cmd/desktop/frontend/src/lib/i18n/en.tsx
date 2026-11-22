@@ -75,7 +75,8 @@ export const en = {
     sourceMissing: (name: string, clear: string, message: string) =>
       `“${name}” isn't in the Source. You can change the link. ${clear}\n${message}`,
     sourceUnrecognized: (clear: string, message: string) => `This Source link isn't recognized. You can edit it. ${clear}\n${message}`,
-    attachExists: (name: string) => `This Source’s collection already has “${name}”, so it can’t be attached.`,
+    attachExists: (name: string) =>
+      `This Source’s collection already has “${name}”, so it can’t be attached. To keep just one, remove the other under “Same name” in the skill details.`,
     attachMissing: (name: string, message: string) => `“${name}” isn’t in this Source, so it can’t be attached.\n${message}`,
     attachUnreachable: "Can’t reach this Source. You can try again later.",
   },
@@ -645,7 +646,7 @@ export const en = {
     attachSource: "Attach Source",
     attachSourceTitle: (name: string, source: string) => `Attach ${source} to “${name}”?`,
     attachSourceBody:
-      "It then works like a skill fetched from this Source: checking for updates, updating and rolling back as usual. Its versions, installs and groups stay the same, and no folder is touched. If the Library’s content differs from the Source, the first check reports a new version.",
+      "It then works like a skill fetched from this Source: checking for updates, updating and rolling back as usual. Its versions, installs and groups stay the same, and no folder is touched.",
     attachingSource: (name: string) => `Attaching a Source to “${name}”`,
     attachedSource: (name: string, source: string) => `“${name}” now follows ${source}`,
     sameSource: "Same Source",

@@ -21,12 +21,14 @@ type AttachSourceRequest struct {
 
 // AttachSource 给库里一个没有来源的技能接上来源:之后它和从这个来源入库的技能一样,进这个来源的集合(库里已有这个来源时进已有的集合),
 // 照常检查更新、更新与回滚。技能 ID、版本历史、各处安装、组与备注都不变,不改磁盘,也不新增版本。
-// 先按入库预览的规则识别并读取来源(联网期间不持库锁),在来源里按技能名取这个技能,和入库一样按整个来源记下当时有哪些技能,都算用户见过。
-// 当前版本和来源里这个技能现在的内容一致(不比可执行位)时,就记为来源里的那一版(带来源版本,Skill.Revision),检查更新照常;
-// 不一致时来源版本未知,第一次检查更新就按内容报为有新版本:
+// 先按入库预览的规则识别并读取来源(联网期间不持库锁),在来源里按技能名取这个技能。这个来源还没有集合时,和入库一样按整个来源
+// 记下当时有哪些技能,都算用户见过;已有集合时只把这个技能记为见过,集合上原来的新技能照旧提示。
+// 当前版本和来源里的是什么关系(不比可执行位),按先后:
+//   - 和来源里这个技能现在的内容一致:就是来源里的那一版(带来源版本,Skill.Revision),不再算用户的修改,检查更新照常。
+//   - npx skills 的来源记录(各 Agent 目录里这个技能的文件夹与同名文件夹的,见 UnmanagedSkill.SourceInput)里有记着同一个来源、
+//     哈希又对得上当前版本的:是当初从这个来源装的原样,作者的旧版,来源版本未知,检查更新按内容比较,不算用户的修改。
 //   - 当前版本是用目录里的修改更新进来的(SkillVersion.BasedOn 不为空):照旧算这份修改,检查更新只看来源里的和它所基于的那一版相比有没有改过。
-//   - 否则,npx skills 的来源记录(各 Agent 目录里这个技能的文件夹与同名文件夹的,见 UnmanagedSkill.SourceInput)里有记着同一个来源、
-//     哈希又对得上当前版本的,能确认当前版本是当初从这个来源装的原样,是作者的旧版;没有时标为 SkillVersion.MaybeEdited,更新计划提示会换掉修改。
+//   - 其余:说不清有没有用户的修改,标为 SkillVersion.MaybeEdited,检查更新按内容比较,更新计划提示会换掉修改。
 //
 // 错误:SourceInput 为空返回 InvalidArgument(Details.Field 为 source_input),来源识别不了时 Details.Field 为 source_input / source_ref;
 // 技能不存在返回 NotFound;技能已经有来源返回 FailedPrecondition;来源里没有这个技能返回 NotFound(Details.Name 为技能名);
@@ -67,19 +69,15 @@ func (l *Library) AttachSource(ctx context.Context, req AttachSourceRequest) (sk
 		} else if current.Source.ID != 0 || current.Name != name {
 			return preconditionError(operation, "the skill changed while the source was read", ErrorDetails{SkillID: req.SkillID})
 		}
-		sourceID, err := tx.UpsertSource(ctx, sourced.record)
+		followed, err := tx.FollowedSource(ctx, sourced.record.Type, sourced.record.Locator)
 		if err != nil {
 			return err
 		}
-		if err := tx.ListSourceSkills(ctx, sourceID, append(sourced.names, name), sourced.revision, true); err != nil {
+		sourceID, err := joinCollection(ctx, tx, operation, sourced, name, followed == 0)
+		if err != nil {
 			return err
 		}
-		if other, err := tx.FindSkill(ctx, sourceID, name); err != nil {
-			return err
-		} else if other != 0 {
-			return existsError(operation, "the collection already has a skill with this name", ErrorDetails{SkillID: SkillID(other), Name: name})
-		}
-		if _, err := tx.AttachSource(ctx, int64(req.SkillID), sourceID); err != nil {
+		if err := tx.AttachSource(ctx, int64(req.SkillID), sourceID); err != nil {
 			return err
 		}
 		current, err := tx.GetCurrent(ctx, int64(req.SkillID))
@@ -88,10 +86,11 @@ func (l *Library) AttachSource(ctx context.Context, req AttachSourceRequest) (sk
 		}
 		switch {
 		case skillfile.SameContentFiles(current.Files, sourced.skill.Files):
-			err = tx.ConfirmVersion(ctx, int64(req.SkillID), string(sourced.skill.State), sourced.revision)
+			err = tx.MarkSourceVersion(ctx, int64(req.SkillID), string(sourced.skill.State), sourced.revision)
+		case slices.ContainsFunc(records, func(record sourceRecord) bool { return record.Matches(current.Files) }):
+			err = tx.MarkSourceVersion(ctx, int64(req.SkillID), "", "")
 		case current.Base == 0:
-			untouched := slices.ContainsFunc(records, func(record sourceRecord) bool { return record.Matches(current.Files) })
-			err = tx.MarkMaybeEdited(ctx, int64(req.SkillID), !untouched)
+			err = tx.MarkMaybeEdited(ctx, int64(req.SkillID))
 		}
 		if err != nil {
 			return err
@@ -130,7 +129,7 @@ func (l *Library) sourceRecordsOf(ctx context.Context, id SkillID, name, input, 
 		if folder.skillID != id && (folder.skillID != 0 || skillName(folder.Folder) != name) {
 			continue
 		}
-		if record, ok := records.find(folder.target, name, folder.Name); ok && record.recognized && record.input == input && record.ref == ref {
+		if record, ok := records.find(folder.target, name, folder.Name); ok && record.from(input, ref) {
 			found = append(found, record)
 		}
 	}
