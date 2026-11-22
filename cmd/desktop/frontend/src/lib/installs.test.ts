@@ -7,13 +7,15 @@ import {
   SkillScopeStatus,
   SourceType,
   type Agent,
+  type Group,
+  type GroupInstall,
   type RegisteredProject,
   type Scope,
   type Skill,
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { editedHere, errorOccupier, folderPresent, installedSummary, needsReinstall, needsRepair, occupierOf, reinstallAlerts, reinstallLevel } from "./installs";
+import { editedHere, errorOccupier, folderPresent, groupStateIn, installedSummary, needsReinstall, needsRepair, occupierOf, reinstallAlerts, reinstallLevel } from "./installs";
 
 const snapshot = (s: Partial<Snapshot>) =>
   ({ collections: [], groups: [], skills: [], skillScopes: [], unmanaged: [], agents: [], projects: [], info: { home_dir: "/home" }, ...s }) as unknown as Snapshot;
@@ -144,5 +146,24 @@ describe("装不上时占着文件夹的同名技能", () => {
     expect(errorOccupier(s, 1, { code: ErrorCode.FailedPrecondition, details: { skill_id: 2 } })).toBe(2);
     expect(errorOccupier(s, 1, { code: ErrorCode.NotFound, details: { skill_id: 2 } })).toBeUndefined();
     expect(errorOccupier(s, 1, undefined)).toBeUndefined();
+  });
+});
+
+describe("groupStateIn", () => {
+  // Codex、Amp 在项目里都只读 .agents/skills,合成一处;Amp 的代码排序更靠前，添加后成了代表。
+  const agents = [
+    { code: "amp", name: "Amp", global_directories: ["/home/.amp/skills"], project_directories: [".agents/skills"] },
+    { code: AgentCode.AgentCodex, name: "Codex", global_directories: ["/home/.codex/skills"], project_directories: [".agents/skills"] },
+  ] as Agent[];
+  const group = { id: 5, name: "前端" } as Group;
+  const s = snapshot({ agents, agentsShown: {}, groupInstalls: [{ group_id: 5, scope: where(AgentCode.AgentCodex, 7) } as GroupInstall] });
+
+  it("合成一处里任何一个 Agent 有组安装就是开，代表换了也不变", () => {
+    expect(groupStateIn(s, group, "amp@7")).toBe("on");
+    expect(groupStateIn(s, group, `${AgentCode.AgentCodex}@7`)).toBe("on");
+  });
+
+  it("别的层级、不合成的 Agent 的组安装不算", () => {
+    expect(groupStateIn(s, group, "amp@0")).toBe("off");
   });
 });

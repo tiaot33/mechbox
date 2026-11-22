@@ -3,9 +3,9 @@ import type { RegisteredProject } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { agentName, parseScope, placeOf, projectName, type ScopeKey } from "@/lib/scope";
-import { agentNameIn, scopeLabel } from "@/lib/places";
-import { groupStateIn, editedHere, needsRepair, reinstallLevel, skillScopeIn, skillScopesIn } from "@/lib/installs";
-import { shortPath, wslTitle } from "@/lib/paths";
+import { agentNameIn, directoriesAt, scopeLabel } from "@/lib/places";
+import { groupInstallIn, groupStateIn, editedHere, needsRepair, reinstallLevel, skillScopeIn, skillScopesIn } from "@/lib/installs";
+import { joinUnder, shortPath, wslTitle } from "@/lib/paths";
 import { extraCopy, splitIdentical, unmanagedIn, fetchable } from "@/lib/unmanaged";
 import type { Level } from "@/lib/level";
 import { cn } from "@/lib/utils";
@@ -51,6 +51,11 @@ export function ScopeSummary({ scope, directory, here, global }: { scope: ScopeK
   const c = useT().copy;
   const agent = agentNameIn(s, sc.agent, placeOf(sc));
   const missingProject = sc.project_id ? s.projects.find((p) => p.id === sc.project_id && p.missing) : undefined;
+  // 这个 Agent 在这一层级的全部技能目录：第 1 个是技能库给出的(装新技能的地方),其余照着目录列表接在项目根或照原样写出。
+  const record = s.agents.find((a) => a.code === sc.agent);
+  const root = s.projects.find((p) => p.id === sc.project_id)?.path;
+  const extra = record ? directoriesAt(record, placeOf(sc)).slice(1).map((dir) => (sc.project_id ? (root ? joinUnder(root, dir) : dir) : dir)) : [];
+  const directories = directory ? [directory, ...extra] : [];
   return (
     <div className={cn(barClass, nameIndent, "pr-3")}>
       {/* 第一行：标题在左，这一页的动作都在右边排成一排。 */}
@@ -77,8 +82,8 @@ export function ScopeSummary({ scope, directory, here, global }: { scope: ScopeK
         <span className="flex min-w-0 items-center gap-1.5">
           {t.agentDirectory}
           <WSLBadge path={directory} />
-          <span className="max-w-[360px] truncate font-mono text-foreground-secondary select-text" title={wslTitle(directory)}>
-            {directory ? shortPath(s, directory) : "…"}
+          <span className="max-w-[360px] truncate font-mono text-foreground-secondary select-text" title={wslTitle(directory) ?? (directories.length > 1 ? directories.map((d) => shortPath(s, d)).join("\n") : undefined)}>
+            {directory ? directories.map((d) => shortPath(s, d)).join(t.directorySeparator) : "…"}
           </span>
         </span>
         <Stat value={installed.length} label={t.statInstalled} />
@@ -109,7 +114,7 @@ export function ScopeSummary({ scope, directory, here, global }: { scope: ScopeK
                   "gchip inline-flex h-[22px] shrink-0 items-center gap-1.5 rounded-control border border-tag-border bg-tag px-2 text-caption text-foreground-secondary transition-colors hover:bg-fill",
                   on && "text-foreground",
                 )}
-                onClick={() => (on ? uninstallGroup(g.id, sc) : installGroup(g.id, sc))}
+                onClick={() => (on ? uninstallGroup(g.id, groupInstallIn(s, g, scope) ?? sc) : installGroup(g.id, sc))}
                 title={t.groupChipTitle(g.name, on)}
               >
                 <i className={cn("size-[7px] rounded-full border-[1.5px] border-muted-foreground", on && "border-primary bg-primary")} />

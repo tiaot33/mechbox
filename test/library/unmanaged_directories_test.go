@@ -158,7 +158,7 @@ func TestInstallInAnAdditionalDirectoryIsUpdatedAndRemovedInPlace(t *testing.T) 
 }
 
 // 旧版 npx skills 在 ~/.cursor/skills 留下指向 ~/.agents/skills 里已入库文件夹的链接:Cursor 下只算一处,不列未纳管、不报同名;
-// 从 Codex 卸载时巡检给出这个链接,卸载把它一并删掉。
+// 从 Codex 卸载时巡检给出这个链接(只算旧链接,不算拷贝),卸载把它一并删掉。
 func TestLinkToAFolderInAnotherDirectoryCountsOnceAndGoesWithIt(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -185,8 +185,8 @@ func TestLinkToAFolderInAnotherDirectoryCountsOnceAndGoesWithIt(t *testing.T) {
 		t.Fatalf("ListSameNameSkills() = %#v; want none", same)
 	}
 	inspections, err := lib.InspectSkillScopes(ctx, library.SkillScopeFilter{SkillID: foo.ID, Scope: &codex})
-	if err != nil || len(inspections) != 1 || !reflect.DeepEqual(inspections[0].StaleLinks, []string{link}) {
-		t.Fatalf("InspectSkillScopes(foo, codex) = %#v, %v; want the link %s to be removed with it", inspections, err, link)
+	if err != nil || len(inspections) != 1 || !reflect.DeepEqual(inspections[0].StaleLinks, []string{link}) || len(inspections[0].Copies) != 0 {
+		t.Fatalf("InspectSkillScopes(foo, codex) = %#v, %v; want the link %s to be removed with it, not listed as a copy", inspections, err, link)
 	}
 	if err := lib.Uninstall(ctx, foo.ID, codex, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
@@ -240,6 +240,59 @@ func TestCopyInAnotherDirectoryIsHiddenUntilTheSkillMovesOn(t *testing.T) {
 	}}
 	if same := sameNameSkills(t, lib); !reflect.DeepEqual(same, want) {
 		t.Fatalf("ListSameNameSkills() = %#v, want %#v", same, want)
+	}
+}
+
+// foo 装给 Cursor(写进 ~/.agents/skills),~/.cursor/skills 里有一份和它内容一致的拷贝:巡检这一处给出这份拷贝;
+// 指向别处一份一致内容的链接也算;同名但内容不同的不算。从 Cursor 卸载后 Cursor 照样读得到拷贝,它被纳入,Cursor 仍算装着 foo。
+func TestInspectionListsCopiesTheAgentStillReadsAfterRemoval(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	lib, agents, cursor := cursorHome(t)
+	global := library.GlobalScope("cursor")
+	foo, _ := fetchLocalSkill(t, lib, "foo", "v1")
+	if err := lib.Install(ctx, foo.ID, global, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	copies := func() []string {
+		t.Helper()
+		inspections, err := lib.InspectSkillScopes(ctx, library.SkillScopeFilter{SkillID: foo.ID, Scope: &global})
+		if err != nil || len(inspections) != 1 || inspections[0].Folder != filepath.Join(agents, "foo") || len(inspections[0].StaleLinks) != 0 {
+			t.Fatalf("InspectSkillScopes(foo, cursor) = %#v, %v; want the install in %s, no stale links", inspections, err, agents)
+		}
+		return inspections[0].Copies
+	}
+	copied := filepath.Join(cursor, "foo")
+	writeLocalSkill(t, copied, "edited")
+	if got := copies(); len(got) != 0 {
+		t.Fatalf("Copies with different content = %v; want none", got)
+	}
+	elsewhere := filepath.Join(t.TempDir(), "foo")
+	writeLocalSkill(t, elsewhere, "v1")
+	if err := os.RemoveAll(copied); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(elsewhere, copied); err != nil {
+		t.Fatal(err)
+	}
+	if got := copies(); !reflect.DeepEqual(got, []string{copied}) {
+		t.Fatalf("Copies with a link to the same content = %v; want [%s]", got, copied)
+	}
+	if err := os.Remove(copied); err != nil {
+		t.Fatal(err)
+	}
+	writeLocalSkill(t, copied, "v1")
+	if got := copies(); !reflect.DeepEqual(got, []string{copied}) {
+		t.Fatalf("Copies = %v; want [%s]", got, copied)
+	}
+
+	if err := lib.Uninstall(ctx, foo.ID, global, library.UninstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	requireNoInstalledFolder(t, agents, "foo")
+	listUnmanagedSkills(t, lib)
+	if scopes := skillScopesOf(t, lib, foo.ID); scopes[global].Directory != cursor {
+		t.Fatalf("ListSkillScopes(foo) after uninstall = %#v; want Cursor still installed through the copy in %s", scopes, cursor)
 	}
 }
 

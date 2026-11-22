@@ -111,7 +111,7 @@ function skillAlerts(s: Snapshot, skill: Skill, { at, here, place }: RowInstall)
     : reinstallAlerts(s, skill.id);
   const twins = sameNameInLibrary(s, skill);
   // 装在这里的技能提到的、在这里找不到的技能(按规则和已存下的 AI 判断结论)。
-  // 项目里共用目录的几个 Agent 是一行，它们各自找不到的都算(见 lib/mentions 的 missingAt)。
+  // 目录列表相同、合成一处的几个 Agent 是一行，它们各自找不到的都算(见 lib/mentions 的 missingAt)。
   const unfound = at && here ? missingAt(s, s.missingMentions, [{ skill_id: skill.id, scope: parseScope(at.scope) }]) : [];
   // 装在这里的技能，这里还有和它一样的文件夹(多出来的几份，见 lib/unmanaged 的 extraCopy):提示一下，悬停写出它们在哪里。
   const extras = at && here ? unmanagedIn(s, at.scope).filter((u) => u.skill_id === skill.id) : [];

@@ -4,7 +4,9 @@
 // 关键词表照搬 lobe 的 agentConfig(顺序一致),不同之处:
 // - Kiro 单列一项(lobe 把它算进 Kilo Code);OpenAI 与 ChatGPT 分成两项，各用 agentlogos.dev 的图标。
 // - Windsurf 多一个 agentlogos.dev 给的别名 Devin Desktop。
-// - 另加 lobe 没有、agentlogos.dev 有的 Agent、模型与工具，接在表尾;Jules、Firebase Studio 必须排在 Antigravity 前面，
+// - Zencoder 多一个同一家的 Zenflow;Aider 多一个 AiderDesk(Aider 的桌面版)。
+// - 另加 lobe 没有、agentlogos.dev 有的 Agent、模型与工具，以及收录的 Agent 里用公司图标的几个(Command Code、Snowflake 的 Cortex Code、
+//   LangChain 的 Deep Agents、华为云的 CodeArts Agent),接在表尾;Jules、Firebase Studio 必须排在 Antigravity 前面，
 //   否则名字里带 Google 的会先被 Antigravity 的 "google" 认走;产品排在它的公司前面(Grok 在 xAI 前,Comet 在 Perplexity 前)。
 // lobe 只按路径导入每个图标里纯 SVG 的组件与主色：有彩色版用彩色版，没有的用单色版;包入口和 Avatar 会带上 @lobehub/ui,不用。
 import type { IconType } from "@lobehub/icons/es/types";
@@ -48,6 +50,14 @@ import Notion from "@lobehub/icons/es/Notion/components/Mono";
 import * as NotionStyle from "@lobehub/icons/es/Notion/style";
 import CodeBuddy from "@lobehub/icons/es/CodeBuddy/components/Color";
 import * as CodeBuddyStyle from "@lobehub/icons/es/CodeBuddy/style";
+import CommandCode from "@lobehub/icons/es/CommandCode/components/Color";
+import * as CommandCodeStyle from "@lobehub/icons/es/CommandCode/style";
+import Snowflake from "@lobehub/icons/es/Snowflake/components/Color";
+import * as SnowflakeStyle from "@lobehub/icons/es/Snowflake/style";
+import LangChain from "@lobehub/icons/es/LangChain/components/Color";
+import * as LangChainStyle from "@lobehub/icons/es/LangChain/style";
+import HuaweiCloud from "@lobehub/icons/es/HuaweiCloud/components/Color";
+import * as HuaweiCloudStyle from "@lobehub/icons/es/HuaweiCloud/style";
 import aider from "./agent-logos/aider.svg";
 import amazonQ from "./agent-logos/amazon-q.svg";
 import anthropic from "./agent-logos/anthropic.svg";
@@ -141,7 +151,7 @@ const brands: [AgentBrand, string[]][] = [
   [{ src: rooCode }, ["roo-code", "roocode"]],
   [{ src: goose }, ["goose"]],
   [{ src: trae }, ["trae-ide", "trae-ai", "traeb", "trae"]],
-  [lobe(Zencoder, ZencoderStyle), ["zencoder"]],
+  [lobe(Zencoder, ZencoderStyle), ["zencoder", "zenflow"]],
   [lobe(Coze, CozeStyle), ["coze-coding", "coze"]],
   [lobe(Dify, DifyStyle), ["dify"]],
   [{ src: jules }, ["jules"]],
@@ -159,7 +169,7 @@ const brands: [AgentBrand, string[]][] = [
   [lobe(Notion, NotionStyle), ["notion"]],
   [lobe(CodeBuddy, CodeBuddyStyle), ["code-buddy", "codebuddy"]],
   [{ src: devin }, ["devin", "cognition"]],
-  [{ src: aider }, ["-aider-"]],
+  [{ src: aider }, ["-aider-", "aiderdesk", "aider-desk"]],
   [{ src: augmentCode }, ["-augment-", "augmentcode", "auggie"]],
   [{ src: cody }, ["sourcegraph", "cody"]],
   [{ src: qodo }, ["qodo"]],
@@ -192,6 +202,10 @@ const brands: [AgentBrand, string[]][] = [
   [{ src: openrouter }, ["openrouter", "open-router"]],
   [{ src: huggingFace }, ["hugging-face", "huggingface"]],
   [{ src: mcp }, ["-mcp-"]],
+  [lobe(CommandCode, CommandCodeStyle), ["command-code", "commandcode"]],
+  [lobe(Snowflake, SnowflakeStyle), ["cortex-code", "snowflake"]],
+  [lobe(LangChain, LangChainStyle), ["deep-agents", "deepagents", "langchain"]],
+  [lobe(HuaweiCloud, HuaweiCloudStyle), ["codearts", "huawei"]],
 ];
 
 // agentBrand 按名字找 Agent 的品牌图标，认不出时返回 undefined。名字里的空格当连字符,

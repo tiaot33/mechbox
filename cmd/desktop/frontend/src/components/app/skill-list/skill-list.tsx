@@ -10,7 +10,7 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { cn } from "@/lib/utils";
-import { agentNameIn, projectFolderNote, scopeLabel } from "@/lib/places";
+import { agentNameIn, mergedFolderNote, scopeLabel } from "@/lib/places";
 import { parseScope, placeOf, type ScopeKey } from "@/lib/scope";
 import { sectionKey, type PageListing, type SkillSection } from "@/lib/pages";
 import { sourceLabel } from "@/lib/source";
@@ -384,7 +384,7 @@ function ProjectPage({ listing: page }: { listing: Extract<PageListing, { kind: 
             <PlainHead
               name={agentNameIn(s, a.agent.code, page.project)}
               count={t.skillCount(a.all)}
-              title={projectFolderNote(s, a.agent.code, page.project)}
+              title={mergedFolderNote(s, a.agent.code, page.project)}
             />
           }
           actions={

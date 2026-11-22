@@ -289,7 +289,7 @@ func (l *Library) readsTwice(ctx context.Context, id SkillID, target resolvedSco
 
 func (l *Library) staleLinksOf(ctx context.Context, places []installedPlace) ([][]string, error) {
 	links := make([][]string, len(places))
-	agents, err := l.store.ListAgents(ctx)
+	elsewhere, err := l.foldersElsewhere(ctx, places)
 	if err != nil {
 		return nil, err
 	}
@@ -308,6 +308,43 @@ func (l *Library) staleLinksOf(ctx context.Context, places []installedPlace) ([]
 		return at[folder]
 	}
 	checks := make([]candidates, len(places))
+	for i, others := range elsewhere {
+		if len(others) == 0 {
+			continue
+		}
+		checks[i].folder = index(places[i].folder())
+		for _, other := range others {
+			checks[i].links = append(checks[i].links, index(other))
+		}
+	}
+	if len(folders) == 0 {
+		return links, nil
+	}
+	states, err := agentdir.StatFolders(ctx, folders)
+	if err != nil {
+		return nil, err
+	}
+	for i, check := range checks {
+		for _, link := range check.links {
+			if state := states[link]; staleLink(state, states[check.folder]) {
+				links[i] = append(links[i], state.Path)
+			}
+		}
+		slices.Sort(links[i])
+	}
+	return links, nil
+}
+
+func staleLink(state, target agentdir.FolderState) bool {
+	return state.LinkTarget != "" && !state.SameEntry(target) && state.LinksThrough(target)
+}
+
+func (l *Library) foldersElsewhere(ctx context.Context, places []installedPlace) ([][]string, error) {
+	elsewhere := make([][]string, len(places))
+	agents, err := l.store.ListAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
 	claimed := map[string][]store.Claimant{}
 	for i, place := range places {
 		if !place.installed() {
@@ -340,31 +377,12 @@ func (l *Library) staleLinksOf(ctx context.Context, places []installedPlace) ([]
 			for _, directory := range paths {
 				if directory != place.target.relative && !slices.Contains(seen, directory) && !recorded(directory) {
 					seen = append(seen, directory)
-					checks[i].links = append(checks[i].links, index(agentdir.FolderPath(agentdir.Join(place.target.root, directory), name)))
+					elsewhere[i] = append(elsewhere[i], agentdir.FolderPath(agentdir.Join(place.target.root, directory), name))
 				}
 			}
 		}
-		if len(checks[i].links) > 0 {
-			checks[i].folder = index(place.folder())
-		}
 	}
-	if len(folders) == 0 {
-		return links, nil
-	}
-	states, err := agentdir.StatFolders(ctx, folders)
-	if err != nil {
-		return nil, err
-	}
-	for i, check := range checks {
-		target := states[check.folder]
-		for _, link := range check.links {
-			if state := states[link]; state.LinkTarget != "" && !state.SameEntry(target) && state.LinksThrough(target) {
-				links[i] = append(links[i], state.Path)
-			}
-		}
-		slices.Sort(links[i])
-	}
-	return links, nil
+	return elsewhere, nil
 }
 
 func sameProject(a, b *int64) bool {

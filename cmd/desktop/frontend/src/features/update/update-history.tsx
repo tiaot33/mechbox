@@ -112,7 +112,7 @@ function Record({
   const t = useT().history;
   const skills = record.skills ?? [];
   const installs = record.installs ?? [];
-  // 项目里共用一个文件夹的几处合成一处计数，和下面列出的一致。
+  // 共用一个文件夹的几处合成一处计数，和下面列出的一致。
   const places = eachPlace(s, installs);
   const update = record.kind === UpdateRecordKind.UpdateRecordUpdate;
   const rollback = record.kind === UpdateRecordKind.UpdateRecordRollback;

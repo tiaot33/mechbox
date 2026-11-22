@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { messages } from "./i18n";
-import { homePath, insideHome, pathParts, resolveFetchInput, resolveLocalPath, wslLocation } from "./paths";
+import { joinUnder, homePath, insideHome, pathParts, resolveFetchInput, resolveLocalPath, wslLocation } from "./paths";
 
 const wslHome = "\\\\wsl.localhost\\Ubuntu\\home\\me";
 const windowsHome = "C:\\Users\\me";
@@ -90,6 +90,14 @@ describe("pathParts", () => {
 
   it("源码里不用后行断言(旧版 WebKit 不认)", () => {
     expect(pathParts.toString()).not.toContain("(?<=");
+  });
+});
+
+describe("joinUnder", () => {
+  it("相对路径接在根目录下，分隔符跟着根目录的写法", () => {
+    expect(joinUnder("/home/web", ".cursor/skills")).toBe("/home/web/.cursor/skills");
+    expect(joinUnder("/home/web/", ".cursor/skills/")).toBe("/home/web/.cursor/skills");
+    expect(joinUnder("C:\\Users\\me\\web", ".cursor/skills")).toBe("C:\\Users\\me\\web\\.cursor\\skills");
   });
 });
 

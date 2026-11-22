@@ -1,5 +1,5 @@
 // 选装到哪里：先选地方(全局 / 项目),再勾选装到哪几个 Agent。详情里的"安装到…"和勾选后操作栏的"安装到…"共用这两个选择，
-// 这个地方在用的 Agent 排在前面，其余只列勾选显示的;项目里共用一个目录的几个 Agent 合成一个选项。
+// 这个地方在用的 Agent 排在前面，其余只列勾选显示的;目录列表相同、合成一处的几个 Agent 合成一个选项。
 import { useState } from "react";
 import type { Agent, AgentCode, Scope, SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";

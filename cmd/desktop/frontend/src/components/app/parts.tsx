@@ -12,7 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useT } from "@/lib/i18n";
 import { useHasWSL, useSnapshot } from "@/lib/library";
 import { agentName, type Place } from "@/lib/scope";
-import { projectFolderNote, projectNamed } from "@/lib/places";
+import { mergedFolderNote, namedAt } from "@/lib/places";
 import { pathParts, wslLocation } from "@/lib/paths";
 import { platform } from "@/lib/platform";
 import { useBusyMarkRunning, useRunningLabel, useSettled } from "@/lib/ui";
@@ -60,13 +60,13 @@ function Bot() {
   );
 }
 
-// PlaceAgentMark 是 Agent 在某个地方的图标：项目里共用一个目录合成的一处，叠着画那几个 Agent 的图标(最多 3 个)。
+// PlaceAgentMark 是 Agent 在某个地方的图标：目录列表相同合成的一处，叠着画那几个 Agent 的图标(最多 3 个)。
 export function PlaceAgentMark({ code, place, className }: { code: AgentCode; place: Place; className?: string }) {
   const s = useSnapshot();
-  const named = place ? projectNamed(s, code) : [];
+  const named = namedAt(s, code, place);
   if (!named.length) return <AgentMark name={agentName(s, code)} className={className} />;
   return (
-    <span className="inline-flex shrink-0 -space-x-1" title={projectFolderNote(s, code, place)}>
+    <span className="inline-flex shrink-0 -space-x-1" title={mergedFolderNote(s, code, place)}>
       {named.slice(0, 3).map((a) => (
         <AgentMark key={a.code} name={a.name} className={cn("ring-[1.5px] ring-panel", className)} />
       ))}

@@ -151,6 +151,12 @@ async function unfold() {
   }
 }
 const btn = (scope, name) => scope.getByRole("button", { name, exact: true });
+// addAgentByHand 在设置页的 Agent 分区点「添加 Agent」,从候选池切到手填表单。
+async function addAgentByHand(agents) {
+  await btn(agents, "添加 Agent").click();
+  await btn(modal(), "手填添加…").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "手填添加 Agent" }).waitFor();
+}
 // placeAction 点技能详情安装表里一处的「⋯」,再点菜单里的那一项(重新安装、用这里的修改更新、更新)。
 async function placeAction(row, name) {
   await row.locator(".place-actions").click();
@@ -3419,7 +3425,7 @@ await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认
   await sidebarHidesSync("清空后回到未配置，侧栏不再显示同步");
 });
 
-await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 编辑迁移 / 删除、共用目录卸载", async () => {
+await step("设置页 Agent 分区：显示勾选、手填添加 / 编辑迁移 / 移除 Agent、共用目录卸载", async () => {
   const agents = () => page.locator('.settings [data-slot="card"]', { has: page.locator('[data-slot="card-title"]', { hasText: /^Agent$/ }) });
   const row = (name) => agents().locator(".set-row", { hasText: name });
   const shownSwitch = (name) => row(name).locator('[role="switch"]');
@@ -3432,11 +3438,15 @@ await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 
     await page.waitForSelector(".a-list");
     await settle();
   };
-  const fillAgent = async (name, global, project) => {
-    const fields = modal().locator('[data-slot="input"]');
-    await fields.nth(0).fill(name);
-    await fields.nth(1).fill(global);
-    await fields.nth(2).fill(project);
+  // fillAgent 填手填表单:globals 是全局技能目录(第 2 个起点「添加目录」再填)。
+  const fillAgent = async (name, globals, project) => {
+    await modal().locator('[data-slot="input"]').nth(0).fill(name);
+    const global = modal().locator(".agent-directories.global_directories");
+    for (const [i, dir] of [globals].flat().entries()) {
+      if (i > 0) await global.locator(".add-directory").click();
+      await global.locator('[data-slot="input"]').nth(i).fill(dir);
+    }
+    await modal().locator('.agent-directories.project_directories [data-slot="input"]').first().fill(project);
   };
   const installTo = async (skill, agentName) => {
     await openDrawer(skill);
@@ -3457,10 +3467,10 @@ await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 
   };
   const groupChip = (name) => page.locator(".gchip", { hasText: name });
 
-  // 新数据库里先添加的 Claude Code、Codex:检测到的默认勾上，和其他 Agent 一样能编辑、移除。
+  // 新数据库里先添加的 Claude Code、Codex:检测到的不另标，默认勾上，和其他 Agent 一样能编辑、移除。
   await open();
   for (const name of ["Claude Code", "Codex"]) {
-    assert((await row(name).locator('[data-slot="badge"]', { hasText: "检测到" }).count()) === 1, `${name} 应标检测到`);
+    assert((await row(name).locator('[data-slot="badge"]', { hasText: "未检测到" }).count()) === 0, `${name} 检测到了，不应标未检测到`);
     assert((await shownSwitch(name).getAttribute("aria-checked")) === "true", `${name} 默认应显示`);
     assert((await row(name).getByRole("button", { name: "编辑" }).count()) === 1, `${name} 应能编辑`);
   }
@@ -3491,8 +3501,8 @@ await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 
   await shownSwitch("Claude Code").click();
   await settle();
 
-  // 添加：全局技能目录必须在用户主目录里面。
-  await btn(agents(), "添加 Agent").click();
+  // 手填添加：全局技能目录必须在用户主目录里面。
+  await addAgentByHand(agents());
   await fillAgent("My Agent", "/opt/my-agent/skills", ".my-agent/skills");
   await btn(modal(), "添加").click();
   assert((await modal().locator('[data-slot="field-error"]', { hasText: "用户主目录里面" }).count()) === 1, "主目录外的全局目录应被拦下");
@@ -3551,9 +3561,9 @@ await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 
   await toast("已保存 Agent「My Agent」");
   await settle();
 
-  // 添加时连按两次 Enter 只添加一个。
-  await btn(agents(), "添加 Agent").click();
-  await fillAgent("Twin", "~/.my-agent2/skills", ".twin/skills");
+  // 添加时连按两次 Enter 只添加一个。Twin 也读 My Agent 的目录，又多读一个自己的：目录列表不同，各占一行。
+  await addAgentByHand(agents());
+  await fillAgent("Twin", ["~/.my-agent2/skills", "~/.twin/skills"], ".twin/skills");
   unslow = await slow('"Twin"');
   await modal().locator('[data-slot="input"]').nth(2).press("Enter");
   await modal().locator('[data-slot="input"]').nth(2).press("Enter");
@@ -3619,22 +3629,28 @@ await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 
   await settle();
   await closeDrawer();
 
-  // 删除：还有别的 Agent 在读的文件夹即使选了一并删除也保留，确认框里写明。
+  // 移除：还有别的 Agent 在读的文件夹即使选了一并删除也保留，确认框里写明;移除后回到候选池。
   await open();
-  await btn(row("My Agent"), "删除").click();
+  await btn(row("My Agent"), "移除").click();
   await modal().locator('[data-slot="notice"]', { hasText: "还有别的 Agent 在用" }).waitFor();
   assert((await modal().locator('[data-slot="list-row"]', { hasText: "Twin 在用" }).count()) === 1, "确认框应写明 Twin 还在用");
-  await btn(modal(), "删除").click();
-  await toast("已删除 Agent「My Agent」");
-  await settle();
-  assert((await row("My Agent").count()) === 0, "删除后不再列出");
-  assert(fs.existsSync(`${HOME}/.my-agent2/skills/alpha/SKILL.md`), "Twin 还在用的文件夹应保留");
-  await btn(row("Twin"), "删除").click();
   await modal().locator('[data-slot="choice"]', { hasText: "同时删除已安装的文件夹" }).click();
-  await btn(modal(), "删除").click();
-  await toast("已删除 Agent「Twin」");
+  await btn(modal(), "移除").click();
+  await toast("已移除 Agent「My Agent」");
   await settle();
-  assert(!fs.existsSync(`${HOME}/.my-agent2/skills/alpha`), "删除 Twin 时选了一并删除，文件夹应删除");
+  assert((await row("My Agent").count()) === 0, "移除后不再列出");
+  assert(fs.existsSync(`${HOME}/.my-agent2/skills/alpha/SKILL.md`), "Twin 还在用的文件夹应保留");
+  await btn(agents(), "添加 Agent").click();
+  await modal().locator(".pool-agent", { hasText: "My Agent" }).waitFor();
+  await btn(modal(), "取消").click();
+  // 移除默认保留文件夹(从 Mechbox 移除不等于卸载这个 Agent)。
+  await btn(row("Twin"), "移除").click();
+  assert(await modal().locator('[data-slot="choice"]', { hasText: "保留已安装的文件夹" }).locator('input[type="radio"]').isChecked(), "移除 Agent 默认应选保留文件夹");
+  await btn(modal(), "移除").click();
+  await toast("已移除 Agent「Twin」");
+  await settle();
+  assert(fs.existsSync(`${HOME}/.my-agent2/skills/alpha/SKILL.md`), "移除 Twin 时默认保留文件夹");
+  fs.rmSync(`${HOME}/.my-agent2/skills/alpha`, { recursive: true });
   await back();
 });
 
@@ -3650,7 +3666,7 @@ await step("项目里共用一个目录的 Agent 合成一处：右栏、弹层�
     await settle();
   };
   const add = async (name, global) => {
-    await btn(agents(), "添加 Agent").click();
+    await addAgentByHand(agents());
     const fields = modal().locator('[data-slot="input"]');
     await fields.nth(0).fill(name);
     await fields.nth(1).fill(global);
@@ -3705,9 +3721,66 @@ await step("项目里共用一个目录的 Agent 合成一处：右栏、弹层�
 
   await open();
   for (const name of ["Lefty", "Righty"]) {
-    await btn(agents().locator(".set-row", { hasText: name }), "删除").click();
-    await btn(modal(), "删除").click();
-    await toast(`已删除 Agent「${name}」`);
+    await btn(agents().locator(".set-row", { hasText: name }), "移除").click();
+    await btn(modal(), "移除").click();
+    await toast(`已移除 Agent「${name}」`);
+    await settle();
+  }
+  await back();
+});
+
+await step("添加 Agent：候选池检测到的置顶、能搜索、勾选添加;独有的目录已有 Agent 在读时标出;全局目录列表相同的合成一行", async () => {
+  const agents = () => section("Agent");
+  const open = async () => {
+    await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+    await page.locator('.settings [role="switch"]').first().waitFor();
+  };
+  const back = async () => {
+    await page.locator(".titlebar button[title='返回技能库']").click();
+    await page.waitForSelector(".a-list");
+    await settle();
+  };
+  // 像升级前那样手填过一个读 ~/.cursor/skills、.cursor/skills 的 Agent。
+  await open();
+  await addAgentByHand(agents());
+  const fields = modal().locator('[data-slot="input"]');
+  await fields.nth(0).fill("Old Cursor");
+  await fields.nth(1).fill("~/.cursor/skills");
+  await fields.nth(2).fill(".cursor/skills");
+  await btn(modal(), "添加").click();
+  await toast("已添加 Agent「Old Cursor」");
+  await settle();
+
+  await btn(agents(), "添加 Agent").click();
+  const pool = modal().locator(".pool-agent");
+  await pool.first().waitFor();
+  const detected = await pool.evaluateAll((rows) => rows.map((r) => !!r.querySelector(".pool-detected")));
+  assert(detected.indexOf(false) < 0 || detected.slice(detected.indexOf(false)).every((d) => !d), `检测到的应排在前面:${detected}`);
+  const search = modal().locator('input[placeholder="按名称或目录搜索"]');
+  await search.fill("cursor");
+  assert.deepEqual(await pool.locator("b").allTextContents(), ["Cursor"], "按名称搜索只留 Cursor");
+  assert((await pool.locator(".pool-already-read").count()) === 1, "Cursor 独有的 .cursor/skills 已有 Old Cursor 在读，应标出");
+  await search.fill(".agents/skills");
+  const cline = pool.filter({ has: page.locator("b", { hasText: /^Cline$/ }) });
+  assert((await cline.count()) === 1, "按目录搜索应找到 Cline");
+  assert((await cline.locator(".pool-already-read").count()) === 0, "Cline 只读许多 Agent 都读的 .agents/skills,不标");
+  await cline.locator('input[type="checkbox"]').check();
+  await btn(modal(), "添加 1 个").click();
+  await toast("已添加 Agent「Cline」");
+  await settle();
+  assert((await agents().locator(".set-row", { hasText: "Cline" }).count()) === 1, "Cline 应出现在已添加的 Agent 里");
+  await back();
+
+  // Codex、Cline 全局都只读 ~/.agents/skills:右栏全局合成一行。
+  const globalRows = page.locator(".a-right ul").first().locator(".nav-item.sub");
+  const names = (await globalRows.allTextContents()).map((x) => x.trim());
+  assert(names.some((n) => /^(Cline、Codex|Codex、Cline)/.test(n)), `右栏全局应合成一行「Cline、Codex」,实际:${names.join(" / ")}`);
+
+  await open();
+  for (const name of ["Old Cursor", "Cline"]) {
+    await btn(agents().locator(".set-row", { hasText: name }), "移除").click();
+    await btn(modal(), "移除").click();
+    await toast(`已移除 Agent「${name}」`);
     await settle();
   }
   await back();
@@ -4153,7 +4226,7 @@ await step("照着另一个 Agent 装：全局和项目里的一次装上，组�
 
   await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
   const agents = page.locator('.settings [data-slot="card"]', { has: page.locator('[data-slot="card-title"]', { hasText: /^Agent$/ }) });
-  await btn(agents, "添加 Agent").click();
+  await addAgentByHand(agents);
   const fields = modal().locator('[data-slot="input"]');
   await fields.nth(0).fill("Copy Target");
   await fields.nth(1).fill("~/.copy-target/skills");
@@ -4452,7 +4525,7 @@ await step("卸载被手动改过的文件夹：单个卸载、勾选几个一�
   await clearScope();
 });
 
-await step("删掉被手动改过的文件夹：移除技能、勾选几个移除、注销项目、删除自定义 Agent,确认框按界面上已有的状态弹出;确认之后才被改过的，删之前核对出来再问一次，不同意就不动", async () => {
+await step("删掉被手动改过的文件夹：移除技能、勾选几个移除、注销项目、移除 Agent,确认框按界面上已有的状态弹出;确认之后才被改过的，删之前核对出来再问一次，不同意就不动", async () => {
   for (const name of ["re-a", "re-b", "re-c", "re-d"]) {
     fs.mkdirSync(`${HOME}/code/remove-edited/${name}`, { recursive: true });
     fs.writeFileSync(`${HOME}/code/remove-edited/${name}/SKILL.md`, `---\nname: ${name}\ndescription: "${name}"\n---\n`);
@@ -4480,7 +4553,7 @@ await step("删掉被手动改过的文件夹：移除技能、勾选几个移�
     await settle();
   };
   await openSettings();
-  await btn(agents(), "添加 Agent").click();
+  await addAgentByHand(agents());
   const fields = modal().locator('[data-slot="input"]');
   await fields.nth(0).fill("Edited Agent");
   await fields.nth(1).fill("~/.re-agent/skills");
@@ -4559,17 +4632,17 @@ await step("删掉被手动改过的文件夹：移除技能、勾选几个移�
   kept("re-c");
   assert.equal(await projRow.count(), 1, "不同意后项目还登记着");
 
-  // 删除自定义 Agent:设置页先开着，再在磁盘上改;再问时同意丢掉修改，照常删。
+  // 移除 Agent 并删除文件夹：设置页先开着，再在磁盘上改;再问时同意丢掉修改，照常删。
   await openSettings();
   edit("re-d");
-  await btn(agentRow(), "删除").click();
+  await btn(agentRow(), "移除").click();
   await modal().locator('[data-slot="choice"]', { hasText: "同时删除已安装的文件夹" }).click();
-  assert.equal(await saidEdited(), 0, "删除自定义 Agent:确认框照快照写，不先现查磁盘");
-  await btn(modal(), "删除").click();
-  const again = await justEdited(["re-d"], "删除自定义 Agent");
+  assert.equal(await saidEdited(), 0, "移除 Agent:确认框照快照写，不先现查磁盘");
+  await btn(modal(), "移除").click();
+  const again = await justEdited(["re-d"], "移除 Agent");
   assert(fs.existsSync(`${folders["re-d"]}/SKILL.md`), "再问之前不删");
   await btn(again, "仍然删掉").click();
-  await toast("已删除 Agent「Edited Agent」");
+  await toast("已移除 Agent「Edited Agent」");
   await settle();
   assert(!fs.existsSync(folders["re-d"]), "同意后才删掉 re-d");
   await back();

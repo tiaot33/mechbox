@@ -1,6 +1,11 @@
 import ClaudeCode from "@lobehub/icons/es/ClaudeCode/components/Color";
 import GeminiCLI from "@lobehub/icons/es/GeminiCLI/components/Color";
 import Kiro from "@lobehub/icons/es/Kiro/components/Color";
+import CommandCode from "@lobehub/icons/es/CommandCode/components/Color";
+import Snowflake from "@lobehub/icons/es/Snowflake/components/Color";
+import LangChain from "@lobehub/icons/es/LangChain/components/Color";
+import HuaweiCloud from "@lobehub/icons/es/HuaweiCloud/components/Color";
+import Zencoder from "@lobehub/icons/es/Zencoder/components/Color";
 import { describe, expect, test } from "vitest";
 import aider from "./agent-logos/aider.svg";
 import anthropic from "./agent-logos/anthropic.svg";
@@ -57,6 +62,12 @@ describe("agentBrand", () => {
     ["Kilo Code", kiloCode],
     ["Devin Desktop", windsurf],
     ["Aider", aider],
+    ["AiderDesk", aider],
+    ["Command Code", CommandCode],
+    ["Cortex Code", Snowflake],
+    ["Deep Agents", LangChain],
+    ["CodeArts Agent", HuaweiCloud],
+    ["Zenflow", Zencoder],
     ["Qodo", qodo],
     ["Zed", zed],
     ["Pi", pi],

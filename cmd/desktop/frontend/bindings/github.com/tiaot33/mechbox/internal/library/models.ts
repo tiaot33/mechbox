@@ -2303,6 +2303,14 @@ export interface SkillScopeInspection {
      * 按路径排序。确认框据此写明。没有时为空。
      */
     "stale_links"?: string[] | null;
+
+    /**
+     * Copies 是认这一处的 Agent 在自己别的技能目录里、和库里这个技能某一版内容一致的同名文件夹(包括指向别处的符号链接):
+     * 没有安装记录,也不是 StaleLinks 里指向这一处的旧链接,按路径排序。删掉这一处的文件夹后(卸载、组卸载、移除技能)
+     * 这些 Agent 照样读得到它,列出未纳管技能时会自动纳入、照样算已装;确认框据此事先说明。只有 InspectSkillScopes 给出,
+     * 作用域根目录不存在(root_missing)或没有这样的文件夹时为空。
+     */
+    "copies"?: string[] | null;
 }
 
 /**

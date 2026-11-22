@@ -127,6 +127,12 @@ export const nativePath = (path: string) => (platform() === "windows" ? path.rep
 // slashPath 把输入框里的相对路径换回技能库的斜杠写法:Windows 上反斜杠也是分隔符。
 export const slashPath = (input: string) => (platform() === "windows" ? input.replaceAll("\\", "/") : input);
 
+// joinUnder 是 root 下的相对路径 rel(斜杠写法)的完整路径，分隔符跟着 root 的写法(Windows 与 WSL 发行版里的路径用反斜杠)。
+export function joinUnder(root: string, rel: string): string {
+  const sep = root.includes("\\") ? "\\" : "/";
+  return `${root.replace(/[\\/]+$/, "")}${sep}${rel.split("/").filter(Boolean).join(sep)}`;
+}
+
 // lastSegment 是路径的最后一段(文件名或文件夹名)。
 export function lastSegment(path: string): string {
   return path.split(/[\\/]/).filter(Boolean).pop() ?? path;

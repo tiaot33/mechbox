@@ -6,7 +6,7 @@ import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { agentName, scopeKey } from "@/lib/scope";
 import { canInstall, linkNote } from "@/lib/installs";
-import { eachPlace, placeNames, mergedScopeKey, scopeLabel, sharedWithNote } from "@/lib/places";
+import { eachPlace, placeLabel, placeNames, mergedScopeKey, sharedWithNote } from "@/lib/places";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Hint } from "@/components/ui/field";
@@ -35,15 +35,18 @@ export function Places({
       const other = places.find((x) => x.skill_id === p.skill_id && scopeKey(x.scope) === scopeKey(scope));
       return !other || !on(other);
     });
-  // 项目里共用一个文件夹的几处合成一行;勾选本来就按文件夹记，一起换。
+  // 合成一处的几个 Agent 共用的文件夹合成一行，勾选本来就按文件夹记，一起换;它们各自装在不同目录时是不同的文件夹，按读它的 Agent 分行，各自勾选。
   const rows = new Map<string, SkillScopeInspection[]>();
-  for (const p of eachPlace(s, places)) rows.set(mergedScopeKey(s, p.scope), [...(rows.get(mergedScopeKey(s, p.scope)) ?? []), p]);
+  for (const p of eachPlace(s, places)) {
+    const key = `${mergedScopeKey(s, p.scope)}|${placeLabel(s, p)}`;
+    rows.set(key, [...(rows.get(key) ?? []), p]);
+  }
   return (
     <ListBox>
       {[...rows.entries()].map(([key, list]) => (
         // 地方写在上面，要换的技能紧接着列在它下面、和地方名左对齐：读起来连在一起，不隔着一大片空白去对应。
         <ListRow key={key} className="update-place flex-col items-stretch gap-0.5">
-          <span className="min-w-0 truncate font-medium">{scopeLabel(s, list[0].scope)}</span>
+          <span className="min-w-0 truncate font-medium">{placeLabel(s, list[0])}</span>
           <div className="flex min-w-0 flex-col gap-0.5">
             {list.map((p) => (
               <label key={placeKey(p)} className={cn("flex flex-wrap items-center gap-x-1.5 gap-y-0.5", canInstall(p) && "cursor-pointer")}>
@@ -57,9 +60,9 @@ export function Places({
                   ))}
                 {p.status === SkillScopeStatus.SkillScopeRootMissing && <Badge>{t.rootMissing}</Badge>}
                 {p.status === SkillScopeStatus.SkillScopeMissing && <Badge tone="critical">{t.folderMissing}</Badge>}
-                {sharedWithNote(p).length > 0 && (
+                {sharedWithNote(s, p).length > 0 && (
                   <span className="text-caption text-muted-foreground">
-                    {t.sharedFolder(sharedWithNote(p).map((code) => agentName(s, code)))}
+                    {t.sharedFolder(sharedWithNote(s, p).map((code) => agentName(s, code)))}
                   </span>
                 )}
                 {p.link_target && on(p) && (

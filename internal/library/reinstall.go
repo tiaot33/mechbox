@@ -3,6 +3,7 @@ package library
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
@@ -94,6 +95,11 @@ type SkillScopeInspection struct {
 	// 指向这个文件夹、又没有安装记录的同名符号链接(如旧版 npx skills 在 ~/.cursor/skills 留下的、指向 ~/.agents/skills 的链接),
 	// 按路径排序。确认框据此写明。没有时为空。
 	StaleLinks []string `json:"stale_links,omitempty"`
+	// Copies 是认这一处的 Agent 在自己别的技能目录里、和库里这个技能某一版内容一致的同名文件夹(包括指向别处的符号链接):
+	// 没有安装记录,也不是 StaleLinks 里指向这一处的旧链接,按路径排序。删掉这一处的文件夹后(卸载、组卸载、移除技能)
+	// 这些 Agent 照样读得到它,列出未纳管技能时会自动纳入、照样算已装;确认框据此事先说明。只有 InspectSkillScopes 给出,
+	// 作用域根目录不存在(root_missing)或没有这样的文件夹时为空。
+	Copies []string `json:"copies,omitempty"`
 }
 
 func (l *Library) filteredSkillScopes(ctx context.Context, operation string, filter SkillScopeFilter) ([]SkillScope, error) {
@@ -174,19 +180,46 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 		}
 		present.add(folder, i)
 	}
-	links, err := l.staleLinksOf(ctx, places)
+	elsewhere, err := l.foldersElsewhere(ctx, places)
 	if err != nil {
 		return nil, err
 	}
-	for i := range inspections {
-		inspections[i].StaleLinks = links[i]
+	var others folderGroups
+	around := make([][]int, len(skillScopes))
+	for i, folders := range elsewhere {
+		if inspections[i].Status == SkillScopeRootMissing {
+			continue
+		}
+		for _, folder := range folders {
+			around[i] = append(around[i], others.add(folder, i))
+		}
 	}
 	latest, err := sourceLatestContents(ctx, l.store)
 	if err != nil {
 		return nil, err
 	}
 	states := make([]agentdir.FolderState, len(skillScopes))
-	err = agentdir.ReadFolders(ctx, present.folders, maxFetchFiles, maxFetchSize, func(index int, state agentdir.FolderState) error {
+	otherStates := make([]agentdir.FolderState, len(others.folders))
+	copies := make([][]int, len(skillScopes))
+	err = agentdir.ReadFolders(ctx, append(slices.Clip(present.folders), others.folders...), maxFetchFiles, maxFetchSize, func(index int, state agentdir.FolderState) error {
+		if index >= len(present.folders) {
+			index -= len(present.folders)
+			for _, i := range others.indexes[index] {
+				if !state.Exists || state.Err != nil {
+					continue
+				}
+				status, _, err := matchVersion(ctx, l.store, skillScopes[i].SkillID, heads[i], diskOf(state))
+				if err != nil {
+					return err
+				}
+				if status != SkillScopeModified {
+					copies[i] = append(copies[i], index)
+				}
+			}
+			otherStates[index] = state
+			otherStates[index].Files = nil
+			return nil
+		}
 		for _, i := range present.indexes[index] {
 			status, versionID, err := folderStatus(ctx, l.store, skillScopes[i].SkillID, heads[i], state)
 			if err != nil {
@@ -203,6 +236,18 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 	})
 	if err != nil {
 		return nil, err
+	}
+	for i, indexes := range around {
+		for _, index := range indexes {
+			switch other := otherStates[index]; {
+			case staleLink(other, states[i]):
+				inspections[i].StaleLinks = append(inspections[i].StaleLinks, other.Path)
+			case slices.Contains(copies[i], index) && !other.SameEntry(states[i]) && !other.LinksThrough(states[i]):
+				inspections[i].Copies = append(inspections[i].Copies, other.Path)
+			}
+		}
+		slices.Sort(inspections[i].StaleLinks)
+		slices.Sort(inspections[i].Copies)
 	}
 	absentStates, err := agentdir.StatFolders(ctx, absent.folders)
 	if err != nil {
@@ -264,7 +309,7 @@ type folderGroups struct {
 	at      map[string]int
 }
 
-func (g *folderGroups) add(folder string, index int) {
+func (g *folderGroups) add(folder string, index int) int {
 	at, ok := g.at[folder]
 	if !ok {
 		if g.at == nil {
@@ -276,6 +321,7 @@ func (g *folderGroups) add(folder string, index int) {
 		g.indexes = append(g.indexes, nil)
 	}
 	g.indexes[at] = append(g.indexes[at], index)
+	return at
 }
 
 func (l *Library) installedFolder(ctx context.Context, id SkillID, place installedPlace) (string, int64, error) {

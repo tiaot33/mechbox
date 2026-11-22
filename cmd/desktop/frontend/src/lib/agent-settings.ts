@@ -23,7 +23,7 @@ export function codexInvocation(c: CodexSettings | null | undefined): Invocation
 
 export type Note = { text: string; title: string };
 
-// invocationNote 是作用域页一行上写的调用方式：只看 agents 里的内置 Agent(作用域的 Agent,项目里共用目录时是读这个目录的几个),
+// invocationNote 是作用域页一行上写的调用方式：只看 agents 里的内置 Agent(作用域的 Agent,合成一处时是那几个),
 // 和默认一样、或这几个都不是 Claude Code、Codex 时为 undefined。几个 Agent 说法一样时只写一次，悬停分别说明。
 export function invocationNote(settings: AgentSettings | null | undefined, agents: AgentCode[], name: string): Note | undefined {
   const t = messages().agentSettings;

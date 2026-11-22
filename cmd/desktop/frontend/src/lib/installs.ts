@@ -1,12 +1,12 @@
 // 安装状态：技能装在哪几处、每一处和库里的当前版本一不一样、要不要重新安装，都从快照里的巡检结果派生。
-// 逐处列出、数几处、写名字时项目里共用一个目录的几个 Agent 算一处，见 lib/places。
-import { ErrorCode, SkillScopeStatus, type Group, type SkillID, type SkillScopeInspection } from "@bindings/internal/library";
+// 逐处列出、数几处、写名字时目录列表相同、合成一处的几个 Agent 算一处，见 lib/places。
+import { ErrorCode, SkillScopeStatus, type Group, type Scope, type SkillID, type SkillScopeInspection } from "@bindings/internal/library";
 import { messages } from "./i18n";
 import { worstLevel, type Level, type Mark, type Tone } from "./level";
 import type { Snapshot } from "./library";
 import { shortPath } from "./paths";
-import { eachPlace, placeNames, scopeLabel } from "./places";
-import { placeOf, projectName, scopeKey, type ScopeKey } from "./scope";
+import { eachPlace, mergedAgents, placeNames, scopeLabel } from "./places";
+import { parseScope, placeOf, projectName, scopeKey, type ScopeKey } from "./scope";
 
 // ---------- 装在哪 ----------
 
@@ -31,10 +31,18 @@ export function folderPlaces(s: Snapshot, places: SkillScopeInspection[]): Skill
   return s.skillScopes.filter((p) => folders.has(`${p.skill_id}|${p.folder}`));
 }
 
-// groupStateIn 是组在某个作用域的组安装状态：组安装是独立记录(空组也可以有),有记录即为 on。
+// groupInstallIn 是组在某个作用域的组安装落在哪个作用域上：合成一处的几个 Agent 里任何一个有这个组的组安装都算(代表换了也不变),
+// 卸载组安装要落在有记录的那个上;没有时为 undefined。
+export function groupInstallIn(s: Snapshot, group: Group, key: ScopeKey): Scope | undefined {
+  const scope = parseScope(key);
+  const agents = mergedAgents(s, scope.agent, placeOf(scope));
+  return s.groupInstalls.find((a) => a.group_id === group.id && placeOf(a.scope) === placeOf(scope) && agents.includes(a.scope.agent))?.scope;
+}
+
+// groupStateIn 是组在某个作用域的组安装状态：组安装是独立记录(空组也可以有),有记录即为 on(见 groupInstallIn)。
 // 成员各自的直接安装不算组安装。
 export function groupStateIn(s: Snapshot, group: Group, key: ScopeKey): "on" | "off" {
-  return s.groupInstalls.some((a) => a.group_id === group.id && scopeKey(a.scope) === key) ? "on" : "off";
+  return groupInstallIn(s, group, key) ? "on" : "off";
 }
 
 // InstalledWhere 是技能装在哪里，供分辨库里同名的几个技能:places 是前两处("Claude Code · 全局"、"Codex · proj-a"),
