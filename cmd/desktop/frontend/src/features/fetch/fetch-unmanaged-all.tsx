@@ -21,7 +21,7 @@ import { homePath } from "@/lib/paths";
 import { outsideLinkNote, skillFileProblemText } from "@/lib/unmanaged";
 import { placeOf, scopeOf } from "@/lib/scope";
 import { Modal, ui, useUI } from "@/lib/ui";
-import { cn } from "@/lib/utils";
+import { cn, toggled } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
@@ -155,13 +155,7 @@ function FetchUnmanagedDialog({
   // 按来源分组、同名不同内容的单列，见 fetchGroups。
   const { usable, unusable, conflicts, ordered } = fetchGroups(plan);
 
-  const toggle = (i: number) =>
-    setPicked((set) => {
-      const next = new Set(set);
-      if (next.has(i)) next.delete(i);
-      else next.add(i);
-      return next;
-    });
+  const toggle = (i: number) => setPicked((set) => toggled(set, i));
   // 同名的几份只入库一份:选中一份就去掉其余的;null 表示都先不入库。
   const choose = (members: number[], i: number | null) =>
     setPicked((set) => {

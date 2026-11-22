@@ -18,8 +18,8 @@ export interface ResultRow {
   occupier?: SkillID;
 }
 
-// failedRows 是逐项调用(runEach)里失败的那几项，label 是第 i 项在结果里的名字;outcome 不给时写「失败」。
-export function failedRows(results: readonly (Attempt<unknown> | undefined)[], label: (i: number) => string, outcome = messages().actions.failed): ResultRow[] {
+// failedAttemptRows 是逐项调用(runEach)里失败的那几项，label 是第 i 项在结果里的名字;outcome 不给时写「失败」。
+export function failedAttemptRows(results: readonly (Attempt<unknown> | undefined)[], label: (i: number) => string, outcome = messages().actions.failed): ResultRow[] {
   return results.flatMap((r, i) => (r && "error" in r ? [{ label: label(i), outcome, tone: "critical" as const, reason: describeError(r.error) }] : []));
 }
 

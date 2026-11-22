@@ -112,7 +112,7 @@ export function installSteps(s: Snapshot, plans: InstallPlans, overwrite: boolea
   });
 }
 
-// installResults 归并逐处安装的结果:results 与 steps 一一对应(runEach 的结果),跳过的和没做到的是 undefined。
+// installResults 归并逐处安装的结果:results 与 steps 一一对应(runEach 的结果),跳过的是 undefined。
 // rows 是结果列表(看计划就出错的在前，其余按 steps 的先后);placed 是装上的各处，installed 是装上了几处;
 // failed 是有没装成的(看计划就出错的也算),顶栏画叉。计划算的时候还没被占、执行时被同一批里先装的同名技能占上了的，
 // 错误里有占着的那个，结果里照样能点开。
@@ -197,7 +197,7 @@ export function uninstallPicked(s: Snapshot, ids: SkillID[], scopes: Scope[]) {
   };
 }
 
-// uninstalledPicked 归并逐处卸载的结果:results 与 picked.direct 一一对应(runEach 的结果),没做到的是 undefined。
+// uninstalledPicked 归并逐处卸载的结果:results 与 picked.direct 一一对应(runEach 的结果)。
 // 只随组安装的跳过并写明;全局共用一个文件夹的几处，卸载其中一处时其余几处的直接安装已一起撤了(NotFound),不算失败。
 // done 是卸载了几处，failed 是有卸不掉的(顶栏画叉)。
 export function uninstalledPicked(s: Snapshot, picked: ReturnType<typeof uninstallPicked>, results: readonly (Attempt<unknown> | undefined)[]) {

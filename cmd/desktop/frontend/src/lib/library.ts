@@ -39,7 +39,7 @@ export function toLibraryError(err: unknown): LibraryError {
 }
 
 // Attempt 是逐项调用技能库(components/app/results.tsx 的 runEach)时一项的结果：做成的是 value,失败的是转好的错误。
-// 结果按下标与各项一一对应，跳过的、没做到的那一项是 undefined。
+// 结果按下标与各项一一对应，跳过的那一项是 undefined。
 export type Attempt<T> = { value: T } | { error: LibraryError };
 
 // Snapshot 是主界面一次读出的全部只读数据;agentsShown、autoTranslate、foldCollections、foldBelow 来自应用设置，其余来自技能库。

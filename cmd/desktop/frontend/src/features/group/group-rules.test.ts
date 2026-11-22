@@ -78,8 +78,8 @@ describe("逐个加入组之后", () => {
 
   it("都加入了、没有作用域被跳过时只提示一句", () => {
     const r = addedToGroup(s, [1, 3], [
-      { id: 1, results: [result(1, GroupMemberOutcome.MemberInstalled)] },
-      { id: 3, results: [] },
+      { value: [result(1, GroupMemberOutcome.MemberInstalled)] },
+      { value: [] },
     ]);
     expect(r).toMatchObject({ all: true, skipped: false, added: 2 });
     expect(r.placed.map((x) => x.skill_id)).toEqual([1]);
@@ -87,9 +87,9 @@ describe("逐个加入组之后", () => {
 
   it("有失败、有作用域被跳过时逐个列出：失败的写原因，没有组安装的写已加入", () => {
     const r = addedToGroup(s, [1, 2, 3], [
-      { id: 1, results: [], error: { code: ErrorCode.Permission, message: "x" } as LibraryError },
-      { id: 2, results: [result(2, GroupMemberOutcome.MemberSkipped)] },
-      { id: 3, results: [] },
+      { error: { code: ErrorCode.Permission, message: "x" } as LibraryError },
+      { value: [result(2, GroupMemberOutcome.MemberSkipped)] },
+      { value: [] },
     ]);
     expect(r).toMatchObject({ all: false, skipped: true, added: 2, placed: [] });
     expect(r.rows.map((x) => [x.label, x.outcome])).toEqual([

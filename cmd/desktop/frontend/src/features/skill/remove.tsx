@@ -16,7 +16,7 @@ import { ChoiceList, Modal, ui } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { runEach, showResults } from "@/components/app/results";
-import { failedRows } from "@/components/app/result-rows";
+import { failedAttemptRows } from "@/components/app/result-rows";
 import { inspectedSnapshot, installReplacing, lostMentionLines, lostMentions } from "@/features/install/install";
 import type { MissingMention } from "@bindings/internal/library";
 import { lostAfterTwin, removedPlaces } from "./remove-rules";
@@ -150,7 +150,7 @@ export async function removeSkills(ids: SkillID[]): Promise<boolean> {
   const policy = choice === FolderPolicy.Keep ? FolderPolicy.Keep : FolderPolicy.Remove;
   const results = await runEach(ids, (id) => LibraryService.RemoveSkill(id, { folders: policy }));
   if (!results) return false;
-  const rows = failedRows(results, (i) => skillName(s, ids[i]));
+  const rows = failedAttemptRows(results, (i) => skillName(s, ids[i]));
   if (rows.length) await showResults(t.removeSkillsTitle(ids.length), rows);
   else ui.toast(t.removedSkills(ids.length));
   return rows.length < ids.length;

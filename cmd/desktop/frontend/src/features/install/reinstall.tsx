@@ -22,7 +22,7 @@ import { ListBox, ListRow } from "@/components/ui/list";
 import { Segmented } from "@/components/ui/segmented";
 import { Notice } from "@/components/ui/notice";
 import { eachCall, showResults } from "@/components/app/results";
-import { failedRow, failedRows } from "@/components/app/result-rows";
+import { failedRow, failedAttemptRows } from "@/components/app/result-rows";
 import { confirmLinkWrites } from "@/components/app/link-notes";
 
 // reinstall 把 filter 范围内不是当前版本的各处换成当前版本。先现查状态：快照可能已落后于磁盘，
@@ -62,7 +62,7 @@ export async function reinstall(filter: SkillScopeFilter, what: string) {
   const done = await ui.run(async () => {
     const results = requests.length ? ((await LibraryService.Reinstall(requests)) ?? []) : [];
     const removed = await eachCall(uninstalls, (p) => LibraryService.Uninstall(p.skill_id, p.scope));
-    const rows = failedRows(removed, (i) => `${skillName(s, uninstalls[i].skill_id)} · ${scopeLabel(s, uninstalls[i].scope)}`, t.notUninstalled);
+    const rows = failedAttemptRows(removed, (i) => `${skillName(s, uninstalls[i].skill_id)} · ${scopeLabel(s, uninstalls[i].scope)}`, t.notUninstalled);
     return { results, rows, uninstalled: removed.length - rows.length };
   }, { failed: (d) => d.rows.length > 0 || d.results.some((r) => r.outcome === ReinstallOutcome.ReinstallFailed) });
   if (!done) return;

@@ -82,7 +82,7 @@ interface UIService {
   prompt: (opts: PromptOptions) => Promise<string | undefined>;
   run: <T>(task: () => Promise<T>, opts?: RunOptions<T>) => Promise<T | undefined>;
   // flow 是包着几步的一件事(如按默认勾选更新几个集合：每个集合先生成更新计划、再更新),里面的每一步照常用 run、read。
-  // 整个过程顶栏的状态圈一直转、旁边写 label,里面给了 label 的步骤不另写，中间不画对勾;里面有一步失败就算失败。
+  // 整个过程顶栏的状态圈一直转、旁边写 label,里面给了 label 的步骤不另写，中间不画对勾、不重读;里面有一步失败就算失败。
   // task 返回 undefined 表示一步都没做成(没有可做的、用户在中途的确认里点了取消、转去由用户拿主意):不画对勾，也不写它完成了。
   // failed 返回 true 表示里面的步骤都没报错，但这件事没有全部完成(如有的集合在确认里取消了)。结束后重读一次界面。
   flow: <T>(label: string, task: () => Promise<T | undefined>, opts?: Pick<RunOptions<T>, "failed">) => Promise<T | undefined>;
@@ -120,7 +120,7 @@ const useUIStore = create<{
   toast: ToastState | null;
   pending: number;
   marked: number;
-  running: { id: number; label: string }[];
+  running: { id: number; label: string; flow: boolean }[];
   round: string[];
   finished: boolean;
   failed: boolean;
@@ -171,8 +171,8 @@ function open<T>(render: (close: (value?: T) => void) => ReactNode, opts: OpenOp
   });
 }
 
-// canceled 只给 flow 用：返回 true 时这件事算没做成。
-async function run<T>(task: () => Promise<T>, opts: RunOptions<T> & { canceled?: (value: T) => boolean } = {}): Promise<T | undefined> {
+// flow、canceled 只给 ui.flow 用：这是一件包着几步的事，canceled 返回 true 时这件事算没做成。
+async function run<T>(task: () => Promise<T>, opts: RunOptions<T> & { flow?: boolean; canceled?: (value: T) => boolean } = {}): Promise<T | undefined> {
   const mark = opts.busyMark !== false;
   const id = nextRunID++;
   const label = mark ? opts.label : undefined;
@@ -180,9 +180,10 @@ async function run<T>(task: () => Promise<T>, opts: RunOptions<T> & { canceled?:
     pending: s.pending + 1,
     marked: s.marked + (mark ? 1 : 0),
     // 已经有在做的事时，里面的步骤(如更新流程里的那次 Update)不另写：状态圈旁边只说外面那件事。
-    ...(label && !s.running.length && { running: [{ id, label }] }),
+    ...(label && !s.running.length && { running: [{ id, label, flow: !!opts.flow }] }),
   }));
-  const inner = mark && useUIStore.getState().running.some((r) => r.id !== id);
+  const outer = useUIStore.getState().running.find((r) => r.id !== id);
+  const inner = mark && !!outer;
   let outcome: "done" | "failed" | "canceled" = "done";
   try {
     const value = await task();
@@ -222,7 +223,8 @@ async function run<T>(task: () => Promise<T>, opts: RunOptions<T> & { canceled?:
       };
     });
     // 失败也重读：部分成功(如组安装里跳过的成员)或状态已被别处改变时，界面要跟上。
-    if (opts.reload !== false) void reloadLibrary();
+    // 套在一件事(ui.flow)里的步骤不另重读，等那件事结束时一起重读。
+    if (opts.reload !== false && !(mark && outer?.flow)) void reloadLibrary();
   }
 }
 
@@ -234,7 +236,7 @@ export const ui: UIService = {
   prompt: (opts) => open<string>((close) => <PromptDialog opts={opts} close={close} />),
   run,
   flow: (label, task, opts) =>
-    run(task, { label, failed: (value) => value !== undefined && !!opts?.failed?.(value), canceled: (value) => value === undefined }),
+    run(task, { label, flow: true, failed: (value) => value !== undefined && !!opts?.failed?.(value), canceled: (value) => value === undefined }),
   read: (task, opts) => run(task, { ...opts, reload: false, busyMark: false }),
   reload: () => void reloadLibrary(),
 };

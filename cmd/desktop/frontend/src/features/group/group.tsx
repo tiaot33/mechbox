@@ -3,7 +3,7 @@ import { useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
 import { GroupMemberOutcome, MemberRemovalPolicy, type CollectionID, type GroupID, type SkillID } from "@bindings/internal/library";
 import { messages, useT } from "@/lib/i18n";
-import { currentSnapshot, toLibraryError, useSnapshot } from "@/lib/library";
+import { currentSnapshot, useSnapshot } from "@/lib/library";
 import { folderPlaces } from "@/lib/installs";
 import { groupName, skillName } from "@/lib/scope";
 import { missingFromGroup } from "@/features/group/group-rules";
@@ -15,8 +15,8 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { DeleteNotes } from "@/components/app/link-notes";
 import { inspectedSnapshot, LostMentions, lostMentions, toastInstalled } from "@/features/install/install";
 import { runEach, showResults } from "@/components/app/results";
-import { failedRows, memberRows, placedBy } from "@/components/app/result-rows";
-import { addedToGroup, groupOnly, inGroup, notInGroup, type AddedToGroup } from "./group-rules";
+import { failedAttemptRows, memberRows, placedBy } from "@/components/app/result-rows";
+import { addedToGroup, groupOnly, inGroup, notInGroup } from "./group-rules";
 
 export async function addSkillToGroup(groupID: GroupID, id: SkillID) {
   const s = currentSnapshot();
@@ -79,19 +79,9 @@ async function addEachToGroup(
 ): Promise<boolean> {
   const s = currentSnapshot();
   const t = messages().actions;
-  const outcomes = await ui.run(async () => {
-    const all: AddedToGroup[] = [];
-    for (const id of ids) {
-      try {
-        all.push({ id, results: (await LibraryService.AddSkillToGroup(groupID, id)) ?? [] });
-      } catch (e) {
-        all.push({ id, results: [], error: toLibraryError(e) });
-      }
-    }
-    return all;
-  }, { failed: (all) => all.some((o) => o.error) });
-  if (!outcomes) return false;
-  const { all, skipped, added, placed, rows } = addedToGroup(s, ids, outcomes);
+  const results = await runEach(ids, (id) => LibraryService.AddSkillToGroup(groupID, id).then((r) => r ?? []));
+  if (!results) return false;
+  const { all, skipped, added, placed, rows } = addedToGroup(s, ids, results);
   if (all) {
     await toastInstalled(placed, text.done(ids.length, s.groupInstalls.filter((a) => a.group_id === groupID).length));
     return true;
@@ -169,7 +159,7 @@ export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[])
   }
   const results = await runEach(ids, (id) => LibraryService.RemoveSkillFromGroup(groupID, id, { if_no_other_install: policy }));
   if (!results) return false;
-  const rows = failedRows(results, (i) => skillName(s, ids[i]));
+  const rows = failedAttemptRows(results, (i) => skillName(s, ids[i]));
   if (rows.length) await showResults(t.pickedRemoveFromGroupTitle(ids.length, group), rows);
   else ui.toast(t.pickedRemovedFromGroup(ids.length, group));
   return rows.length < ids.length;
