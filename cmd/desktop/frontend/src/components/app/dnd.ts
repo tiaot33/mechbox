@@ -10,8 +10,8 @@ import type { CollectionID, GroupID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, type Snapshot } from "@/lib/library";
 import { missingFromGroup } from "@/features/group/group-rules";
-import { parseScope, scopeKey, type ScopeKey } from "@/lib/scope";
-import { skillScopeIn } from "@/lib/installs";
+import { parseScope, type ScopeKey } from "@/lib/scope";
+import { groupInstallIn, skillScopeIn } from "@/lib/installs";
 import { useBusy } from "@/lib/ui";
 import { clearPickedAfter, endDrag, reveal, startDrag, useView, type DragItem } from "@/lib/view";
 import { reorder } from "@/features/order/order";
@@ -81,7 +81,8 @@ export function alreadyInScope(s: Snapshot, item: DragItem, key: ScopeKey): bool
     const ids = s.collections.find((c) => c.id === item.id)?.skills ?? [];
     return ids.length > 0 && ids.every((id) => skillScopeIn(s, id, key)?.direct);
   }
-  return s.groupInstalls.some((a) => a.group_id === item.id && scopeKey(a.scope) === key);
+  // 合成一处里任何一个 Agent 有这个组的组安装都算已在这里(代表换了也一样),不再多记一条。
+  return !!groupInstallIn(s, { id: item.id }, key);
 }
 
 // alreadyInGroup:技能(勾选的几个技能)已是该组成员，或集合里没有还不在组里的技能(见 missingFromGroup)。

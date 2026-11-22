@@ -23,10 +23,10 @@ import { discardedEdits } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, toLibraryError, useSnapshot, type Snapshot } from "@/lib/library";
 import { mergeMissing, missingAt } from "@/lib/mentions";
-import { agentName, groupName, placeOf, projectName, skillName } from "@/lib/scope";
+import { agentName, groupName, placeOf, projectName, scopeKey, skillName } from "@/lib/scope";
 import { agentNameIn, placeCount, scopeLabel } from "@/lib/places";
 import { collectionSkills, sourceLabel } from "@/lib/source";
-import { folderPlaces } from "@/lib/installs";
+import { folderPlaces, groupInstallsIn } from "@/lib/installs";
 import { shortPath } from "@/lib/paths";
 import { ui } from "@/lib/ui";
 import { openDrawer } from "@/lib/view";
@@ -446,9 +446,12 @@ export async function installGroup(groupID: GroupID, scope: Scope) {
 export async function uninstallGroup(groupID: GroupID, scope: Scope) {
   const s = currentSnapshot();
   const t = messages().actions;
+  // 合成一处里几个 Agent 各有这个组的组安装时一起撤掉，影响一次算完、只问一次。
+  const found = groupInstallsIn(s, { id: groupID }, scopeKey(scope));
+  const scopes = found.length ? found : [scope];
   // 共用目录：只靠这个组安装留着的成员，卸载后文件夹删除，共用的几个 Agent 都不再算已装，先说明还有哪些 Agent 在用。
   // 别处的符号链接指着要删的文件夹时，删之前库先给那几处换上独立的一份，也先说明。
-  const { gone, shared: removed } = uninstallGroupPlaces(s, groupID, scope);
+  const { gone, shared: removed } = uninstallGroupPlaces(s, groupID, scope, scopes);
   // 要删的文件夹被别处的符号链接指着、被手动改过时，确认里一并列出(DeleteNotes)。
   const deleted = folderPlaces(s, gone);
   const unfound = await lostMentions(deleted);
@@ -471,9 +474,18 @@ export async function uninstallGroup(groupID: GroupID, scope: Scope) {
     danger: true,
   });
   if (!ok) return;
-  await runDiscardingEdits(discardedEdits(deleted), (discard) => LibraryService.UninstallGroup(groupID, scope, { discard_edits: discard }), {
-    success: t.groupUninstalled(groupName(s, groupID), scopeLabel(s, scope)),
-  });
+  // 删之前核对出被改过的再问一次时，已经撤掉的那几条不再重撤。
+  const done = new Set<string>();
+  await runDiscardingEdits(
+    discardedEdits(deleted),
+    async (discard) => {
+      for (const sc of scopes.filter((x) => !done.has(scopeKey(x)))) {
+        await LibraryService.UninstallGroup(groupID, sc, { discard_edits: discard });
+        done.add(scopeKey(sc));
+      }
+    },
+    { success: t.groupUninstalled(groupName(s, groupID), scopeLabel(s, scope)) },
+  );
 }
 
 

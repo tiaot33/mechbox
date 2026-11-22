@@ -224,18 +224,22 @@ export function skippedPicked(s: Snapshot, picked: ReturnType<typeof uninstallPi
 
 // uninstallGroupPlaces 是从 scope 卸载整组的组安装会删掉文件夹的成员(gone):只靠这个组安装留着的(没有直接安装，
 // 读这个文件夹的各个 Agent(含全局共用目录的)在同一处也没有别的组安装含它);shared 是其中全局共用的，共用的几个 Agent 都不再算已装。
-export function uninstallGroupPlaces(s: Snapshot, groupID: GroupID, scope: Scope) {
+// scopes 是这一次一起撤掉的组安装(合成一处里各 Agent 的那几条,见 groupInstallsIn),一个文件夹只算一次。
+export function uninstallGroupPlaces(s: Snapshot, groupID: GroupID, scope: Scope, scopes: Scope[] = [scope]) {
   const memberOf = (id: GroupID, skill: SkillID) => !!s.groups.find((g) => g.id === id)?.members?.includes(skill);
-  const gone = (s.groups.find((g) => g.id === groupID)?.members ?? [])
-    .map((id) => skillScopeIn(s, id, scopeKey(scope)))
+  const removing = scopes.map((sc) => sc.agent);
+  const seen = new Set<string>();
+  const gone = scopes
+    .flatMap((sc) => (s.groups.find((g) => g.id === groupID)?.members ?? []).map((id) => skillScopeIn(s, id, scopeKey(sc))))
     .filter((p): p is SkillScopeInspection => !!p && !p.direct)
+    .filter((p) => !seen.has(folderKey(p)) && !!seen.add(folderKey(p)))
     .filter((p) => {
-      const readers = [scope.agent, ...(p.shared_with ?? [])];
+      const readers = [p.scope.agent, ...(p.shared_with ?? [])];
       const others = s.groupInstalls.filter(
         (g) =>
           readers.includes(g.scope.agent) &&
           placeOf(g.scope) === placeOf(scope) &&
-          !(g.group_id === groupID && g.scope.agent === scope.agent),
+          !(g.group_id === groupID && removing.includes(g.scope.agent)),
       );
       return !others.some((g) => memberOf(g.group_id, p.skill_id));
     });

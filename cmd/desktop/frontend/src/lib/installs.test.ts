@@ -15,7 +15,7 @@ import {
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { editedHere, errorOccupier, folderPresent, groupStateIn, installedSummary, needsReinstall, needsRepair, occupierOf, reinstallAlerts, reinstallLevel } from "./installs";
+import { editedHere, errorOccupier, folderPresent, groupInstallsIn, groupStateIn, installedSummary, needsReinstall, needsRepair, occupierOf, reinstallAlerts, reinstallLevel } from "./installs";
 
 const snapshot = (s: Partial<Snapshot>) =>
   ({ collections: [], groups: [], skills: [], skillScopes: [], unmanaged: [], agents: [], projects: [], info: { home_dir: "/home" }, ...s }) as unknown as Snapshot;
@@ -165,5 +165,10 @@ describe("groupStateIn", () => {
 
   it("别的层级、不合成的 Agent 的组安装不算", () => {
     expect(groupStateIn(s, group, "amp@0")).toBe("off");
+  });
+
+  it("合成一处里几个 Agent 各有一条组安装时都列出来，关掉时一起撤", () => {
+    const both = snapshot({ ...s, groupInstalls: [...s.groupInstalls, { group_id: 5, scope: where("amp", 7) } as GroupInstall] });
+    expect(groupInstallsIn(both, group, "amp@7").map((x) => x.agent).sort()).toEqual(["amp", AgentCode.AgentCodex]);
   });
 });

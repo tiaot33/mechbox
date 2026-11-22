@@ -33,10 +33,16 @@ export function folderPlaces(s: Snapshot, places: SkillScopeInspection[]): Skill
 
 // groupInstallIn 是组在某个作用域的组安装落在哪个作用域上：合成一处的几个 Agent 里任何一个有这个组的组安装都算(代表换了也不变),
 // 卸载组安装要落在有记录的那个上;没有时为 undefined。
-export function groupInstallIn(s: Snapshot, group: Group, key: ScopeKey): Scope | undefined {
+export function groupInstallIn(s: Snapshot, group: Pick<Group, "id">, key: ScopeKey): Scope | undefined {
+  return groupInstallsIn(s, group, key)[0];
+}
+
+// groupInstallsIn 是合成一处里各 Agent 这个组的全部组安装(编辑目录让两个各有组安装的 Agent 合成一处时会有几条);
+// 关掉这一处的组安装要把它们都撤掉，不然开关仍是开。
+export function groupInstallsIn(s: Snapshot, group: Pick<Group, "id">, key: ScopeKey): Scope[] {
   const scope = parseScope(key);
   const agents = mergedAgents(s, scope.agent, placeOf(scope));
-  return s.groupInstalls.find((a) => a.group_id === group.id && placeOf(a.scope) === placeOf(scope) && agents.includes(a.scope.agent))?.scope;
+  return s.groupInstalls.filter((a) => a.group_id === group.id && placeOf(a.scope) === placeOf(scope) && agents.includes(a.scope.agent)).map((a) => a.scope);
 }
 
 // groupStateIn 是组在某个作用域的组安装状态：组安装是独立记录(空组也可以有),有记录即为 on(见 groupInstallIn)。

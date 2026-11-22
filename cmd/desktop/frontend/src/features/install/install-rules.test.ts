@@ -335,6 +335,19 @@ describe("卸载整组时删哪些成员的文件夹", () => {
     expect(r.shared.map((p) => p.skill_id)).toEqual([1]);
   });
 
+  it("合成一处里几个 Agent 各有这个组的组安装时一起撤掉：互相不算「别的组安装还留着」,同一个文件夹只算一次", () => {
+    const s = snapshot({
+      groups: [group(5, [1])],
+      groupInstalls: [installed(5, global(claude)), installed(5, global(codex))],
+      skillScopes: [
+        place(1, global(claude), { direct: false, groups: [5], shared_with: [codex], folder: "/home/shared/s1" }),
+        place(1, global(codex), { direct: false, groups: [5], shared_with: [claude], folder: "/home/shared/s1" }),
+      ],
+    });
+    expect(uninstallGroupPlaces(s, 5, global(claude)).gone).toEqual([]);
+    expect(uninstallGroupPlaces(s, 5, global(claude), [global(claude), global(codex)]).gone.map((p) => p.skill_id)).toEqual([1]);
+  });
+
   it("别的项目里装着同一个组不算", () => {
     const s = snapshot({
       groups: [group(5, [1])],
