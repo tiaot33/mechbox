@@ -79,16 +79,13 @@ function Main() {
     firstOpen.current = true;
     // 打开 app 时读一遍本地目录来源的目录(见 checkLocalDirectories)。
     void checkLocalDirectories();
-    // 从旧版本升级上来的数据库没走过按检测结果添加 Agent:升级后第一次打开时提示一次(新数据库在第一次打开的流程里已经做过)。
-    void offerFirstOpen(s.agents).then(offerAgentPool);
-  }, [s]);
-
-  // 设置里选的 WSL 发行版启动时没能打开：说明界面上暂时是 Windows 本机的全局目录，让用户再试或改回 Windows 本机。
-  const distroChecked = useRef(false);
-  useEffect(() => {
-    if (!s || distroChecked.current) return;
-    distroChecked.current = true;
-    void offerDistroRetry();
+    // 依次:设置里选的 WSL 发行版启动时没能打开时先让用户重试或改回 Windows 本机(之后的检测才看对地方);
+    // 第一次打开;从旧版本升级上来的数据库没走过按检测结果添加 Agent,升级后第一次打开时提示一次。
+    void (async () => {
+      await offerDistroRetry();
+      await offerFirstOpen(s.agents);
+      await offerAgentPool();
+    })();
   }, [s]);
 
   // 每次读到快照(写操作、手动检查更新之后),Dock 角标跟着重算。按读到的时间触发：重读的内容没变时快照还是同一个对象。

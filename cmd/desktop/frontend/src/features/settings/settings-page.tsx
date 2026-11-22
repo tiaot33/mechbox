@@ -14,7 +14,8 @@ import { useSnapshot, type LibraryError } from "@/lib/library";
 import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { useView } from "@/lib/view";
-import { AddAgentDialog, AgentSection } from "@/features/scope/agent-settings";
+import { AddAgentDialog, AgentSection, offerDistroAgents } from "@/features/scope/agent-settings";
+import { switchedToDistro } from "@/features/scope/agents-rules";
 import { resetAgents } from "@/features/scope/agents";
 import { ProjectPathDialog } from "@/features/scope/project-path-dialog";
 import { Button } from "@/components/ui/button";
@@ -88,6 +89,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
   // 保存完(包括保存失败退回原设置)都再问 Go 端实际用哪种，以它为准。
   const save = (change: Partial<Settings>) => {
     if (!latest.current) return;
+    const before = latest.current.wsl_distro ?? "";
     const next = { ...latest.current, ...change };
     show(next);
     if (change.language) setLanguage(toLanguage(change.language));
@@ -98,6 +100,8 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
         onError: (err) => switching && distroFailed(err, next.wsl_distro ?? ""),
       });
       if (!saved) await AppService.Settings().then(show, () => {});
+      // 全局目录换到了另一个 WSL 发行版：按那里检测到的补弹一次「添加 Agent」。
+      else if (switching && switchedToDistro(before, next.wsl_distro ?? "")) void offerDistroAgents(next.wsl_distro ?? "");
       if ("language" in change) await AppService.Language().then((l) => setLanguage(toLanguage(l)), () => {});
     });
   };

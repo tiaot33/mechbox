@@ -109,6 +109,19 @@ export function agentReset(s: Snapshot, plan: ResetAgentsPlan) {
   };
 }
 
+// ---------- 全局目录在哪里 ----------
+
+// asksWhere 是第一次打开时要不要先问 Agent 装在 Windows 本机还是哪个 WSL 发行版：这台电脑有 WSL 发行版、设置里还没选发行版时才问，
+// 问过再按那里检测到的添加 Agent。
+export function asksWhere(distros: string[], chosen: string): boolean {
+  return distros.length > 0 && !chosen;
+}
+
+// switchedToDistro 是设置里这次保存有没有把全局目录换到另一个 WSL 发行版：换到了就按那里检测到的补弹一次「添加 Agent」。
+export function switchedToDistro(before: string, after: string): boolean {
+  return !!after && after !== before;
+}
+
 // ---------- 候选池 ----------
 
 // poolMatches 是候选池里按名称、目录搜索:不分大小写，名称或任一目录包含搜索的文字。

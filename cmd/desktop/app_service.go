@@ -212,10 +212,19 @@ func (a *AppService) FirstOpen() bool {
 	return true
 }
 
-// OfferAgentPool 在从旧版本升级上来的数据库(第一次打开的流程在升级前就做过了,当时还没有按检测结果添加 Agent)
-// 升级后第一次打开时返回 true,并记下已经提示过,之后(含重启、拉回)都返回 false;前端据此弹一次「添加 Agent」,
-// 检测到的默认勾上。第一次打开的流程里已经按检测结果添加过,不再提示。记不下来时照样返回 true,下次启动会再提示一次。
-func (a *AppService) OfferAgentPool() bool {
+// AgentPoolPending 在从旧版本升级上来的数据库(第一次打开的流程在升级前就做过了,当时还没有按检测结果添加 Agent)还没提示过
+// 按检测结果添加 Agent 时返回 true;前端据此弹一次「添加 Agent」,检测到的默认勾上,读到候选池之后调用 AgentPoolOffered 记下。
+// 第一次打开的流程里已经按检测结果添加过,不再提示。设置里选的 WSL 发行版启动时没能打开时也返回 false:
+// 这时检测的是 Windows 本机的目录,等发行版打开了(重试或下次启动)再提示。
+func (a *AppService) AgentPoolPending() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.offerPool && a.distroError == ""
+}
+
+// AgentPoolOffered 记下已经按检测结果提示过添加 Agent,之后(含重启、拉回)AgentPoolPending 都返回 false。
+// 记不下来时下次启动会再提示一次。
+func (a *AppService) AgentPoolOffered() {
 	a.mu.Lock()
 	offer := a.offerPool
 	a.offerPool = false
@@ -224,7 +233,6 @@ func (a *AppService) OfferAgentPool() bool {
 	if offer {
 		a.warn(a.saveSettings(context.Background(), settings, nil), "settings unwritable, agent pool offer not recorded")
 	}
-	return offer
 }
 
 // marks 是按这台机器上现在的状态,已经做过了的一次性的事。调用方持有 a.mu。

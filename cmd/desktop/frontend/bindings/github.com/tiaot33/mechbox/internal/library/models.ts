@@ -1314,7 +1314,8 @@ export enum MigrationOutcome {
     MigrationSkipped = "skipped",
 
     /**
-     * 新目录里已经装着库里的这个技能(别的 Agent 装的,文件夹名可以不同):不复制、不搬,这个 Agent 改认那一处,照常算已装;
+     * 新目录里已经装着库里的这个技能(同一层级里别的 Agent 装的、文件夹在磁盘上,文件夹名可以不同;或没有记录、内容和库里某一版一致):
+     * 不复制、不搬,这个 Agent 的安装记录改指到那一处,保留直接安装与组安装,照常算已装;
      * 旧文件夹留在原处,还有别的 Agent 在读的连同安装记录留给它们,没有的库不再管理它。
      */
     MigrationAlreadyInstalled = "already_installed",

@@ -13,7 +13,7 @@ import {
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import type { Snapshot } from "@/lib/library";
-import { agentDelete, agentEdit, agentReset, alreadyRead, detectedPicks, directoryOptions, filterDirectoryOptions, migrationReport, opensWhileTyping, poolMatches, sortPool, undetected } from "./agents-rules";
+import { agentDelete, agentEdit, agentReset, alreadyRead, asksWhere, switchedToDistro, detectedPicks, directoryOptions, filterDirectoryOptions, migrationReport, opensWhileTyping, poolMatches, sortPool, undetected } from "./agents-rules";
 
 const mine = "my-agent" as AgentCode;
 const claude = AgentCode.AgentClaudeCode;
@@ -269,5 +269,19 @@ describe("恢复默认", () => {
   });
   it("计划是空的时什么都不做", () => {
     expect(agentReset(s, { reset: [], removed: [], migrations: [], kept: [], removable: [] } as unknown as ResetAgentsPlan).nothing).toBe(true);
+  });
+});
+
+describe("Agent 装在 Windows 本机还是 WSL 发行版", () => {
+  it("第一次打开时这台电脑有 WSL 发行版、还没选过才先问，再按那里检测", () => {
+    expect(asksWhere(["Ubuntu"], "")).toBe(true);
+    expect(asksWhere([], "")).toBe(false);
+    expect(asksWhere(["Ubuntu"], "Ubuntu")).toBe(false);
+  });
+  it("设置里换到另一个发行版时补弹一次候选池;换回 Windows 本机、没换时不弹", () => {
+    expect(switchedToDistro("", "Ubuntu")).toBe(true);
+    expect(switchedToDistro("Ubuntu", "Debian")).toBe(true);
+    expect(switchedToDistro("Ubuntu", "")).toBe(false);
+    expect(switchedToDistro("Ubuntu", "Ubuntu")).toBe(false);
   });
 });

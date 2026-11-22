@@ -360,11 +360,13 @@ func TestAgentPoolIsOfferedOnceAfterUpgrade(t *testing.T) {
 	if upgraded.FirstOpen() {
 		t.Fatal("FirstOpen() on an upgraded library = true; want false")
 	}
-	if !upgraded.OfferAgentPool() {
-		t.Fatal("OfferAgentPool() after upgrade = false; want true")
+	// 没记下之前(如读候选池失败)一直待提示,不会被白白用掉。
+	if !upgraded.AgentPoolPending() || !upgraded.AgentPoolPending() {
+		t.Fatal("AgentPoolPending() after upgrade = false; want true until the offer is recorded")
 	}
-	if upgraded.OfferAgentPool() {
-		t.Fatal("OfferAgentPool() a second time = true; want false")
+	upgraded.AgentPoolOffered()
+	if upgraded.AgentPoolPending() {
+		t.Fatal("AgentPoolPending() after AgentPoolOffered = true; want false")
 	}
 	if err := lib.lib.SetAppSettings(t.Context(), map[string]string{firstOpenDoneKey: "true", "language": "en"}); err != nil {
 		t.Fatal(err)
@@ -376,20 +378,41 @@ func TestAgentPoolIsOfferedOnceAfterUpgrade(t *testing.T) {
 	if err := upgraded.ServiceShutdown(); err != nil {
 		t.Fatalf("ServiceShutdown: %v", err)
 	}
-	if startApp(t, lib).OfferAgentPool() {
-		t.Fatal("OfferAgentPool() after restart = true; want false")
+	if startApp(t, lib).AgentPoolPending() {
+		t.Fatal("AgentPoolPending() after restart = true; want false")
 	}
 
 	fresh := startLibrary(t)
 	first := startApp(t, fresh)
-	if !first.FirstOpen() || first.OfferAgentPool() {
+	if !first.FirstOpen() || first.AgentPoolPending() {
 		t.Fatal("a new library: want FirstOpen() and no agent pool offer")
 	}
 	if err := first.ServiceShutdown(); err != nil {
 		t.Fatalf("ServiceShutdown: %v", err)
 	}
-	if startApp(t, fresh).OfferAgentPool() {
-		t.Fatal("OfferAgentPool() after first open and restart = true; want false")
+	if startApp(t, fresh).AgentPoolPending() {
+		t.Fatal("AgentPoolPending() after first open and restart = true; want false")
+	}
+}
+
+// 设置里选的 WSL 发行版启动时没能打开时,检测的是 Windows 本机,先不提示添加 Agent,也不记下;发行版打开后再提示。
+func TestAgentPoolWaitsForTheChosenDistro(t *testing.T) {
+	lib := startLibrary(t)
+	if err := lib.lib.SetAppSettings(t.Context(), map[string]string{firstOpenDoneKey: "true"}); err != nil {
+		t.Fatal(err)
+	}
+	app := startApp(t, lib)
+	app.mu.Lock()
+	app.distroError = "distro unavailable"
+	app.mu.Unlock()
+	if app.AgentPoolPending() {
+		t.Fatal("AgentPoolPending() while the chosen distro is unavailable = true; want false")
+	}
+	app.mu.Lock()
+	app.distroError = ""
+	app.mu.Unlock()
+	if !app.AgentPoolPending() {
+		t.Fatal("AgentPoolPending() once the distro opened = false; want true")
 	}
 }
 

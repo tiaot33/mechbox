@@ -18,6 +18,24 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
+ * AgentPoolOffered 记下已经按检测结果提示过添加 Agent,之后(含重启、拉回)AgentPoolPending 都返回 false。
+ * 记不下来时下次启动会再提示一次。
+ */
+export function AgentPoolOffered(): $CancellablePromise<void> {
+    return $Call.ByID(3024054612);
+}
+
+/**
+ * AgentPoolPending 在从旧版本升级上来的数据库(第一次打开的流程在升级前就做过了,当时还没有按检测结果添加 Agent)还没提示过
+ * 按检测结果添加 Agent 时返回 true;前端据此弹一次「添加 Agent」,检测到的默认勾上,读到候选池之后调用 AgentPoolOffered 记下。
+ * 第一次打开的流程里已经按检测结果添加过,不再提示。设置里选的 WSL 发行版启动时没能打开时也返回 false:
+ * 这时检测的是 Windows 本机的目录,等发行版打开了(重试或下次启动)再提示。
+ */
+export function AgentPoolPending(): $CancellablePromise<boolean> {
+    return $Call.ByID(3476578796);
+}
+
+/**
  * CheckRelease 读 GitHub Releases 上最新的正式版，比正在运行的版本新时返回它，已是最新时返回 nil;结果记下来，Release 随之改变。
  * 读的是版本附带的 release.json,不经 GitHub API,不受 API 的限流。连不上或超时时返回 SourceUnreachable,返回的内容读不懂时返回 SourceInvalid;
  * 这个构建不检查新版本时返回 FailedPrecondition;正在装新版本时返回 Busy。
@@ -54,15 +72,6 @@ export function InstallRelease(version: string): $CancellablePromise<void> {
  */
 export function Language(): $CancellablePromise<$models.Language> {
     return $Call.ByID(537396504);
-}
-
-/**
- * OfferAgentPool 在从旧版本升级上来的数据库(第一次打开的流程在升级前就做过了,当时还没有按检测结果添加 Agent)
- * 升级后第一次打开时返回 true,并记下已经提示过,之后(含重启、拉回)都返回 false;前端据此弹一次「添加 Agent」,
- * 检测到的默认勾上。第一次打开的流程里已经按检测结果添加过,不再提示。记不下来时照样返回 true,下次启动会再提示一次。
- */
-export function OfferAgentPool(): $CancellablePromise<boolean> {
-    return $Call.ByID(3169348243);
 }
 
 /**

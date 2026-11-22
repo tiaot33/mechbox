@@ -8,6 +8,7 @@ import { ErrorCode, type Agent, type AgentInput } from "@bindings/internal/libra
 import { addAgent, addAgentsFromPool, editAgent, removeAgent } from "./agents";
 import {
   alreadyRead,
+  asksWhere,
   detectedPicks,
   directoryOptions,
   filterDirectoryOptions,
@@ -96,15 +97,51 @@ export function AddAgentDialog({ onClose, picks, title, lead }: { onClose: () =>
 }
 
 // offerAgentPool 在从旧版本升级上来的数据库升级后第一次打开时弹一次「添加 Agent」:升级时原有的 Agent 保持已添加，
-// 其余收录的进了候选池，按检测结果添加只在第一次打开时做过。候选池里检测到的默认勾上(已有 Agent 读它独有目录的不勾),
-// 用户确认后才添加;候选池里一个都没检测到时不弹。
+// 其余收录的进了候选池，按检测结果添加只在第一次打开时做过。读到候选池之后才记下已经提示过(读不到时下次再提示);
+// 设置里选的 WSL 发行版没能打开时 Go 端先不让提示，等它打开了再说。
 export async function offerAgentPool() {
-  if (!(await AppService.OfferAgentPool().catch(() => false))) return;
+  if (!(await AppService.AgentPoolPending().catch(() => false))) return;
   const pool = await LibraryService.ListAgentPool().catch(() => null);
-  if (!pool?.some((a) => a.detected)) return;
+  if (!pool) return;
+  await AppService.AgentPoolOffered().catch(() => {});
   const t = messages().agents;
+  await offerDetected(pool, t.upgradeTitle, t.upgradeLead);
+}
+
+// chooseWhere 在第一次打开、这台电脑有 WSL 发行版时，先问 Agent 装在 Windows 本机还是哪个发行版(#387:选好之后再检测);
+// 选了发行版就把全局目录换过去，换不成时提示原因、照旧用 Windows 本机。关掉确认框等于选 Windows 本机。
+export async function chooseWhere() {
+  const distros = (await LibraryService.ListWSLDistros().catch(() => null)) ?? [];
+  const settings = await AppService.Settings().catch(() => null);
+  if (!settings || !asksWhere(distros, settings.wsl_distro ?? "")) return;
+  const t = messages();
+  const choice = await ui.confirm({
+    title: t.agents.whereTitle,
+    body: <Hint>{t.agents.whereLead}</Hint>,
+    choices: [
+      { value: "windows", label: t.agents.whereWindows, desc: t.agents.whereWindowsDesc },
+      ...distros.map((d) => ({ value: `wsl:${d}`, label: t.paths.wsl(d), desc: t.agents.whereDistroDesc })),
+    ],
+    confirm: t.agents.whereContinue,
+  });
+  if (!choice?.startsWith("wsl:")) return;
+  await ui.run(() => AppService.SaveSettings({ ...settings, wsl_distro: choice.slice(4) }), { reload: true });
+}
+
+// offerDistroAgents 在设置里把全局目录换到一个 WSL 发行版之后，按那里检测到的补弹一次「添加 Agent」。
+export async function offerDistroAgents(distro: string) {
+  const pool = await LibraryService.ListAgentPool().catch(() => null);
+  if (!pool) return;
+  const t = messages();
+  await offerDetected(pool, t.agents.distroPoolTitle(t.paths.wsl(distro)), t.agents.distroPoolLead(t.paths.wsl(distro)));
+}
+
+// offerDetected 打开「添加 Agent」,候选池里检测到的默认勾上(已有 Agent 读它独有目录的不勾),用户确认后才添加;
+// 候选池里一个都没检测到时不弹。
+async function offerDetected(pool: Agent[], title: string, lead: string) {
+  if (!pool.some((a) => a.detected)) return;
   const picks = detectedPicks(pool, currentSnapshot().agents);
-  await ui.open((close) => <AddAgentDialog onClose={close} picks={picks} title={t.upgradeTitle} lead={t.upgradeLead} />);
+  await ui.open((close) => <AddAgentDialog onClose={close} picks={picks} title={title} lead={lead} />);
 }
 
 function AgentPoolDialog({
