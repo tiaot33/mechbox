@@ -12,10 +12,10 @@ import {
 } from "@bindings/internal/library";
 import { messages } from "./i18n";
 import { installedWhere } from "./installs";
-import { agentNameIn, agentShown, mergedAgents, scopeLabel } from "./places";
+import { agentShown, mergedAgents, scopeLabel } from "./places";
 import type { Snapshot } from "./library";
 import { shortPath } from "./paths";
-import { parseScope, placeOf, projectName, scopeKey, type ScopeKey } from "./scope";
+import { agentName, parseScope, placeOf, projectName, scopeKey, type ScopeKey } from "./scope";
 import { sourceLabel } from "./source";
 import { unmanagedIn } from "./unmanaged";
 
@@ -54,35 +54,60 @@ export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): Note |
   return { text: notes.map((n) => n.text).join("\n"), title: notes.map((n) => n.title).join("\n") };
 }
 
+// byRule 把同一处同名在合成一处的几个 Agent 上的那几对，按各 Agent 自己的规则分组：有已知规则的只写它们，主语只写持有这条规则的 Agent;
+// 都没有已知规则时写一组(只说同名)。agentOf 取一对里是哪个 Agent 的。
+function byRule(s: Snapshot, pairs: SameNameSkill[], agentOf: (p: SameNameSkill) => string) {
+  const groups = new Map<SameNameRule, { codes: string[]; pairs: SameNameSkill[] }>();
+  for (const p of pairs) {
+    const code = agentOf(p);
+    const rule = s.agents.find((a) => a.code === code)?.same_name ?? SameNameRule.SameNameUnknown;
+    const group = groups.get(rule) ?? { codes: [], pairs: [] };
+    if (!group.codes.includes(code)) group.codes.push(code);
+    group.pairs.push(p);
+    groups.set(rule, group);
+  }
+  const known = [...groups].filter(([rule]) => rule !== SameNameRule.SameNameUnknown);
+  return (known.length ? known : [...groups]).map(([rule, g]) => ({
+    rule,
+    who: g.codes.map((code) => agentName(s, code as Scope["agent"])).join(messages().model.listSeparator),
+    pairs: g.pairs,
+  }));
+}
+
 function globalAndProjectNote(s: Snapshot, key: ScopeKey, folder: string): Note | undefined {
   const m = messages().model;
   const scope = parseScope(key);
-  const agent = s.agents.find((a) => a.code === scope.agent);
-  const rule = agent?.same_name ?? SameNameRule.SameNameUnknown;
-  const who = agent?.name ?? scope.agent;
+  // 合成一处的几个 Agent 都按自己的规则算(代表没有已知规则时，别的 Agent 的规则不能丢)。
+  const agents = mergedAgents(s, scope.agent, placeOf(scope));
   const pairs = pairsOf(s, PairKind.SameNameGlobalAndProject);
   if (scope.project_id) {
-    const here = pairs.filter((p) => p.second.scope.agent === scope.agent && p.second.scope.project_id === scope.project_id && p.second.folder === folder);
+    const here = pairs.filter((p) => agents.includes(p.second.scope.agent) && p.second.scope.project_id === scope.project_id && p.second.folder === folder);
     if (here.length === 0) return undefined;
     const kinds = [...new Set(here.map((p) => sameNameKind(s, p.first)))];
     const name = here[0].name;
-    const text = {
-      [SameNameRule.SameNameGlobalWins]: m.sameNameGlobalWins(name, kinds, who),
-      [SameNameRule.SameNameBothShown]: m.sameNameGlobalBoth(name, kinds, who),
-      [SameNameRule.SameNameUnknown]: m.sameNameGlobalUnknown(name, kinds),
-    }[rule];
-    return { text, title: here.map((p) => m.sameNameGlobalFolder(shortPath(s, p.first.folder))).join("\n") };
+    const text = byRule(s, here, (p) => p.second.scope.agent).map(({ rule, who }) =>
+      ({
+        [SameNameRule.SameNameGlobalWins]: m.sameNameGlobalWins(name, kinds, who),
+        [SameNameRule.SameNameBothShown]: m.sameNameGlobalBoth(name, kinds, who),
+        [SameNameRule.SameNameUnknown]: m.sameNameGlobalUnknown(name, kinds),
+      })[rule],
+    );
+    const folders = [...new Set(here.map((p) => p.first.folder))];
+    return { text: text.join("\n"), title: folders.map((f) => m.sameNameGlobalFolder(shortPath(s, f))).join("\n") };
   }
-  const here = pairs.filter((p) => p.first.scope.agent === scope.agent && p.first.folder === folder);
+  const here = pairs.filter((p) => agents.includes(p.first.scope.agent) && p.first.folder === folder);
   if (here.length === 0) return undefined;
   const name = here[0].name;
   const projects = [...new Set(here.map((p) => projectName(s, p.second.scope.project_id ?? 0)))];
-  const text = {
-    [SameNameRule.SameNameGlobalWins]: m.sameNameProjectWins(projects, name, who),
-    [SameNameRule.SameNameBothShown]: m.sameNameProjectBoth(projects, name, who),
-    [SameNameRule.SameNameUnknown]: m.sameNameProjectUnknown(projects, name),
-  }[rule];
-  return { text, title: here.map((p) => m.sameNameProjectFolder(projectName(s, p.second.scope.project_id ?? 0), shortPath(s, p.second.folder))).join("\n") };
+  const text = byRule(s, here, (p) => p.first.scope.agent).map(({ rule, who }) =>
+    ({
+      [SameNameRule.SameNameGlobalWins]: m.sameNameProjectWins(projects, name, who),
+      [SameNameRule.SameNameBothShown]: m.sameNameProjectBoth(projects, name, who),
+      [SameNameRule.SameNameUnknown]: m.sameNameProjectUnknown(projects, name),
+    })[rule],
+  );
+  const lines = [...new Set(here.map((p) => m.sameNameProjectFolder(projectName(s, p.second.scope.project_id ?? 0), shortPath(s, p.second.folder))))];
+  return { text: text.join("\n"), title: lines.join("\n") };
 }
 
 function twoDirectoriesNote(s: Snapshot, key: ScopeKey, folder: string): Note | undefined {
@@ -112,18 +137,22 @@ function twoDirectoriesNote(s: Snapshot, key: ScopeKey, folder: string): Note | 
 export function skillSameNameNote(s: Snapshot, skillID: SkillID): Note | undefined {
   const m = messages().model;
   const mine = (p: SameNameSkill) => p.first.skill_id === skillID || p.second.skill_id === skillID;
-  const lines = pairsOf(s, PairKind.SameNameGlobalAndProject)
-    .filter(mine)
-    .map((p) => {
-      const agent = s.agents.find((a) => a.code === p.second.scope.agent);
-      const who = agentNameIn(s, p.second.scope.agent, placeOf(p.second.scope));
+  // 同一对文件夹在合成一处的几个 Agent 上各有一对：按各自的规则分组写，主语只写持有这条规则的 Agent,不写出互相矛盾的两句。
+  const byFolders = new Map<string, SameNameSkill[]>();
+  for (const p of pairsOf(s, PairKind.SameNameGlobalAndProject).filter(mine)) {
+    const key = `${p.first.folder}\n${p.second.folder}`;
+    byFolders.set(key, [...(byFolders.get(key) ?? []), p]);
+  }
+  const lines = [...byFolders.values()].flatMap((same) =>
+    byRule(s, same, (p) => p.second.scope.agent).map(({ rule, who, pairs: [p] }) => {
       const say = {
         [SameNameRule.SameNameGlobalWins]: m.sameNamePairWins,
         [SameNameRule.SameNameBothShown]: m.sameNamePairBoth,
         [SameNameRule.SameNameUnknown]: m.sameNamePairUnknown,
-      }[agent?.same_name ?? SameNameRule.SameNameUnknown];
+      }[rule];
       return say(who, projectName(s, p.second.scope.project_id ?? 0), p.name, sameNameKind(s, p.first), sameNameKind(s, p.second));
-    });
+    }),
+  );
   const twoDirectories = pairsOf(s, PairKind.SameNameTwoDirectories)
     .filter(mine)
     .map((p) => m.sameNamePairTwoDirectories(scopeLabel(s, p.first.scope), p.name, sameNameKind(s, p.first), sameNameKind(s, p.second)));

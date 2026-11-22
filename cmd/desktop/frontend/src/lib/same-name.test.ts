@@ -88,6 +88,26 @@ describe("同一个作用域两个目录里同名", () => {
   });
 });
 
+describe("合成一处的几个 Agent 规则不同", () => {
+  // Cline、Codex 目录都只读 .agents/skills,合成一处，代表是代码排序靠前、没有已知规则的 Cline。
+  const both = (agent: string) => globalAndProject(agent, 1, "x", { folder: "/home/.agents/skills/x", skill_id: 4 }, { folder: "/home/web/.agents/skills/x", skill_id: 4 });
+  const s = snapshot({
+    agents: [
+      { ...agent("cline", ".agents/skills"), name: "Cline", global_directories: ["/home/.agents/skills"], same_name: SameNameRule.SameNameUnknown },
+      { ...agent("codex", ".agents/skills"), name: "Codex", global_directories: ["/home/.agents/skills"], same_name: SameNameRule.SameNameBothShown },
+    ],
+    projects: [{ id: 1, name: "web-app", path: "/home/web" }] as Snapshot["projects"],
+    sameName: [both("cline"), both("codex")],
+  } as Partial<Snapshot>);
+  it("作用域页按各 Agent 自己的规则写，代表没有已知规则时 Codex 的规则不丢", () => {
+    expect(sameNameNote(s, "cline@1", "/home/web/.agents/skills/x")?.text).toBe("全局也有 x（库装的），Codex 里两份都会出现");
+    expect(sameNameNote(s, "cline@0", "/home/.agents/skills/x")?.text).toBe("项目「web-app」里也有 x，Codex 在那里两份都会出现");
+  });
+  it("技能库页同一对只写一句，主语只写持有这条规则的 Agent", () => {
+    expect(skillSameNameNote(s, 4)?.text).toBe("Codex 的全局（库装的）和项目「web-app」（库装的）里都有 x：Codex 在「web-app」里两份都会出现");
+  });
+});
+
 describe("skillSameNameNote", () => {
   it("库里的技能在全局和项目里各装一份时，这一对只说一次：哪两处、后果", () => {
     const pair = globalAndProject("codex", 1, "docs", { folder: "/home/.codex/skills/docs", skill_id: 4 }, { folder: "/home/web/.agents/skills/docs", skill_id: 4 });
