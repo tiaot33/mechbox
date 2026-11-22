@@ -188,7 +188,7 @@ func TestOnlyOneCopyIsAdoptedPerScope(t *testing.T) {
 	writeFile(t, filepath.Join(directory, "a-copy", "SKILL.md"), []byte(skillDocument("alpha", "v1")), 0o644)
 	f.write(t, f.claude, "alpha", "v1")
 	// 和 Claude Code 共用全局目录的自定义 Agent 本来就算已装,不另记一处。
-	if _, err := f.lib.AddAgent(ctx, library.CustomAgent{Name: "Shared", GlobalDirectory: directory, ProjectDirectory: ".shared/skills"}); err != nil {
+	if _, err := f.lib.AddAgent(ctx, library.AgentInput{Name: "Shared", GlobalDirectories: []string{directory}, ProjectDirectories: []string{".shared/skills"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -239,7 +239,7 @@ func TestExtraCopyInASharedDirectoryIsNotRecordedAgain(t *testing.T) {
 	f.publish(t, "https://author.example", "alpha", "v1")
 	alpha := f.fetch(t, "https://author.example", "alpha")
 	directory := scopeDirectory(t, f.lib, f.claude)
-	agent, err := f.lib.AddAgent(ctx, library.CustomAgent{Name: "Shared", GlobalDirectory: directory, ProjectDirectory: ".shared/skills"})
+	agent, err := f.lib.AddAgent(ctx, library.AgentInput{Name: "Shared", GlobalDirectories: []string{directory}, ProjectDirectories: []string{".shared/skills"}})
 	if err != nil {
 		t.Fatal(err)
 	}

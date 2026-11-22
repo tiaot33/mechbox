@@ -1,5 +1,14 @@
 // 同名：同一个 Agent 的全局和项目里同名时会怎样，同一层的别处同名不同内容的几份，库里同名的另外几个技能。
-import { SameNameRule, type PlannedUnmanagedSkill, type Scope, type Skill, type SkillID, type UnmanagedSkill } from "@bindings/internal/library";
+import {
+  SameNameKind as PairKind,
+  SameNameRule,
+  type PlannedUnmanagedSkill,
+  type SameNameSkill,
+  type Scope,
+  type Skill,
+  type SkillID,
+  type UnmanagedSkill,
+} from "@bindings/internal/library";
 import { messages } from "./i18n";
 import { installedWhere } from "./installs";
 import type { Snapshot } from "./library";
@@ -9,6 +18,11 @@ import { sourceLabel } from "./source";
 import { unmanagedIn } from "./unmanaged";
 
 // ---------- 同一个 Agent 的全局和项目里同名 ----------
+
+// globalAndProject 是同一个 Agent 的全局和项目里同名的那几对:first 是全局的那份,second 是项目里的。
+function globalAndProject(s: Snapshot): SameNameSkill[] {
+  return s.sameName.filter((p) => p.kind === PairKind.SameNameGlobalAndProject);
+}
 
 // SameNameKind 是同名的一对里一边那份是什么：库装的(managed)、和库里某个技能一样但不是库装的(identical,见 lib/unmanaged 的 identicalIn:
 // 它就是库里的技能，不说"不在技能库里")、不在技能库里的(unmanaged)。
@@ -30,44 +44,44 @@ export function sameNameNote(s: Snapshot, key: ScopeKey, folder: string): { text
   const rule = agent?.same_name ?? SameNameRule.SameNameUnknown;
   const who = agent?.name ?? scope.agent;
   if (scope.project_id) {
-    const pairs = s.sameName.filter((p) => p.agent === scope.agent && p.project_id === scope.project_id && p.project.folder === folder);
+    const pairs = globalAndProject(s).filter((p) => p.second.scope.agent === scope.agent && p.second.scope.project_id === scope.project_id && p.second.folder === folder);
     if (pairs.length === 0) return undefined;
-    const kinds = [...new Set(pairs.map((p) => sameNameKind(s, p.global)))];
+    const kinds = [...new Set(pairs.map((p) => sameNameKind(s, p.first)))];
     const name = pairs[0].name;
     const text = {
       [SameNameRule.SameNameGlobalWins]: m.sameNameGlobalWins(name, kinds, who),
       [SameNameRule.SameNameBothShown]: m.sameNameGlobalBoth(name, kinds, who),
       [SameNameRule.SameNameUnknown]: m.sameNameGlobalUnknown(name, kinds),
     }[rule];
-    return { text, title: pairs.map((p) => m.sameNameGlobalFolder(shortPath(s, p.global.folder))).join("\n") };
+    return { text, title: pairs.map((p) => m.sameNameGlobalFolder(shortPath(s, p.first.folder))).join("\n") };
   }
-  const pairs = s.sameName.filter((p) => p.agent === scope.agent && p.global.folder === folder);
+  const pairs = globalAndProject(s).filter((p) => p.first.scope.agent === scope.agent && p.first.folder === folder);
   if (pairs.length === 0) return undefined;
   const name = pairs[0].name;
-  const projects = [...new Set(pairs.map((p) => projectName(s, p.project_id)))];
+  const projects = [...new Set(pairs.map((p) => projectName(s, p.second.scope.project_id ?? 0)))];
   const text = {
     [SameNameRule.SameNameGlobalWins]: m.sameNameProjectWins(projects, name, who),
     [SameNameRule.SameNameBothShown]: m.sameNameProjectBoth(projects, name, who),
     [SameNameRule.SameNameUnknown]: m.sameNameProjectUnknown(projects, name),
   }[rule];
-  return { text, title: pairs.map((p) => m.sameNameProjectFolder(projectName(s, p.project_id), shortPath(s, p.project.folder))).join("\n") };
+  return { text, title: pairs.map((p) => m.sameNameProjectFolder(projectName(s, p.second.scope.project_id ?? 0), shortPath(s, p.second.folder))).join("\n") };
 }
 
 // skillSameNameNote 是库里一个技能在各处的同名说明(技能库页、更新页的一行用):同一个 Agent 的全局和某个项目里同名的一对只说一次,
 // 写出是哪两处(各是库装的、和库里一样的还是不在技能库里的)和后果;text 与 title 相同，逐对一行。没有同名时返回 undefined。
 export function skillSameNameNote(s: Snapshot, skillID: SkillID): { text: string; title: string } | undefined {
   const m = messages().model;
-  const lines = s.sameName
-    .filter((p) => p.global.skill_id === skillID || p.project.skill_id === skillID)
+  const lines = globalAndProject(s)
+    .filter((p) => p.first.skill_id === skillID || p.second.skill_id === skillID)
     .map((p) => {
-      const agent = s.agents.find((a) => a.code === p.agent);
-      const who = agent?.name ?? p.agent;
+      const agent = s.agents.find((a) => a.code === p.second.scope.agent);
+      const who = agent?.name ?? p.second.scope.agent;
       const say = {
         [SameNameRule.SameNameGlobalWins]: m.sameNamePairWins,
         [SameNameRule.SameNameBothShown]: m.sameNamePairBoth,
         [SameNameRule.SameNameUnknown]: m.sameNamePairUnknown,
       }[agent?.same_name ?? SameNameRule.SameNameUnknown];
-      return say(who, projectName(s, p.project_id), p.name, sameNameKind(s, p.global), sameNameKind(s, p.project));
+      return say(who, projectName(s, p.second.scope.project_id ?? 0), p.name, sameNameKind(s, p.first), sameNameKind(s, p.second));
     });
   const text = [...new Set(lines)].join("\n");
   return text ? { text, title: text } : undefined;

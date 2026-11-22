@@ -8,13 +8,13 @@ const claude = AgentCode.AgentClaudeCode;
 const codex = AgentCode.AgentCodex;
 const global = (agent: AgentCode): Scope => ({ kind: ScopeKind.ScopeGlobal, agent });
 const project = (agent: AgentCode, project_id: number): Scope => ({ kind: ScopeKind.ScopeProject, agent, project_id });
-const place = (skill_id: number, scope: Scope): SkillScopeInspection => ({ skill_id, scope, folder: `/f${skill_id}`, direct: true, status: SkillScopeStatus.SkillScopeCurrent });
+const place = (skill_id: number, scope: Scope): SkillScopeInspection => ({ skill_id, scope, directory: "", folder: `/f${skill_id}`, direct: true, status: SkillScopeStatus.SkillScopeCurrent });
 
 // 项目里 Claude Code 和 Codex 读同一个目录：合成一处。
 const snapshot = (skillScopes: SkillScopeInspection[] = []) =>
   ({
     skillScopes,
-    agents: [{ code: claude, name: "Claude Code", project_directory: ".agents" } as Agent, { code: codex, name: "Codex", project_directory: ".agents" } as Agent],
+    agents: [{ code: claude, name: "Claude Code", project_directories: [".agents" ]} as Agent, { code: codex, name: "Codex", project_directories: [".agents" ]} as Agent],
   }) as unknown as Snapshot;
 
 describe("一批移除涉及几个作用域", () => {

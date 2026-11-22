@@ -93,12 +93,19 @@ func scopeFrom(row store.Scope) Scope {
 type resolvedScope struct {
 	store.Scope
 	root      string
+	paths     []string
 	relative  string
 	directory string
 }
 
 func (s resolvedScope) scope() Scope {
 	return scopeFrom(s.Scope)
+}
+
+func (s resolvedScope) in(relative string) resolvedScope {
+	s.relative = relative
+	s.directory = agentdir.Join(s.root, relative)
+	return s
 }
 
 func (s resolvedScope) sharesFolderWith(other resolvedScope) bool {
@@ -247,9 +254,9 @@ func (l *Library) UnregisterProject(ctx context.Context, id ProjectID, opts Unre
 	})
 }
 
-// ScopeDirectory 返回该 Agent 在 scope 读取技能的目录:全局作用域在用户主目录下(以 Open 时为准),
+// ScopeDirectory 返回该 Agent 在 scope 装新技能的目录,即这一层级的第 1 个技能目录:全局作用域在用户主目录下(以 Open 时为准),
 // 项目作用域在该项目目录下。作用域里还什么都没装时也能查,用于显示目录或「在访达中显示」。
-// 只读:不写库、不创建目录;项目不在这台机器上时照样返回路径。未知 Agent 或未登记项目返回 NotFound。
+// 只读:不写库、不创建目录;项目不在这台机器上时照样返回路径。未知 Agent、候选池里的 Agent 或未登记项目返回 NotFound。
 func (l *Library) ScopeDirectory(ctx context.Context, scope Scope) (directory string, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -263,20 +270,30 @@ func (l *Library) ScopeDirectory(ctx context.Context, scope Scope) (directory st
 }
 
 func (l *Library) resolveRow(ctx context.Context, row store.Scope) (resolvedScope, error) {
-	agent, err := l.store.GetAgent(ctx, row.Agent)
+	agent, err := l.enabledAgent(ctx, row.Agent)
 	if err != nil {
 		return resolvedScope{}, err
 	}
-	target := resolvedScope{Scope: row, root: l.home.Root(), relative: agent.GlobalPath}
+	target := resolvedScope{Scope: row, root: l.home.Root(), paths: agent.GlobalPaths}
 	if row.ProjectID != nil {
 		project, err := l.store.GetProject(ctx, *row.ProjectID)
 		if err != nil {
 			return resolvedScope{}, err
 		}
-		target.root, target.relative = project.Path, agent.ProjectPath
+		target.root, target.paths = project.Path, agent.ProjectPaths
 	}
-	target.directory = agentdir.Join(target.root, target.relative)
-	return target, nil
+	return target.in(target.paths[0]), nil
+}
+
+func (l *Library) enabledAgent(ctx context.Context, code string) (store.Agent, error) {
+	agent, err := l.store.GetAgent(ctx, code)
+	if err != nil {
+		return store.Agent{}, err
+	}
+	if !agent.Enabled {
+		return store.Agent{}, fmt.Errorf("agent %s is not added: %w", code, store.ErrNotFound)
+	}
+	return agent, nil
 }
 
 func registeredProjects(rows []store.Project) ([]RegisteredProject, error) {

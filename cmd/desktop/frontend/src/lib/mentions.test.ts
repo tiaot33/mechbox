@@ -16,7 +16,7 @@ const missing = (skill: number, scope: Scope, name: string, mentioned = 0): Miss
   mentioned_skill_id: mentioned,
 });
 // Codex 和 Amp 在项目里共用 .agents/skills,全局目录各是各的。
-const agent = (code: AgentCode, projectDir: string) => ({ code, project_directory: projectDir }) as unknown as Agent;
+const agent = (code: AgentCode, projectDir: string) => ({ code, project_directories: [projectDir ]}) as unknown as Agent;
 const s = { agents: [agent(claude, ".claude/skills"), agent(codex, ".agents/skills"), agent(amp, ".agents/skills")], agentsShown: {} } as unknown as Snapshot;
 
 describe("missingAt", () => {

@@ -153,6 +153,9 @@ func sequences(t *testing.T, db *sql.DB) map[string]int {
 	return got
 }
 
+// addedByOpen 是打开数据库时会补上行的表:应用收录的 Agent 每次打开都插入表里还没有的,升级前的行要原样都在。
+var addedByOpen = map[string]bool{"agents": true}
+
 // clearedByUpgrade 是升级有意清空的列:内容指纹改成不含可执行位(00033)后,旧算法算的指纹对不上新的,下次读成来源时重算。
 var clearedByUpgrade = map[string][]string{"skills": {"update_check_content"}}
 
@@ -174,7 +177,11 @@ func requireDataKept(t *testing.T, before tableDump, beforeColumns map[string][]
 		if len(kept) != len(columns) {
 			want = selectColumnsFromDump(t, before, beforeColumns, table, kept)
 		}
-		if got := selectColumns(t, after, table, kept); !reflect.DeepEqual(got, want) {
+		got := selectColumns(t, after, table, kept)
+		if addedByOpen[table] {
+			got = slices.DeleteFunc(got, func(row string) bool { return !slices.Contains(want, row) })
+		}
+		if !reflect.DeepEqual(got, want) {
 			t.Errorf("table %s after upgrade = %q; want %q", table, got, want)
 		}
 	}
@@ -307,7 +314,7 @@ func probeSchema(t *testing.T) string {
 	for _, edit := range []struct{ old, new string }{
 		{"    note TEXT NOT NULL DEFAULT '',", "    note TEXT NOT NULL DEFAULT '',\n    test_probe INTEGER NOT NULL DEFAULT 0 CHECK(test_probe IN (0, 1)), -- 测试用的列"},
 		{"ON history_skills(skill_id);", "ON history_skills(skill_id, name);"},
-		{"    detect_path TEXT NOT NULL DEFAULT ''", "    detect_path TEXT NOT NULL DEFAULT '' -- 检测目录"},
+		{"-- 1 = 已添加在用;0 = 在候选池里", "-- 1 = 已添加在用;0 = 在候选池里(测试)"},
 	} {
 		if !strings.Contains(schema, edit.old) {
 			t.Fatalf("schema.sql no longer contains %q; update the test edit", edit.old)
@@ -406,7 +413,7 @@ func TestFailedUpgradeLeavesTheLibraryAsItWas(t *testing.T) {
 		{name: "foreign keys broken", layout: func(t *testing.T) layout {
 			return brokenLayout(t, "DELETE FROM sources WHERE id = 1;")
 		}},
-		{name: "old library does not match its schema", edit: "DROP INDEX skill_scopes_global_scope;", layout: func(t *testing.T) layout {
+		{name: "old library does not match its schema", edit: "DROP INDEX group_installs_global_scope;", layout: func(t *testing.T) layout {
 			return plannedLayout(t, probeSchema(t))
 		}},
 	} {
@@ -615,5 +622,56 @@ func TestPlanMigrationNamesTheNextFile(t *testing.T) {
 	}
 	if _, err := PlanMigration(t.Context(), dir, "AddPins"); err == nil {
 		t.Fatal("PlanMigration accepted a name that Load would reject")
+	}
+}
+
+// 旧库升级后原有的 Agent(内置的和手填的)都是已添加的,目录变成只有一项的列表,Claude Code、Codex 补上同名规则;
+// 其余收录的 Agent 由打开时补进候选池;安装记录的实际目录都为空,即各 Agent 的第 1 个目录。
+func TestUpgradeKeepsExistingAgentsAddedAndPutsTheRestInThePool(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "library.db")
+	writeOldestLibrary(t, path)
+	s, err := open(path, testLayout(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	agents, err := s.ListAgents(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]Agent{
+		"claude-code": {Code: "claude-code", Name: "Claude Code", GlobalPaths: []string{".claude/skills"}, ProjectPaths: []string{".claude/skills"}, DetectPaths: []string{".claude"}, SameName: "global_wins", Enabled: true},
+		"codex":       {Code: "codex", Name: "Codex", GlobalPaths: []string{".agents/skills"}, ProjectPaths: []string{".agents/skills"}, DetectPaths: []string{".codex"}, SameName: "both_shown", Enabled: true},
+		"my-agent":    {Code: "my-agent", Name: "My Agent", GlobalPaths: []string{".my-agent/skills"}, ProjectPaths: []string{".my-agent/skills"}, DetectPaths: []string{}, Enabled: true},
+	}
+	pooled := 0
+	for _, agent := range agents {
+		if expected, ok := want[agent.Code]; ok {
+			if !reflect.DeepEqual(agent, expected) {
+				t.Errorf("agent %s after upgrade = %#v, want %#v", agent.Code, agent, expected)
+			}
+			continue
+		}
+		if agent.Enabled {
+			t.Errorf("agent %s after upgrade is added; want it in the pool", agent.Code)
+		}
+		pooled++
+	}
+	if pooled != len(catalog)-2 {
+		t.Errorf("pool after upgrade has %d agents, want %d", pooled, len(catalog)-2)
+	}
+	rows, err := s.ListSkillScopes(t.Context(), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		agent := want[row.Scope.Agent]
+		if first := agent.Paths(row.Scope.ProjectID != nil)[0]; row.Directory != first {
+			t.Errorf("skill scope %d directory = %q, want the agent's first directory %q", row.ID, row.Directory, first)
+		}
+	}
+	var raw int
+	if err := s.db.QueryRow(`SELECT count(*) FROM skill_scopes WHERE directory <> ''`).Scan(&raw); err != nil || raw != 0 {
+		t.Errorf("skill scopes with a recorded directory after upgrade = %d, %v; want none", raw, err)
 	}
 }

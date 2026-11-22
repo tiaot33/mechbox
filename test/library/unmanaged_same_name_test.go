@@ -9,11 +9,21 @@ import (
 	"github.com/tiaot33/mechbox/internal/library"
 )
 
+// globalAndProject 是 Agent 的全局和一个项目里同名的一对文件夹;技能目录由 Folder 已能看出,requireSameNameSkills 不比它。
+func globalAndProject(agent library.AgentCode, project library.ProjectID, name string, global, local library.SameNameFolder) library.SameNameSkill {
+	global.Scope, local.Scope = library.GlobalScope(agent), library.ProjectScope(agent, project)
+	return library.SameNameSkill{Kind: library.SameNameGlobalAndProject, Name: name, First: global, Second: local}
+}
+
+// requireSameNameSkills 断言同名结果,不比技能目录(由 Folder 已能看出,多技能目录的用例专门核对)。
 func requireSameNameSkills(t *testing.T, lib *library.Library, want []library.SameNameSkill) {
 	t.Helper()
 	got, err := lib.ListSameNameSkills(t.Context())
 	if err != nil {
 		t.Fatal(err)
+	}
+	for i := range got {
+		got[i].First.Directory, got[i].Second.Directory = "", ""
 	}
 	if want == nil {
 		want = []library.SameNameSkill{}
@@ -74,29 +84,11 @@ func TestListSameNameSkillsMarksGlobalAndProjectFoldersWhetherOrNotTheLibraryIns
 	}
 	before := snapshotTree(t, home)
 	requireSameNameSkills(t, lib, []library.SameNameSkill{
-		{
-			Agent: library.AgentClaudeCode, ProjectID: project.ID, Name: "docx",
-			Global:  library.SameNameFolder{Folder: folder(claudeGlobal, "docx"), SkillID: docx.ID},
-			Project: library.SameNameFolder{Folder: ownDocx},
-		},
-		{
-			Agent: library.AgentClaudeCode, ProjectID: project.ID, Name: "pdf",
-			Global:  library.SameNameFolder{Folder: copied},
-			Project: library.SameNameFolder{Folder: folder(claudeProject, "pdf"), SkillID: pdf.ID},
-		},
-		{
-			Agent: library.AgentClaudeCode, ProjectID: project.ID, Name: "xlsx",
-			Global:  library.SameNameFolder{Folder: folder(claudeGlobal, "xlsx"), SkillID: xlsx.ID},
-			Project: library.SameNameFolder{Folder: folder(claudeProject, "xlsx"), SkillID: xlsx.ID},
-		},
-		{
-			Agent: library.AgentCodex, ProjectID: project.ID, Name: "cli-tool",
-			Global: library.SameNameFolder{Folder: cli}, Project: library.SameNameFolder{Folder: cliHere},
-		},
-		{
-			Agent: library.AgentCodex, ProjectID: other.ID, Name: "cli-tool",
-			Global: library.SameNameFolder{Folder: cli}, Project: library.SameNameFolder{Folder: cliThere},
-		},
+		globalAndProject(library.AgentClaudeCode, project.ID, "docx", library.SameNameFolder{Folder: folder(claudeGlobal, "docx"), SkillID: docx.ID}, library.SameNameFolder{Folder: ownDocx}),
+		globalAndProject(library.AgentClaudeCode, project.ID, "pdf", library.SameNameFolder{Folder: copied}, library.SameNameFolder{Folder: folder(claudeProject, "pdf"), SkillID: pdf.ID}),
+		globalAndProject(library.AgentClaudeCode, project.ID, "xlsx", library.SameNameFolder{Folder: folder(claudeGlobal, "xlsx"), SkillID: xlsx.ID}, library.SameNameFolder{Folder: folder(claudeProject, "xlsx"), SkillID: xlsx.ID}),
+		globalAndProject(library.AgentCodex, project.ID, "cli-tool", library.SameNameFolder{Folder: cli}, library.SameNameFolder{Folder: cliHere}),
+		globalAndProject(library.AgentCodex, other.ID, "cli-tool", library.SameNameFolder{Folder: cli}, library.SameNameFolder{Folder: cliThere}),
 	})
 	if after := snapshotTree(t, home); !reflect.DeepEqual(after, before) {
 		t.Fatalf("ListSameNameSkills changed disk: before %v, after %v", before, after)
@@ -116,7 +108,7 @@ func TestListSameNameSkillsMarksGlobalAndProjectFoldersWhetherOrNotTheLibraryIns
 	}
 	var names []string
 	for _, skill := range got {
-		names = append(names, string(skill.Agent)+"/"+skill.Name)
+		names = append(names, string(skill.Second.Scope.Agent)+"/"+skill.Name)
 	}
 	if want := []string{"claude-code/docx", "claude-code/pdf", "codex/cli-tool"}; !reflect.DeepEqual(names, want) {
 		t.Fatalf("ListSameNameSkills() names = %v, want %v", names, want)
@@ -134,7 +126,7 @@ func TestSameNameRuleComesWithTheAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 和 Codex 共用目录的自定义 Agent 也看得到同名,但没有已知规则,只标出同名。
-	custom, err := lib.AddAgent(ctx, library.CustomAgent{Name: "Shared", GlobalDirectory: "~/.agents/skills", ProjectDirectory: ".agents/skills"})
+	custom, err := lib.AddAgent(ctx, library.AgentInput{Name: "Shared", GlobalDirectories: []string{"~/.agents/skills"}, ProjectDirectories: []string{".agents/skills"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,10 +146,7 @@ func TestSameNameRuleComesWithTheAgent(t *testing.T) {
 	global := writeUnmanagedSkill(t, scopeDirectory(t, lib, library.GlobalScope(library.AgentCodex)), "pdf", "")
 	local := writeUnmanagedSkill(t, scopeDirectory(t, lib, library.ProjectScope(library.AgentCodex, project.ID)), "pdf", "")
 	pair := func(agent library.AgentCode) library.SameNameSkill {
-		return library.SameNameSkill{
-			Agent: agent, ProjectID: project.ID, Name: "pdf",
-			Global: library.SameNameFolder{Folder: global}, Project: library.SameNameFolder{Folder: local},
-		}
+		return globalAndProject(agent, project.ID, "pdf", library.SameNameFolder{Folder: global}, library.SameNameFolder{Folder: local})
 	}
 	requireSameNameSkills(t, lib, []library.SameNameSkill{pair(library.AgentCodex), pair(custom.Code)})
 }
@@ -192,17 +181,8 @@ func TestListSameNameSkillsMatchesTheNameInSkillMD(t *testing.T) {
 	writeFile(t, filepath.Join(brokenHere, "SKILL.md"), []byte("no frontmatter\n"), 0o644)
 
 	requireSameNameSkills(t, lib, []library.SameNameSkill{
-		{
-			Agent: library.AgentCodex, ProjectID: project.ID, Name: "broken",
-			Global: library.SameNameFolder{Folder: broken}, Project: library.SameNameFolder{Folder: brokenHere},
-		},
-		{
-			Agent: library.AgentCodex, ProjectID: project.ID, Name: "pdf",
-			Global: library.SameNameFolder{Folder: pdf}, Project: library.SameNameFolder{Folder: pdfTools},
-		},
-		{
-			Agent: library.AgentCodex, ProjectID: project.ID, Name: "pdf",
-			Global: library.SameNameFolder{Folder: pdfCopy}, Project: library.SameNameFolder{Folder: pdfTools},
-		},
+		globalAndProject(library.AgentCodex, project.ID, "broken", library.SameNameFolder{Folder: broken}, library.SameNameFolder{Folder: brokenHere}),
+		globalAndProject(library.AgentCodex, project.ID, "pdf", library.SameNameFolder{Folder: pdf}, library.SameNameFolder{Folder: pdfTools}),
+		globalAndProject(library.AgentCodex, project.ID, "pdf", library.SameNameFolder{Folder: pdfCopy}, library.SameNameFolder{Folder: pdfTools}),
 	})
 }

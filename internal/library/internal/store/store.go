@@ -128,7 +128,7 @@ func initialize(ctx context.Context, db *sql.DB, path string, l layout) error {
 			return fmt.Errorf("identify library: %w", err)
 		}
 	}
-	if err := writeBuiltinAgents(ctx, db, l); err != nil {
+	if err := writeCatalogAgents(ctx, db, l, tableCount == 0); err != nil {
 		return fmt.Errorf("open library: %w", err)
 	}
 	return nil

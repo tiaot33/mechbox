@@ -5,7 +5,7 @@ import {
   ScopeKind,
   SkillScopeStatus,
   type Agent,
-  type CustomAgent,
+  type AgentInput,
   type GroupInstall,
   type Scope,
   type SkillScopeInspection,
@@ -18,6 +18,7 @@ const claude = AgentCode.AgentClaudeCode;
 const global = (agent: AgentCode): Scope => ({ kind: ScopeKind.ScopeGlobal, agent });
 const project = (agent: AgentCode, project_id: number): Scope => ({ kind: ScopeKind.ScopeProject, agent, project_id });
 const place = (skill_id: number, scope: Scope, extra: Partial<SkillScopeInspection> = {}): SkillScopeInspection => ({
+  directory: "",
   skill_id,
   scope,
   folder: `/${scope.project_id ?? "home"}/${scope.agent}/s${skill_id}`,
@@ -26,8 +27,8 @@ const place = (skill_id: number, scope: Scope, extra: Partial<SkillScopeInspecti
   ...extra,
 });
 
-const agent = { code: mine, name: "Mine", global_directory: "/home/.mine/skills", project_directory: ".mine/skills" } as Agent;
-const input = (extra: Partial<CustomAgent>) => ({ name: "Mine", global_directory: "/home/.mine/skills", project_directory: ".mine/skills", ...extra }) as CustomAgent;
+const agent = { code: mine, name: "Mine", global_directories: ["/home/.mine/skills"], project_directories: [".mine/skills" ]} as Agent;
+const input = (extra: Partial<AgentInput>) => ({ name: "Mine", global_directories: ["/home/.mine/skills"], project_directories: [".mine/skills"], ...extra }) as AgentInput;
 
 const snapshot = (skillScopes: SkillScopeInspection[], groupInstalls: GroupInstall[] = []) => ({ skillScopes, groupInstalls }) as unknown as Snapshot;
 
@@ -38,11 +39,11 @@ describe("改自定义 Agent 的目录", () => {
   );
 
   it("写法不同的同一个目录不算改了，不问", () => {
-    expect(agentEdit(s, agent, input({ global_directory: "/home/.mine/skills/", project_directory: "./.mine/skills" }))).toMatchObject({ affected: [], groupInstalls: 0, asks: false });
+    expect(agentEdit(s, agent, input({ global_directories: ["/home/.mine/skills/"], project_directories: ["./.mine/skills" ]}))).toMatchObject({ affected: [], groupInstalls: 0, asks: false });
   });
 
   it("只算改了的那一层：全局改了算全局装的;还有别的 Agent 在读的另说，别处链接指着要搬走的先换成独立的一份", () => {
-    const r = agentEdit(s, agent, input({ global_directory: "/home/.other" }));
+    const r = agentEdit(s, agent, input({ global_directories: ["/home/.other" ]}));
     expect(r.affected.map((p) => p.skill_id)).toEqual([1, 2]);
     expect(r.groupInstalls).toBe(0);
     expect(r.asks).toBe(true);
@@ -51,10 +52,10 @@ describe("改自定义 Agent 的目录", () => {
   });
 
   it("项目目录改了算各项目里装的和组安装;只有组安装时也问", () => {
-    const r = agentEdit(s, agent, input({ project_directory: ".other" }));
+    const r = agentEdit(s, agent, input({ project_directories: [".other" ]}));
     expect(r.affected.map((p) => p.skill_id)).toEqual([3]);
     expect(r.groupInstalls).toBe(1);
-    expect(agentEdit(snapshot([], s.groupInstalls), agent, input({ project_directory: ".other" })).asks).toBe(true);
+    expect(agentEdit(snapshot([], s.groupInstalls), agent, input({ project_directories: [".other" ]})).asks).toBe(true);
   });
 });
 

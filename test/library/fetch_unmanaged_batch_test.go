@@ -332,7 +332,7 @@ func TestPlanFetchUnmanagedMergesFoldersSharedByAgents(t *testing.T) {
 	ctx := t.Context()
 	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
-	shared, err := lib.AddAgent(ctx, library.CustomAgent{Name: "Shared", GlobalDirectory: "~/.claude/skills", ProjectDirectory: ".shared/skills"})
+	shared, err := lib.AddAgent(ctx, library.AgentInput{Name: "Shared", GlobalDirectories: []string{"~/.claude/skills"}, ProjectDirectories: []string{".shared/skills"}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -235,11 +235,23 @@ func (s *LibraryService) ListAgents(ctx context.Context) ([]library.Agent, error
 	return settle(s.lib.ListAgents(ctx))(ctx)
 }
 
-func (s *LibraryService) AddAgent(ctx context.Context, agent library.CustomAgent) (library.Agent, error) {
+func (s *LibraryService) ListAgentPool(ctx context.Context) ([]library.Agent, error) {
+	return settle(s.lib.ListAgentPool(ctx))(ctx)
+}
+
+func (s *LibraryService) AddAgentsFromPool(ctx context.Context, codes []library.AgentCode) ([]library.Agent, error) {
+	return settle(s.lib.AddAgentsFromPool(ctx, codes))(ctx)
+}
+
+func (s *LibraryService) ApplyDetectedAgents(ctx context.Context) ([]library.Agent, error) {
+	return settle(s.lib.ApplyDetectedAgents(ctx))(ctx)
+}
+
+func (s *LibraryService) AddAgent(ctx context.Context, agent library.AgentInput) (library.Agent, error) {
 	return settle(s.lib.AddAgent(ctx, agent))(ctx)
 }
 
-func (s *LibraryService) EditAgent(ctx context.Context, code library.AgentCode, agent library.CustomAgent, opts library.EditAgentOptions) (library.EditAgentResult, error) {
+func (s *LibraryService) EditAgent(ctx context.Context, code library.AgentCode, agent library.AgentInput, opts library.EditAgentOptions) (library.EditAgentResult, error) {
 	return settle(s.lib.EditAgent(ctx, code, agent, opts))(ctx)
 }
 

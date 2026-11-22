@@ -75,11 +75,15 @@ func (s *searchedSite) searchResults(t *testing.T, query string, results ...[2]s
 	s.put("https://skills.sh/api/search?"+url.Values{"q": {query}, "limit": {"20"}}.Encode(), mustJSON(t, map[string]any{"skills": skills}))
 }
 
+// findUnmanagedSources 返回找到的来源,去掉技能目录(由作用域已能看出,多技能目录的用例专门核对)。
 func findUnmanagedSources(t *testing.T, lib *library.Library, folders ...library.FolderInScope) []library.FoundUnmanagedSource {
 	t.Helper()
 	found, err := lib.FindUnmanagedSources(t.Context(), library.FindUnmanagedSourcesRequest{Folders: folders})
 	if err != nil {
 		t.Fatal(err)
+	}
+	for i := range found {
+		found[i].Directory = ""
 	}
 	return found
 }

@@ -977,22 +977,27 @@ func TestSyncPullReplacesLibraryAndKeepsProjectsForRelocation(t *testing.T) {
 	}
 }
 
-// 拉回的库里内置 Agent 缺行或名称、目录规则来自另一个版本的应用时,拉回后与 Open 一样以本机应用为准。
-func TestSyncPullRewritesBuiltinAgentsForThisApp(t *testing.T) {
+// 拉回的库里用户改过的 Agent 原样保留,应用收录了、那份库里没有的 Agent 补进候选池。
+func TestSyncPullKeepsAgentsOfTheBackupAndAddsMissingOnesToThePool(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
 	setTestHome(t, home)
 	stub := newS3Stub(t)
 	lib := stub.open(t)
 	pushBackup(t, lib)
-	stub.edit(t, stub.keys(stub.folder())[0], `DELETE FROM agents WHERE code = 'claude-code'; UPDATE agents SET name = 'Old Codex', global_path = '.codex/skills' WHERE code = 'codex'`)
+	stub.edit(t, stub.keys(stub.folder())[0], `DELETE FROM agents WHERE code IN ('claude-code', 'cursor'); UPDATE agents SET name = 'Old Codex', global_paths = '[".codex/skills"]' WHERE code = 'codex'`)
 	pullLatest(t, lib)
 	agents, err := lib.ListAgents(t.Context())
-	if err != nil || !reflect.DeepEqual(agents, seededAgents(home)) {
-		t.Fatalf("ListAgents() after pull = %#v, %v; want %#v", agents, err, seededAgents(home))
+	if err != nil || len(agents) != 1 || agents[0].Name != "Old Codex" {
+		t.Fatalf("ListAgents() after pull = %#v, %v; want only Codex as the backup has it", agents, err)
 	}
-	if dir, err := lib.ScopeDirectory(t.Context(), library.GlobalScope(library.AgentCodex)); err != nil || dir != filepath.Join(home, ".agents", "skills") {
+	if dir, err := lib.ScopeDirectory(t.Context(), library.GlobalScope(library.AgentCodex)); err != nil || dir != filepath.Join(home, ".codex", "skills") {
 		t.Fatalf("ScopeDirectory(codex global) after pull = %q, %v", dir, err)
+	}
+	pool, err := lib.ListAgentPool(t.Context())
+	if err != nil || !slices.ContainsFunc(pool, func(agent library.Agent) bool { return agent.Code == library.AgentClaudeCode }) ||
+		!slices.ContainsFunc(pool, func(agent library.Agent) bool { return agent.Code == "cursor" }) {
+		t.Fatalf("ListAgentPool() after pull = %#v, %v; want Claude Code and Cursor back in the pool", pool, err)
 	}
 }
 

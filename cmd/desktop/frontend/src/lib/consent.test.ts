@@ -55,7 +55,7 @@ const project = (agent: AgentCode, project_id: number): Scope => ({ kind: ScopeK
 
 function place(skill_id: number, scope: Scope, status: SkillScopeStatus, extra: Partial<SkillScopeInspection> = {}): SkillScopeInspection {
   const where = scope.project_id ? `/p${scope.project_id}/.${scope.agent}` : `/home/.${scope.agent}`;
-  return { skill_id, scope, folder: `${where}/skills/s${skill_id}`, direct: true, status, ...extra };
+  return { skill_id, scope, directory: `${where}/skills`, folder: `${where}/skills/s${skill_id}`, direct: true, status, ...extra };
 }
 
 function planned(id: number, change: PlannedChange, extra: Partial<PlannedSkill> = {}): PlannedSkill {
@@ -334,7 +334,7 @@ describe("删掉文件夹之前说明会丢的修改", () => {
 });
 
 describe("整批入库的默认勾选", () => {
-  const folder = (scope: Scope, extra: Partial<UnmanagedSkill> = {}): UnmanagedSkill => ({ scope, name: "lint", folder: `/${scopeKey(scope)}/lint`, ...extra });
+  const folder = (scope: Scope, extra: Partial<UnmanagedSkill> = {}): UnmanagedSkill => ({ scope, directory: `/${scopeKey(scope)}`, name: "lint", folder: `/${scopeKey(scope)}/lint`, ...extra });
   const planned = (folders: UnmanagedSkill[], extra: Partial<PlannedUnmanagedSkill> = {}): PlannedUnmanagedSkill => ({
     name: "lint",
     folders,

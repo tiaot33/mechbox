@@ -17,7 +17,7 @@ A user's own remark on a skill in the Library, shown in the skill's details and 
 _Avoid_: Comment, memo / 评论、注释
 
 **Agent · 智能体**:
-A coding agent with a stable code and a display name, loading skills from its global and Registered project directories; changing its name does not change its identity. Built-in Agents (Claude Code, Codex) have directories the product maintains; a user may add a custom Agent and set its directories, the global one under the home directory. Several Agents may read the same directory.
+A coding agent with a stable code and a display name, loading skills from one or more directories at the global level and in each Registered project; changing its name does not change its identity. All Agents are kept in the Library on an equal footing: the product collects the known ones into the pool (候选池), and the user adds Agents from the pool or by filling one in. An added Agent's name, skill directories and detection directories can all be changed, its global directories staying under the home directory; removing it puts it back into the pool as it was. At each level the first directory receives new installs and the others are additional directories. Several Agents may read the same directory.
 _Avoid_: Assistant, tool, client / 助手、工具、客户端
 
 **Library · 库**:
@@ -77,7 +77,7 @@ A user-defined gathering of skills by scenario (e.g. "frontend debugging"). Orth
 _Avoid_: Tag, category, set / 标签、分类、集
 
 **Scope · 作用域**:
-One of two kinds: an Agent's global level, or an Agent together with one Registered project. Chosen by kind, never by directory. A skill installed in a Scope has its folder in the Agent's directory for that Scope; users see, inspect, reinstall and uninstall it one skill and one Scope at a time. Scopes of Agents that read the same directory share one folder: installing in one counts for all of them, and uninstalling from one removes it from all.
+One of two kinds: an added Agent's global level, or an added Agent together with one Registered project. Chosen by kind, never by directory. A skill installed in a Scope has its folder in one of the Agent's directories for that Scope: new installs go to the first, while a skill fetched from an additional directory stays there and the Library records which directory it is in. A skill counts once per Scope even when the Agent could find it in several of its directories; users see, inspect, reinstall and uninstall it one skill and one Scope at a time. Scopes of Agents that read the directory holding it share that folder: installing in one counts for all of them, and uninstalling from one removes it from all.
 _Avoid_: Target, context, location, path, Installation / 目标、上下文、位置、路径、安装项
 
 **Registered project · 已登记项目**:

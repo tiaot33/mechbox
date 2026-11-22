@@ -201,9 +201,9 @@ describe("照着装时装哪些", () => {
   const codex = AgentCode.AgentCodex;
   const cursor = "cursor" as AgentCode;
   const agents = [
-    { code: claude, name: "Claude Code", global_directory: "/home/.claude/skills", project_directory: ".claude/skills" },
-    { code: codex, name: "Codex", global_directory: "/home/.agents/skills", project_directory: ".agents/skills" },
-    { code: cursor, name: "Cursor", global_directory: "/home/.cursor/skills", project_directory: ".agents/skills" },
+    { code: claude, name: "Claude Code", global_directories: ["/home/.claude/skills"], project_directories: [".claude/skills" ]},
+    { code: codex, name: "Codex", global_directories: ["/home/.agents/skills"], project_directories: [".agents/skills" ]},
+    { code: cursor, name: "Cursor", global_directories: ["/home/.cursor/skills"], project_directories: [".agents/skills" ]},
   ] as Agent[];
   const at = (agent: AgentCode, project_id = 0): Scope =>
     project_id ? { kind: ScopeKind.ScopeProject, agent, project_id } : { kind: ScopeKind.ScopeGlobal, agent };

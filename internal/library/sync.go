@@ -488,7 +488,8 @@ func (l *Library) downloadBackup(ctx context.Context, operation string, backup S
 //     用 [Library.InspectSkillScopes] 查看、[Library.Reinstall] 装回。
 //   - 已登记项目的路径是推送那台机器上的;在本机不存在的项目([RegisteredProject].Missing)用
 //     [Library.RelocateProject] 指到它在这台机器上的位置。
-//   - 内置 Agent 与 [Open] 时一样以本机应用为准;全局作用域按本机的用户主目录。
+//   - Agent 用那份备份里的(包括用户改过的目录、哪些已添加);本版应用收录、那份备份里没有的和 [Open] 时一样补进候选池。
+//     全局作用域按本机的用户主目录。
 //   - 设置换成那份备份里的:GitHub 令牌([Library.SetGitHubToken],那份备份里没有时变成没设置)、AI 设置([Library.SetAISettings])
 //     与应用的设置([Library.SetAppSettings])。
 //     只属于这台机器的同步设置([Library.SetSyncSettings])、同步状态([Library.SyncStatus])、网络代理([Library.SetProxySettings])与 WSL 发行版([Library.SetWSLDistro])保留本机的。

@@ -8,11 +8,11 @@ import (
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 )
 
-// AgentSettings 是技能对内置 Agent 声明的设置:只有那个 Agent 才读的字段,决定它怎样用这个技能。
+// AgentSettings 是技能对 Claude Code、Codex 声明的设置:只有那个 Agent 才读的字段,决定它怎样用这个技能。
 // Claude Code 的取自 SKILL.md 开头的 frontmatter,Codex 的取自技能文件夹里的 agents/openai.yaml。
 // 只给出和默认不同的;写错了、解析不出来的按 Agent 自己的做法当作没写,不报错。
 // 库只读出来给界面看,不据此改变安装、同名判断或其他任何行为;Agent 实际怎样做还取决于它自己的设置和版本。
-// 自定义 Agent 读哪些字段不知道,这里不给。
+// 其他 Agent 读哪些字段不知道,这里不给。
 type AgentSettings struct {
 	ClaudeCode *ClaudeCodeSettings `json:"claude_code,omitempty"` // Claude Code 的;全是默认值时为 nil
 	Codex      *CodexSettings      `json:"codex,omitempty"`       // Codex 的;全是默认值时为 nil

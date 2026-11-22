@@ -16,12 +16,14 @@ import (
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 )
 
-// FetchUnmanagedRequest 是对作用域里一个不是库装的技能入库:ListUnmanagedSkills 列出的一条,按作用域与文件夹名指定。
+// FetchUnmanagedRequest 是对作用域里一个不是库装的技能入库:ListUnmanagedSkills 列出的一条,按作用域、技能目录与文件夹名指定。
 // 内容和库里某个版本完全一致时只给那个技能补记安装,SourceInput 不起作用;否则 SourceInput 为空时作为没有来源的技能入库,
 // 给出时按这个来源入库,进它的集合,照常检查更新、更新与回滚。
 type FetchUnmanagedRequest struct {
-	Scope Scope  `json:"scope"`
-	Name  string `json:"name"` // UnmanagedSkill.Name,即技能文件夹名
+	Scope Scope `json:"scope"`
+	// Directory 是 UnmanagedSkill.Directory,即文件夹所在的技能目录;为空时是这个 Agent 这一层级的第 1 个目录。
+	Directory string `json:"directory,omitempty"`
+	Name      string `json:"name"` // UnmanagedSkill.Name,即技能文件夹名
 	// SourceInput 是技能的来源,格式与识别规则同 PreviewFetchRequest.Input;入库确认里预填 UnmanagedSkill.SourceInput,
 	// 用户可以改成别的来源链接,或清空。来源里按 SKILL.md 里的 name 找这个技能。
 	SourceInput string `json:"source_input,omitempty"`
@@ -44,14 +46,15 @@ type FetchUnmanagedResult struct {
 // Claude Code 的目录里是指过去的链接),一并记为直接安装在那里,同一个文件夹不用在每个 Agent 的作用域里各入库一次;
 // 只是内容一样、却是另一个文件夹的不算,它可能是用户故意留的一份;提交在项目仓库里、记在项目的 skills-lock.json 里的那一处
 // 也不算,它归项目仓库管。
-// 共用目录的 Agent 本来就算已装,不另记。会一并记下的地方见 UnmanagedSkill.SameFolder;读不出来的作用域跳过,不影响这次入库。
+// 读同一个目录、已经认得到这个技能的 Agent 不另记。会一并记下的地方见 UnmanagedSkill.SameFolder;读不出来的作用域跳过,不影响这次入库。
 // 文件夹名和技能名不同时,这一处按原来的文件夹名记录(SkillScope.Folder),之后重新安装才换成技能名。
 // 入库之后,用户在库外(如命令行工具)再改这个文件夹,巡检报为 modified;提交在项目仓库里的文件夹也能入库,
 // 之后在 app 里更新、重新安装它会改动仓库里的文件。确认框据此提醒。
 //
 // 内容和库里某个技能的某个版本一致(文件路径与内容都相同,不比可执行位;即 UnmanagedSkill.SkillID 不为 0)时,不论带不带 SourceInput、
 // 带的是哪个来源,都不新建技能,只给那个技能补记这一处安装(Matched;和它的当前版本一致的优先,其次是最新的旧版本,
-// 巡检相应为 current 或 stale)。这个作用域已经装着这个技能时(同一个作用域里另一份一样的文件夹)不另记一处,照样返回 Matched。
+// 巡检相应为 current 或 stale)。这个 Agent 已经在这个作用域的另一个技能目录装着这个技能时(另一份内容一样、或是某个旧版的文件夹)
+// 返回 FailedPrecondition(Details.Path 为文件夹,Details.SkillID 为那个技能):一个技能在一个作用域里只记一处,也不新建内容重复的技能。
 // 同一个技能不会因为用了另一个来源链接入库而在库里多出一个。
 // 这时不读 SourceInput 给的来源(连不上也不影响),不记下这个来源,也不进它的集合。
 //
@@ -72,9 +75,10 @@ type FetchUnmanagedResult struct {
 //   - 其余情况(没有来源记录、记录里没有哈希、哈希哪一份都对不上):说不清有没有用户的修改,来源版本未知,版本标为
 //     SkillVersion.MaybeEdited,第一次检查更新就按内容报为有新版本,更新计划里这个技能为 PlannedSkill.Edited,更新会换掉这份修改。
 //
-// 错误:作用域不合法、Name 不是合法的文件夹名返回 InvalidArgument(Details.Field 为 scope / name);Agent、项目不存在返回 NotFound;
+// 错误:作用域不合法、Name 不是合法的文件夹名、Directory 不是这个 Agent 这一层级的技能目录返回 InvalidArgument(Details.Field 为 scope / name / directory);
+// Agent 不存在或在候选池里、项目不存在返回 NotFound;
 // 作用域根目录不存在返回 FailedPrecondition(Details.Path 为根目录,项目带 ProjectID);技能目录里没有这个技能文件夹(不存在,
-// 或根上没有 SKILL.md)返回 NotFound(Details.Path 为文件夹);这一处已经是库装的(这个作用域或共用目录的 Agent 有安装记录用它)
+// 或根上没有 SKILL.md)返回 NotFound(Details.Path 为文件夹);这一处已经是库装的(哪个 Agent 在这个文件夹上有安装记录都算)
 // 返回 FailedPrecondition(Details.Path 为文件夹,Details.SkillID 为装在这里的技能);文件夹里有不是普通文件的东西返回
 // FailedPrecondition(Details.Path);SKILL.md 不是有效的技能描述(缺 frontmatter、name 或 description)或超出读取上限
 // 返回 SourceInvalid(Details.Path 为文件夹)。
@@ -92,7 +96,7 @@ func (l *Library) FetchUnmanaged(ctx context.Context, req FetchUnmanagedRequest)
 	if input == "" && req.SourceRef != "" {
 		return FetchUnmanagedResult{}, argumentError(operation, "source_ref", "a ref needs a source input")
 	}
-	requested := []FolderInScope{{Scope: req.Scope, Name: req.Name}}
+	requested := []FolderInScope{{Scope: req.Scope, Directory: req.Directory, Name: req.Name}}
 	if input == "" {
 		ctx, unlock := l.exclusiveOperation(ctx)
 		defer unlock()
@@ -168,7 +172,7 @@ func (l *Library) fetchFolders(ctx context.Context, operation string, requested 
 func (l *Library) unmanagedFolders(ctx context.Context, operation string, requested []FolderInScope) ([]unmanagedFolder, int64, error) {
 	folders := make([]unmanagedFolder, 0, len(requested))
 	for _, each := range requested {
-		folder, err := l.unmanagedFolder(ctx, operation, FetchUnmanagedRequest{Scope: each.Scope, Name: each.Name})
+		folder, err := l.unmanagedFolder(ctx, operation, each)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -178,12 +182,27 @@ func (l *Library) unmanagedFolders(ctx context.Context, operation string, reques
 		folders = append(folders, folder)
 	}
 	matched, _, err := matchingSkill(ctx, l.store, folders[0].disk)
-	return folders, matched, err
+	if err != nil || matched == 0 {
+		return folders, matched, err
+	}
+	for _, folder := range folders {
+		place, err := installedAt(ctx, l.store, SkillID(matched), folder.target)
+		if err != nil {
+			return nil, 0, err
+		}
+		if place.installed() && place.target.relative != folder.target.relative {
+			return nil, 0, preconditionError(operation, "the agent already has this skill in another directory", ErrorDetails{Path: folder.path, SkillID: SkillID(matched)})
+		}
+	}
+	return folders, matched, nil
 }
 
-func (l *Library) unmanagedFolder(ctx context.Context, operation string, req FetchUnmanagedRequest) (unmanagedFolder, error) {
+func (l *Library) unmanagedFolder(ctx context.Context, operation string, req FolderInScope) (unmanagedFolder, error) {
 	target, err := l.resolveScope(ctx, operation, req.Scope)
 	if err != nil {
+		return unmanagedFolder{}, err
+	}
+	if target, err = l.scopeIn(operation, target, req.Directory); err != nil {
 		return unmanagedFolder{}, err
 	}
 	if err := target.requireRoot(operation); err != nil {
@@ -197,13 +216,13 @@ func (l *Library) unmanagedFolder(ctx context.Context, operation string, req Fet
 	if !slices.ContainsFunc(folders, func(found agentdir.Folder) bool { return found.Name == req.Name }) {
 		return unmanagedFolder{}, &Error{Code: NotFound, Message: operation + ": no skill folder with this name in the scope", Details: ErrorDetails{Path: path}}
 	}
-	installed, err := l.listSkillScopes(ctx, 0, &target.Scope)
+	claimants, err := l.store.Claimants(ctx, req.Name, 0)
 	if err != nil {
 		return unmanagedFolder{}, err
 	}
-	for _, skillScope := range installed {
-		if agentdir.FolderName(skillScope.Folder) == req.Name {
-			return unmanagedFolder{}, preconditionError(operation, "the folder is installed by the library", ErrorDetails{Path: path, SkillID: skillScope.SkillID})
+	for _, other := range claimants {
+		if other.Directory == target.relative && sameProject(other.Scope.ProjectID, target.ProjectID) {
+			return unmanagedFolder{}, preconditionError(operation, "the folder is installed by the library", ErrorDetails{Path: path, SkillID: SkillID(other.SkillID)})
 		}
 	}
 	disk, parsed, err := readSkillFolder(ctx, operation, path, req.Name)
@@ -232,7 +251,7 @@ func (l *Library) withSameFolders(ctx context.Context, operation string, folders
 			}) {
 				continue
 			}
-			companion, err := l.unmanagedFolder(ctx, operation, FetchUnmanagedRequest{Scope: other.target.scope(), Name: other.Name})
+			companion, err := l.unmanagedFolder(ctx, operation, FolderInScope{Scope: other.target.scope(), Directory: other.target.relative, Name: other.Name})
 			if err != nil || companion.parsed.Name != folders[0].parsed.Name {
 				continue
 			}
@@ -596,10 +615,12 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 	return plan, nil
 }
 
-// FolderInScope 是作用域里的一个技能文件夹,按作用域与文件夹名(UnmanagedSkill.Name)指定。
+// FolderInScope 是作用域里的一个技能文件夹,按作用域、技能目录(UnmanagedSkill.Directory)与文件夹名(UnmanagedSkill.Name)指定。
 type FolderInScope struct {
-	Scope Scope  `json:"scope"`
-	Name  string `json:"name"`
+	Scope Scope `json:"scope"`
+	// Directory 是文件夹所在的技能目录,写法同 UnmanagedSkill.Directory;为空时是这个 Agent 这一层级的第 1 个目录。
+	Directory string `json:"directory,omitempty"`
+	Name      string `json:"name"`
 }
 
 // UnmanagedFetchItem 是整批入库里的一个技能:内容完全一致的几处文件夹(通常取自 PlannedUnmanagedSkill.Folders)和它的来源。
@@ -729,7 +750,7 @@ type versionReader interface {
 
 func recordFetchedFolders(ctx context.Context, tx *store.Tx, id int64, folders []unmanagedFolder, now time.Time) error {
 	for _, folder := range folders {
-		if _, err := tx.RecordFetchedSkillScope(ctx, id, folder.target.Scope, folder.name, now); err != nil {
+		if _, err := tx.RecordFetchedSkillScope(ctx, store.NewSkillScope{SkillID: id, Scope: folder.target.Scope, Directory: folder.target.relative, Folder: folder.name, CreatedAt: now}); err != nil {
 			return err
 		}
 	}

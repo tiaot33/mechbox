@@ -398,13 +398,14 @@ func (l *Library) rollbackInstall(ctx context.Context, operation string, id Skil
 	if err != nil {
 		return "", err
 	}
-	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.Scope)
+	installed, err := installedAt(ctx, l.store, id, target)
 	if err != nil {
 		return "", err
 	}
-	if len(place) == 0 {
+	if !installed.installed() {
 		return RollbackUninstalled, nil
 	}
+	target, place := installed.target, installed.rows
 	if missing, err := target.rootMissing(operation); err != nil {
 		return "", err
 	} else if missing != nil {
@@ -459,7 +460,7 @@ func (l *Library) rollbackInstall(ctx context.Context, operation string, id Skil
 		}
 		return RollbackReinstalled, nil
 	}
-	status, _, err := l.inspectSkillScope(ctx, id, target)
+	status, _, err := l.inspectSkillScope(ctx, id, installed)
 	if err != nil {
 		return "", err
 	}

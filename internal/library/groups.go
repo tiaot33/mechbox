@@ -192,7 +192,7 @@ func (l *Library) DeleteGroup(ctx context.Context, id GroupID, opts DeleteGroupO
 	if err := l.requireGroup(ctx, id); err != nil {
 		return err
 	}
-	released, err := l.releasedMemberScopes(ctx, int64(id), 0)
+	released, err := l.releasedMemberScopes(ctx, int64(id), 0, nil)
 	if err != nil {
 		return err
 	}
@@ -288,7 +288,7 @@ func (l *Library) removeSkillsFromGroup(ctx context.Context, operation string, g
 		if !member {
 			return &Error{Code: NotFound, Message: operation + ": skill is not a member"}
 		}
-		scopes, err := l.releasedMemberScopes(ctx, int64(groupID), int64(skillID))
+		scopes, err := l.releasedMemberScopes(ctx, int64(groupID), int64(skillID), nil)
 		if err != nil {
 			return err
 		}
@@ -312,21 +312,30 @@ func (l *Library) removeSkillsFromGroup(ctx context.Context, operation string, g
 
 type releasedMemberScope struct {
 	store.MemberScope
-	directory string
+	place installedPlace
+	links []string
 }
 
-func (l *Library) releasedMemberScopes(ctx context.Context, groupID, skillID int64) ([]releasedMemberScope, error) {
-	skillScopes, err := l.store.MemberSkillScopes(ctx, groupID, skillID, nil)
+func (l *Library) releasedMemberScopes(ctx context.Context, groupID, skillID int64, filter *store.Scope) ([]releasedMemberScope, error) {
+	skillScopes, err := l.store.MemberSkillScopes(ctx, groupID, skillID, filter)
 	if err != nil {
 		return nil, err
 	}
 	released := make([]releasedMemberScope, len(skillScopes))
+	places := make([]installedPlace, len(skillScopes))
 	for i, skillScope := range skillScopes {
 		target, err := l.resolveRow(ctx, skillScope.Scope)
 		if err != nil {
 			return nil, err
 		}
-		released[i] = releasedMemberScope{MemberScope: skillScope, directory: target.directory}
+		places[i] = installedPlace{skillID: SkillID(skillScope.SkillID), target: target.in(skillScope.Directory), rows: []store.PlaceSkillScope{{ID: skillScope.ID, Agent: skillScope.Scope.Agent, Folder: skillScope.Name, Directory: skillScope.Directory}}}
+	}
+	links, err := l.staleLinksOf(ctx, places)
+	if err != nil {
+		return nil, err
+	}
+	for i, skillScope := range skillScopes {
+		released[i] = releasedMemberScope{MemberScope: skillScope, place: places[i], links: links[i]}
 	}
 	return released, nil
 }
@@ -347,12 +356,12 @@ func releaseMemberScopes(ctx context.Context, tx *store.Tx, released []releasedM
 		if !removed {
 			continue
 		}
-		place, err := tx.PlaceSkillScopes(ctx, skillScope.SkillID, skillScope.Scope)
+		remaining, err := tx.SkillScopesIn(ctx, skillScope.SkillID, skillScope.Scope.ProjectID, skillScope.Directory)
 		if err != nil {
 			return nil, err
 		}
-		if len(place) == 0 {
-			removals = append(removals, removal{skillID: SkillID(skillScope.SkillID), folder: agentdir.FolderPath(skillScope.directory, skillScope.Name)})
+		if len(remaining) == 0 {
+			removals = append(removals, skillScope.place.removals(skillScope.links)...)
 		}
 	}
 	return removals, nil

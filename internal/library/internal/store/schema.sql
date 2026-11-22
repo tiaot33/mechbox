@@ -152,29 +152,31 @@ CREATE TABLE IF NOT EXISTS skill_groups (
     PRIMARY KEY(skill_id, group_id)
 );
 
--- 已注册的项目目录;注册后与每个 Agent 组成项目 Scope,目录由 agents.project_path 算出。
+-- 已注册的项目目录;注册后与每个已添加的 Agent 组成项目 Scope,目录由 agents.project_paths 算出。
 -- 改项目位置只改写 path,id 不变,引用它的安装记录与组安装随之指向新位置。
 CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT, -- 已注册项目主键,由 SQLite 分配;用作 ProjectScope 的项目身份;注销后不复用,历史里记的项目 ID 不会指到别的项目
     path TEXT NOT NULL UNIQUE -- 项目根目录的绝对路径(已解析符号链接)
 );
 
--- Agent 的稳定代码、展示名称、Agent 目录与检测依据;目录分别相对用户主目录和已注册项目根。
--- 内置 Agent 每次打开库时按本版应用写入,已有的行以应用为准覆盖名称、目录和检测依据;本版应用不认识的行与自定义 Agent 保持原样。
--- 自定义 Agent 由用户经技能库添加、修改、删除;内置 Agent 不能修改或删除。
--- 几个 Agent 在同一层级的目录相同(全局比 global_path,项目比 project_path)时共用文件夹:技能装在其中一个的作用域,
--- 共用这个目录的作用域也算已装;这由目录推算,不另存记录。
+-- 全部 Agent:应用收录的和用户手填添加的在一张表里,地位相同,名称、技能目录、检测目录都能改,都能移回候选池。
+-- 应用每次打开库、拉回别的库时只插入它收录的、表里还没有的 Agent(enabled = 0),表里已有的行从不改写。
+-- 目录分别相对用户主目录和已注册项目根,斜杠分隔。一个 Agent 在一个层级可以读几个技能目录:第 1 项装新技能,其余为附加目录。
+-- 已添加的几个 Agent 的目录列表里有同一个目录时,装在那个目录里的技能这几个 Agent 都读得到(见 skill_scopes)。
 CREATE TABLE IF NOT EXISTS agents (
-    code TEXT PRIMARY KEY NOT NULL, -- Agent 稳定代码,内置如 claude-code / codex,自定义为 custom- 加随机后缀;Scope 和 SkillScope 以此标识 Agent
-    name TEXT NOT NULL,             -- Agent 展示名称,如 Claude Code / Codex;不参与 Scope 身份判定
-    global_path TEXT NOT NULL,      -- 全局 skills 目录相对用户主目录的路径,斜杠分隔,如 .claude/skills
-    project_path TEXT NOT NULL,     -- 项目 skills 目录相对已注册项目根的路径,斜杠分隔,如 .agents/skills
-    custom INTEGER NOT NULL DEFAULT 0 CHECK(custom IN (0, 1)), -- 1 = 用户添加的自定义 Agent;0 = 应用内置(含本版应用不认识的)
-    detect_path TEXT NOT NULL DEFAULT '' -- 检测这台机器上是否装了该 Agent 时看的目录,相对用户主目录,如 .claude;空 = 不检测(自定义 Agent)
+    code TEXT PRIMARY KEY NOT NULL, -- Agent 稳定代码:应用收录的如 claude-code / cursor,用户手填添加的为 custom- 加随机后缀;Scope 和 SkillScope 以此标识 Agent
+    name TEXT NOT NULL,             -- Agent 展示名称,如 Claude Code / Cursor;不参与 Scope 身份判定
+    global_paths TEXT NOT NULL CHECK(json_valid(global_paths) AND json_type(global_paths) = 'array' AND json_array_length(global_paths) >= 1),   -- 全局技能目录 JSON 数组(各项相对用户主目录,斜杠分隔):第 1 项装新技能,其余为附加目录
+    project_paths TEXT NOT NULL CHECK(json_valid(project_paths) AND json_type(project_paths) = 'array' AND json_array_length(project_paths) >= 1), -- 项目技能目录 JSON 数组(各项相对已登记项目根,斜杠分隔):第 1 项装新技能,其余为附加目录
+    detect_paths TEXT NOT NULL DEFAULT '[]' CHECK(json_valid(detect_paths) AND json_type(detect_paths) = 'array'), -- 检测这台机器上是否装了该 Agent 时看的目录 JSON 数组(各项相对用户主目录,任一存在即算检测到);[] = 不检测
+    same_name TEXT NOT NULL DEFAULT '' CHECK(same_name IN ('', 'global_wins', 'both_shown')), -- 全局和项目里有同名技能时的已知规则;'' = 不知道,只标出同名
+    enabled INTEGER NOT NULL DEFAULT 0 CHECK(enabled IN (0, 1))  -- 1 = 已添加在用;0 = 在候选池里
 );
 
--- SkillScope:某 skill 安装在某个 Scope。Scope 只以身份记录——Agent 代码 + 可选的已注册项目,
--- 不存目录;目录在列表和操作时按 agents 表算出。
+-- SkillScope:某 skill 安装在某个 Scope。Scope 以身份记录——Agent 代码 + 可选的已注册项目;实际所在的技能目录记在 directory,
+-- 相对用户主目录或项目根,空时是这个 Agent 这一层级的第 1 个目录,在列表和操作时按 agents 表算出。
+-- 一处安装是「全局或哪个项目 + 技能目录 + 文件夹」:已添加的 Agent 里目录列表有这个目录的都读得到它。一个已添加的 Agent 在一个作用域里
+-- 对一个技能只认一处:自己有记录的认记录那一处,没有的按它的目录顺序认第一个装着这个技能的目录;认同一处的几个 Agent 共用这个文件夹。
 -- 由直接安装和组安装留着:直接安装(direct)和/或覆盖它的组安装(该 skill 是成员且组已安装到此 Scope,
 -- 由 skill_groups × group_installs 推出,不另存);全部撤销后,技能文件夹和这行记录一起删除。
 CREATE TABLE IF NOT EXISTS skill_scopes (
@@ -183,6 +185,7 @@ CREATE TABLE IF NOT EXISTS skill_scopes (
     agent TEXT NOT NULL REFERENCES agents(code), -- Agent 的稳定代码
     project_id INTEGER REFERENCES projects(id), -- NULL 为全局 Scope;非 NULL 为该已注册项目的项目 Scope
     direct INTEGER NOT NULL DEFAULT 0,      -- 1 = 有直接安装;0 = 无直接安装,由覆盖它的组安装留着
+    directory TEXT NOT NULL DEFAULT '',     -- 这处安装实际所在的技能目录(相对用户主目录或项目根);空 = 该 Agent 这一层级的第 1 个目录
     folder TEXT NOT NULL DEFAULT '',        -- 装出去的文件夹名;空 = 和技能现在的名字相同。确认改名后没跟着重新安装的地方记下旧名字,巡检、重新安装、卸载、回滚都按它找到文件夹;重新安装换成新名字后清回空
     created_at TEXT NOT NULL DEFAULT ''     -- 首次安装到此 Scope 的时间,RFC3339Nano。再次安装不更新
 );

@@ -23,6 +23,8 @@ import (
 // 和库里某个技能的某一版完全一致的文件夹列出时自动记为那个技能的安装,不再是未纳管技能(不自动纳入的几种见 SkillID)。
 type UnmanagedSkill struct {
 	Scope Scope `json:"scope"`
+	// Directory 是文件夹所在的技能目录,写法同 [SkillScope].Directory;同一个 Agent 的几个目录里可以有同名的文件夹,按它区分。
+	Directory string `json:"directory"`
 	// Name 是文件夹名。
 	Name string `json:"name"`
 	// Description 取自 SKILL.md 的 frontmatter;frontmatter 读不出时为空。
@@ -32,7 +34,7 @@ type UnmanagedSkill struct {
 	// LinkTarget 在文件夹是符号链接时给出它最终指向的目录(已解析各级符号链接),否则为空。
 	// 例如 npx skills 把真实文件夹放在 ~/.agents/skills/<name>,再从其他 Agent 的目录用符号链接指过去。
 	LinkTarget string `json:"link_target,omitempty"`
-	// LinkOutside 表示 LinkTarget 不在任何 Agent 的技能目录里(各 Agent 的全局目录与在各已登记项目里的技能目录),
+	// LinkOutside 表示 LinkTarget 不在任何 Agent 的技能目录里(各已添加 Agent 的全部全局目录与在各已登记项目里的全部技能目录),
 	// 例如技能作者把它链到自己的工作目录 ~/code/my-skills/foo,在那里改了 Agent 马上就能用上。入库后库第一次写这一处时
 	// 会把链接换成独立的一份,在原来的目录里改就不再影响这里;所以和在项目仓库里的一样默认不入库,内容和库里一致也不自动纳入,
 	// 界面写明它指向哪里。
@@ -105,19 +107,22 @@ func skillFileProblem(err error) *SkillFileProblem {
 	return &SkillFileProblem{Kind: SkillFileProblemKind(problem.Problem), Line: problem.Line}
 }
 
-// ListUnmanagedSkills 列出各作用域(每个 Agent 的全局,以及每个 Agent 在每个已登记项目里)的技能目录里
+// ListUnmanagedSkills 列出各作用域(每个已添加的 Agent 的全局,以及它在每个已登记项目里)的全部技能目录里
 // 不是库装的技能文件夹,和 ListSkillScopes 列出的库装的技能放在一起,就是 Agent 在这个作用域能看到的技能。
 // 技能文件夹是技能目录下直接的子文件夹,或指向文件夹的符号链接,根上有 SKILL.md;以点开头的(如 Codex 的 .system)不算。
-// 这个作用域里有安装记录用它的(含共用目录的 Agent 装的,共用按 Agent 的目录设置判断,不跟随符号链接)是库装的,不列出;
-// 库装出去后被改过的也不在这里,巡检报为 modified。
+// 文件夹的实际路径上有安装记录的(哪个 Agent 记的都算,按记录所在的技能目录判断,不跟随符号链接)是库装的,不列出;
+// 库装出去后被改过的也不在这里,巡检报为 modified。同一个作用域里经符号链接指到另一个目录里同一个文件夹的只算一处:
+// 那个文件夹是库装的时链接不列出,都不是时只列真实的文件夹。这个作用域已经在一个技能目录里认得这个技能时,另一个技能目录里
+// 和它的当前版本内容一致的那一份不列出,也不记安装;库里的技能更新后对不上了,它就是未纳管技能(SkillID 为那个技能、VersionID 为旧版)。
 // 插件里的技能、企业托管目录、Codex 的 ADMIN / SYSTEM 技能和没有登记的项目都不在范围内。
-// 不改磁盘。Agent 目录不存在、项目不在这台机器上时那个作用域没有结果;几个 Agent 共用一个目录时,
-// 每个 Agent 各列一条。结果按 Agent、作用域(全局在前,项目按 ID)、Name 排序。
+// 不改磁盘。Agent 目录不存在、项目不在这台机器上时那个作用域没有结果;几个 Agent 读同一个目录时,
+// 每个 Agent 各列一条。结果按 Agent、作用域(全局在前,项目按 ID)、Name、技能目录在这个 Agent 目录列表里的先后排序。
 // 按内容认出它是库里的哪个技能、哪一版(SkillID、VersionID),或是库里哪个技能在来源里现在的那一版(SourceLatestOf);
 // 为此只读 SKILL.md 和库里某个版本相同、或技能名和有新版本的库里技能相同的那几个文件夹的全部内容。不联网。
-// 认出是库里的技能的,除 UnmanagedSkill.SkillID 列出的几种外,先自动纳入:记为这个技能直接装在这个作用域(和 FetchUnmanaged 补记的一样),
-// 结果里不再有它,之后巡检、更新、重新安装、回滚、卸载与移除技能都包括这一处。一个作用域里有几个文件夹和同一个技能一致时只记一处:
-// 文件夹名和 SKILL.md 里的 name 相同的优先,其次按文件夹名取第一个;几个 Agent 共用目录时只记一处,共用的 Agent 本来就算已装。
+// 认出是库里的技能的,除 UnmanagedSkill.SkillID 列出的几种外,先自动纳入:记为这个技能直接装在这个作用域的那个技能目录里
+// (和 FetchUnmanaged 补记的一样),结果里不再有它,之后巡检、更新、重新安装、回滚、卸载与移除技能都包括这一处。
+// 一个作用域里有几个文件夹和同一个技能一致时只记一处:技能目录在 Agent 的目录列表里靠前的优先,同一个目录里文件夹名和 SKILL.md 里的 name
+// 相同的优先,其次按文件夹名取第一个;已经认得到这个技能的 Agent 不再记(几个 Agent 读同一个目录时只记一处,其余本来就算已装)。
 // SKILL.md 超过列出时的读取上限(1 MiB)的只认出、不自动纳入:列出时读不到它的 name,查不了它是不是记在 skills-lock.json 里。
 // 存着 WSL 发行版([Library.WSLDistro])、全局目录却还在 Windows 本机时(启动时发行版打不开,或还没调用 [Library.SetWSLDistro] 换过去)
 // 只列出、不自动纳入:全局安装不分主目录,这时记下的安装换到发行版后都会是缺失。换过去之后照常纳入。
@@ -155,10 +160,39 @@ func (l *Library) adoptedUnmanaged(ctx context.Context, only map[Scope]bool) ([]
 		return nil, err
 	}
 	adopted, err := l.adoptMatching(ctx, found)
-	if err != nil || !adopted {
-		return found, err
+	if err != nil {
+		return nil, err
 	}
-	return l.recognizedUnmanaged(ctx, only)
+	if adopted {
+		if found, err = l.recognizedUnmanaged(ctx, only); err != nil {
+			return nil, err
+		}
+	}
+	return l.withoutCopies(ctx, found)
+}
+
+func (l *Library) withoutCopies(ctx context.Context, entries []unmanagedEntry) ([]unmanagedEntry, error) {
+	if !slices.ContainsFunc(entries, func(entry unmanagedEntry) bool { return entry.SkillID != 0 }) {
+		return entries, nil
+	}
+	installed, err := l.listSkillScopes(ctx, 0, nil)
+	if err != nil {
+		return nil, err
+	}
+	heads := map[SkillID]int64{}
+	return slices.DeleteFunc(entries, func(entry unmanagedEntry) bool {
+		if entry.SkillID == 0 || !slices.ContainsFunc(installed, func(skillScope SkillScope) bool {
+			return skillScope.SkillID == entry.SkillID && skillScope.Scope == entry.Scope && skillScope.Directory != entry.Directory
+		}) {
+			return false
+		}
+		head, ok := heads[entry.SkillID]
+		if !ok {
+			_, head, err = l.store.SkillHead(ctx, int64(entry.SkillID))
+			heads[entry.SkillID] = head
+		}
+		return err == nil && int64(entry.VersionID) == head
+	}), err
 }
 
 func (l *Library) adoptMatching(ctx context.Context, entries []unmanagedEntry) (bool, error) {
@@ -172,7 +206,7 @@ func (l *Library) adoptMatching(ctx context.Context, entries []unmanagedEntry) (
 			continue
 		}
 		other := slices.IndexFunc(chosen, func(c unmanagedEntry) bool {
-			return c.SkillID == entry.SkillID && c.found.target.sharesFolderWith(entry.found.target)
+			return c.SkillID == entry.SkillID && c.Scope == entry.Scope && c.found.target.relative == entry.found.target.relative
 		})
 		switch {
 		case other < 0:
@@ -184,11 +218,16 @@ func (l *Library) adoptMatching(ctx context.Context, entries []unmanagedEntry) (
 	if len(chosen) == 0 {
 		return false, nil
 	}
+	slices.SortStableFunc(chosen, func(a, b unmanagedEntry) int {
+		return cmp.Compare(slices.Index(a.found.target.paths, a.found.target.relative), slices.Index(b.found.target.paths, b.found.target.relative))
+	})
 	adopted := false
 	err = l.store.InTx(ctx, func(tx *store.Tx) error {
 		now := clockNow()
 		for _, entry := range chosen {
-			recorded, err := tx.RecordFetchedSkillScope(ctx, int64(entry.SkillID), entry.found.target.Scope, entry.Name, now)
+			recorded, err := tx.RecordFetchedSkillScope(ctx, store.NewSkillScope{
+				SkillID: int64(entry.SkillID), Scope: entry.found.target.Scope, Directory: entry.found.target.relative, Folder: entry.Name, CreatedAt: now,
+			})
 			if err != nil {
 				return err
 			}
@@ -217,7 +256,7 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 			continue
 		}
 		target := found.target
-		entry := unmanagedEntry{UnmanagedSkill: UnmanagedSkill{Scope: target.scope(), Name: found.Name, Folder: found.Path, LinkTarget: found.Target}, found: found}
+		entry := unmanagedEntry{UnmanagedSkill: UnmanagedSkill{Scope: target.scope(), Directory: l.displayDirectory(target), Name: found.Name, Folder: found.Path, LinkTarget: found.Target}, found: found}
 		entry.LinkOutside = found.Target != "" && !within(found.Target)
 		entry.AgentSettings = agentSettingsOf(found.SkillMD, found.CodexMetadata)
 		if found.SkillMD != nil {
@@ -237,7 +276,8 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 		entries = append(entries, entry)
 	}
 	slices.SortFunc(entries, func(a, b unmanagedEntry) int {
-		return cmp.Or(cmp.Compare(a.Scope.Agent, b.Scope.Agent), cmp.Compare(a.Scope.ProjectID, b.Scope.ProjectID), cmp.Compare(a.Name, b.Name))
+		return cmp.Or(cmp.Compare(a.Scope.Agent, b.Scope.Agent), cmp.Compare(a.Scope.ProjectID, b.Scope.ProjectID), cmp.Compare(a.Name, b.Name),
+			cmp.Compare(slices.Index(a.found.target.paths, a.found.target.relative), slices.Index(b.found.target.paths, b.found.target.relative)))
 	})
 	if len(entries) == 0 {
 		return entries, nil
@@ -370,47 +410,81 @@ func (l *Library) agentDirectories(ctx context.Context) ([]string, error) {
 	}
 	var directories []string
 	for _, agent := range agents {
-		rows := []store.Scope{{Agent: agent.Code}}
-		for _, project := range projects {
-			rows = append(rows, store.Scope{Agent: agent.Code, ProjectID: new(project.ID)})
+		if !agent.Enabled {
+			continue
 		}
-		for _, row := range rows {
-			target, err := l.resolveRow(ctx, row)
-			if err != nil {
-				return nil, err
+		for _, path := range agent.GlobalPaths {
+			directories = append(directories, l.home.Join(path))
+		}
+		for _, project := range projects {
+			for _, path := range agent.ProjectPaths {
+				directories = append(directories, agentdir.Join(project.Path, path))
 			}
-			directories = append(directories, target.directory)
 		}
 	}
 	return directories, nil
 }
 
-// SameNameFolder 是同名技能在一个作用域里的技能文件夹。
+func (l *Library) displayDirectory(target resolvedScope) string {
+	if target.ProjectID == nil {
+		return l.home.Join(target.relative)
+	}
+	return target.relative
+}
+
+func (l *Library) scopeIn(operation string, target resolvedScope, directory string) (resolvedScope, error) {
+	if directory == "" {
+		return target, nil
+	}
+	for _, path := range target.paths {
+		if directory == path || target.ProjectID == nil && agentdir.SameEntry(directory, l.home.Join(path)) {
+			return target.in(path), nil
+		}
+	}
+	return resolvedScope{}, argumentError(operation, "directory", "the agent does not read skills from this directory")
+}
+
+// SameNameKind 是两个技能文件夹同名的情形。值以后可能增加,调用方遇到不认识的值按「只标出同名」处理。
+type SameNameKind string
+
+const (
+	// SameNameGlobalAndProject 是同一个 Agent 的全局和一个已登记项目里同名:后果按 Agent 的 [Agent].SameName 说明。
+	SameNameGlobalAndProject SameNameKind = "global_and_project"
+	// SameNameTwoDirectories 是同一个作用域的两个技能目录里同名、又不是同一个技能:不知道哪个生效,只标出同名。
+	SameNameTwoDirectories SameNameKind = "two_directories"
+)
+
+// SameNameFolder 是同名技能中的一个技能文件夹。
 type SameNameFolder struct {
+	Scope Scope `json:"scope"`
+	// Directory 是文件夹所在的技能目录,写法同 [SkillScope].Directory。
+	Directory string `json:"directory"`
 	// Folder 是技能文件夹的路径,与 [SkillScope].Folder、[UnmanagedSkill].Folder 相同,界面按它对上列表里的那一项。
 	Folder string `json:"folder"`
-	// SkillID 在这个作用域里有安装记录用它(库装的)时是那个技能的 ID;未纳管技能为 0。
+	// SkillID 在这个文件夹上有安装记录(库装的)时是那个技能的 ID;未纳管技能为 0。
 	SkillID SkillID `json:"skill_id,omitzero"`
 }
 
-// SameNameSkill 是同一个 Agent 的全局和一个已登记项目里同名的两个技能文件夹,两处都要标出来。
-// 后果按 Agent 的 [Agent].SameName 说明。
+// SameNameSkill 是一对同名的技能文件夹,两处都要标出来。
 type SameNameSkill struct {
-	Agent     AgentCode `json:"agent"`
-	ProjectID ProjectID `json:"project_id"`
+	Kind SameNameKind `json:"kind"`
 	// Name 是两处共同的技能名:SKILL.md 里的 name,读不出时用文件夹名。两处的文件夹名可以不同。
-	Name    string         `json:"name"`
-	Global  SameNameFolder `json:"global"`
-	Project SameNameFolder `json:"project"`
+	Name string `json:"name"`
+	// First 在 SameNameGlobalAndProject 时是全局的那个,在 SameNameTwoDirectories 时是技能目录在 Agent 目录列表里靠前的那个;
+	// Second 是另一个。
+	First  SameNameFolder `json:"first"`
+	Second SameNameFolder `json:"second"`
 }
 
-// ListSameNameSkills 列出每个 Agent 的全局和各已登记项目里同名的技能文件夹,不论是不是库装的:库装的
-// ([Library.ListSkillScopes])和未纳管的([Library.ListUnmanagedSkills])一起比,也就是 Agent 在这两处实际能看到的技能。
+// ListSameNameSkills 列出同名的技能文件夹,不论是不是库装的:库装的([Library.ListSkillScopes])和未纳管的([Library.ListUnmanagedSkills])
+// 一起比,也就是 Agent 实际能看到的技能。有两种(见 SameNameKind):每个已添加的 Agent 的全局和各已登记项目里同名的;
+// 同一个作用域两个技能目录里同名、又不是同一个技能的(两处是同一个技能的安装记录,或一处是这个技能的安装、另一处和它的当前版本内容一致,
+// 都不算;经符号链接指到同一个文件夹的只算一处)。和另一个技能目录里装着的技能的当前版本内容一致的那一份,和 ListUnmanagedSkills 一样不算。
 // 同名按 SKILL.md 的 frontmatter 里的 name 判断(Agent 按它认技能),frontmatter 读不出或没有合法的 name 时用文件夹名;
 // 技能文件夹的认法与 ListUnmanagedSkills 相同,安装记录在、文件夹不在了的不算。
-// 每一对同名的全局文件夹和项目文件夹各一条:全局里的一个技能和几个项目里的同名时每个项目各一条,同一处有几个文件夹同名时两两各一条。
-// 几个 Agent 共用目录时每个 Agent 各列一条。只读:不改库、不改磁盘。Agent 目录不存在、项目不在这台机器上时那里没有结果。
-// 结果按 Agent、项目 ID、Name、全局文件夹、项目文件夹排序。
+// 每一对同名的文件夹各一条:全局里的一个技能和几个项目里的同名时每个项目各一条,同一处有几个文件夹同名时两两各一条。
+// 几个 Agent 读同一个目录时每个 Agent 各列一条。只读:不改库、不改磁盘。Agent 目录不存在、项目不在这台机器上时那里没有结果。
+// 结果按 Kind、Agent、项目 ID、Name、First 的文件夹、Second 的文件夹排序。
 func (l *Library) ListSameNameSkills(ctx context.Context) (skills []SameNameSkill, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -419,37 +493,120 @@ func (l *Library) ListSameNameSkills(ctx context.Context) (skills []SameNameSkil
 	if err != nil {
 		return nil, err
 	}
-	type global struct {
-		agent AgentCode
+	folders, err = l.withoutCurrentCopies(ctx, folders)
+	if err != nil {
+		return nil, err
+	}
+	type named struct {
+		scope Scope
 		name  string
 	}
-	globals := map[global][]SameNameFolder{}
+	byScope := map[named][]scopeFolder{}
+	var order []named
 	for _, found := range folders {
-		if found.target.ProjectID == nil {
-			key := global{AgentCode(found.target.Agent), skillName(found.Folder)}
-			globals[key] = append(globals[key], SameNameFolder{Folder: found.Path, SkillID: found.skillID})
+		key := named{found.target.scope(), skillName(found.Folder)}
+		if byScope[key] == nil {
+			order = append(order, key)
 		}
+		byScope[key] = append(byScope[key], found)
+	}
+	sameNameFolder := func(found scopeFolder) SameNameFolder {
+		return SameNameFolder{Scope: found.target.scope(), Directory: l.displayDirectory(found.target), Folder: found.Path, SkillID: found.skillID}
 	}
 	skills = []SameNameSkill{}
-	for _, found := range folders {
-		if found.target.ProjectID == nil {
+	for _, key := range order {
+		group := byScope[key]
+		for i, first := range group {
+			for _, second := range group[i+1:] {
+				if first.target.relative == second.target.relative || first.skillID != 0 && first.skillID == second.skillID {
+					continue
+				}
+				skills = append(skills, SameNameSkill{Kind: SameNameTwoDirectories, Name: key.name, First: sameNameFolder(first), Second: sameNameFolder(second)})
+			}
+		}
+		if key.scope.Kind != ScopeProject {
 			continue
 		}
-		name := skillName(found.Folder)
-		for _, other := range globals[global{AgentCode(found.target.Agent), name}] {
-			skills = append(skills, SameNameSkill{
-				Agent: AgentCode(found.target.Agent), ProjectID: ProjectID(*found.target.ProjectID), Name: name,
-				Global: other, Project: SameNameFolder{Folder: found.Path, SkillID: found.skillID},
-			})
+		for _, global := range byScope[named{GlobalScope(key.scope.Agent), key.name}] {
+			for _, project := range group {
+				skills = append(skills, SameNameSkill{Kind: SameNameGlobalAndProject, Name: key.name, First: sameNameFolder(global), Second: sameNameFolder(project)})
+			}
 		}
 	}
 	slices.SortFunc(skills, func(a, b SameNameSkill) int {
 		return cmp.Or(
-			cmp.Compare(a.Agent, b.Agent), cmp.Compare(a.ProjectID, b.ProjectID), cmp.Compare(a.Name, b.Name),
-			cmp.Compare(a.Global.Folder, b.Global.Folder), cmp.Compare(a.Project.Folder, b.Project.Folder),
+			cmp.Compare(a.Kind, b.Kind), cmp.Compare(a.Second.Scope.Agent, b.Second.Scope.Agent), cmp.Compare(a.Second.Scope.ProjectID, b.Second.Scope.ProjectID),
+			cmp.Compare(a.Name, b.Name), cmp.Compare(a.First.Folder, b.First.Folder), cmp.Compare(a.Second.Folder, b.Second.Folder),
 		)
 	})
 	return skills, nil
+}
+
+func (l *Library) withoutCurrentCopies(ctx context.Context, folders []scopeFolder) ([]scopeFolder, error) {
+	type named struct {
+		scope Scope
+		name  string
+	}
+	type claim struct {
+		skillID   SkillID
+		directory string
+	}
+	claimed := map[named][]claim{}
+	for _, found := range folders {
+		if found.skillID != 0 {
+			key := named{found.target.scope(), skillName(found.Folder)}
+			claimed[key] = append(claimed[key], claim{found.skillID, found.target.relative})
+		}
+	}
+	elsewhere := func(found scopeFolder) []SkillID {
+		var ids []SkillID
+		for _, other := range claimed[named{found.target.scope(), skillName(found.Folder)}] {
+			if other.directory != found.target.relative {
+				ids = append(ids, other.skillID)
+			}
+		}
+		return ids
+	}
+	var paths []string
+	var indexes []int
+	for i, found := range folders {
+		if found.skillID == 0 && len(elsewhere(found)) > 0 {
+			paths = append(paths, found.Path)
+			indexes = append(indexes, i)
+		}
+	}
+	copies := map[int]bool{}
+	err := agentdir.ReadFolders(ctx, paths, maxFetchFiles, maxFetchSize, func(index int, state agentdir.FolderState) error {
+		if !state.Exists || state.Err != nil {
+			return nil
+		}
+		i := indexes[index]
+		disk := diskOf(state)
+		for _, id := range elsewhere(folders[i]) {
+			_, head, err := l.store.SkillHead(ctx, int64(id))
+			if err != nil {
+				return err
+			}
+			current, err := l.store.VersionDigests(ctx, head)
+			if err != nil {
+				return err
+			}
+			if disk.same(current) {
+				copies[i] = true
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	var kept []scopeFolder
+	for i, found := range folders {
+		if !copies[i] {
+			kept = append(kept, found)
+		}
+	}
+	return kept, nil
 }
 
 func skillName(folder agentdir.Folder) string {
@@ -481,31 +638,35 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 	if err != nil {
 		return nil, err
 	}
-	installed, err := l.listSkillScopes(ctx, 0, nil)
+	installed, err := l.store.ListSkillScopes(ctx, 0)
 	if err != nil {
 		return nil, err
 	}
 	type folder struct {
-		scope Scope
-		name  string
+		projectID int64
+		directory string
+		name      string
 	}
 	claimed := map[folder]SkillID{}
-	for _, skillScope := range installed {
-		claimed[folder{skillScope.Scope, agentdir.FolderName(skillScope.Folder)}] = skillScope.SkillID
+	for _, row := range installed {
+		key := folder{directory: row.Directory, name: row.Name}
+		if row.Scope.ProjectID != nil {
+			key.projectID = *row.Scope.ProjectID
+		}
+		claimed[key] = SkillID(row.SkillID)
 	}
 	type rootCheck struct {
 		missing *Error
 		err     error
 	}
 	roots := map[string]rootCheck{}
-	type listing struct {
-		row    store.Scope
-		target resolvedScope
-	}
-	var listings []listing
+	var listings []resolvedScope
 	var directories []string
 	seen := map[string]bool{}
 	for _, agent := range agents {
+		if !agent.Enabled {
+			continue
+		}
 		rows := []store.Scope{{Agent: agent.Code}}
 		for _, project := range projects {
 			rows = append(rows, store.Scope{Agent: agent.Code, ProjectID: new(project.ID)})
@@ -533,11 +694,14 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 			if err != nil || missing != nil {
 				continue
 			}
-			if !seen[target.directory] {
-				seen[target.directory] = true
-				directories = append(directories, target.directory)
+			for _, path := range target.paths {
+				each := target.in(path)
+				if !seen[each.directory] {
+					seen[each.directory] = true
+					directories = append(directories, each.directory)
+				}
+				listings = append(listings, each)
 			}
-			listings = append(listings, listing{row: row, target: target})
 		}
 	}
 	canonical := map[string]string{}
@@ -550,11 +714,11 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 	}
 	lists := map[string]listed{}
 	var folders []scopeFolder
-	for _, each := range listings {
-		directory := canonical[each.target.directory]
+	for _, target := range listings {
+		directory := canonical[target.directory]
 		list, ok := lists[directory]
 		if !ok {
-			list.folders, list.err = agentdir.List(each.target.directory)
+			list.folders, list.err = agentdir.List(target.directory)
 			lists[directory] = list
 		}
 		if list.err != nil && skipUnreadable {
@@ -563,16 +727,47 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 		if list.err != nil {
 			return nil, list.err
 		}
+		key := folder{directory: target.relative}
+		if target.ProjectID != nil {
+			key.projectID = *target.ProjectID
+		}
 		for _, found := range list.folders {
 			own := found
-			own.Path = agentdir.FolderPath(each.target.directory, found.Name)
+			own.Path = agentdir.FolderPath(target.directory, found.Name)
+			key.name = found.Name
 			folders = append(folders, scopeFolder{
-				Folder: own, target: each.target, canonical: cmp.Or(found.Target, agentdir.FolderPath(directory, found.Name)),
-				skillID: claimed[folder{scopeFrom(each.row), found.Name}],
+				Folder: own, target: target, canonical: cmp.Or(found.Target, agentdir.FolderPath(directory, found.Name)),
+				skillID: claimed[key],
 			})
 		}
 	}
-	return folders, nil
+	return withoutLinkedTwins(folders), nil
+}
+
+func withoutLinkedTwins(folders []scopeFolder) []scopeFolder {
+	type twin struct {
+		scope     Scope
+		canonical string
+	}
+	kept := map[twin]int{}
+	var result []scopeFolder
+	for _, found := range folders {
+		key := twin{found.target.scope(), found.canonical}
+		at, ok := kept[key]
+		if ok && result[at].target.relative == found.target.relative {
+			result = append(result, found)
+			continue
+		}
+		if !ok {
+			kept[key] = len(result)
+			result = append(result, found)
+			continue
+		}
+		if other := result[at]; other.skillID == 0 && (found.skillID != 0 || other.Target != "" && found.Target == "") {
+			result[at] = found
+		}
+	}
+	return result
 }
 
 func validFolderName(name string) bool {
@@ -609,7 +804,7 @@ func parseSkillFolder(operation, path, name string, state agentdir.FolderState) 
 
 // FindUnmanagedSourcesRequest 指定要去 skills.sh 找来源的未纳管技能。
 type FindUnmanagedSourcesRequest struct {
-	// Folders 是 ListUnmanagedSkills 列出的条目,按作用域与文件夹名指定,重复的只算一次。
+	// Folders 是 ListUnmanagedSkills 列出的条目,按作用域、技能目录与文件夹名指定,重复的只算一次。
 	// 来源记录已经认出来源(UnmanagedSkill.SourceInput 不为空)的、按内容认出是库里哪个技能的(SkillID 或 SourceLatestOf 不为 0),
 	// 和已经不是未纳管技能、不在了的一样,不找也不报错。
 	Folders []FolderInScope `json:"folders"`
@@ -617,8 +812,9 @@ type FindUnmanagedSourcesRequest struct {
 
 // FoundUnmanagedSource 是在 skills.sh 上给一个未纳管技能找到的来源。
 type FoundUnmanagedSource struct {
-	Scope Scope  `json:"scope"`
-	Name  string `json:"name"` // UnmanagedSkill.Name,即技能文件夹名
+	Scope     Scope  `json:"scope"`
+	Directory string `json:"directory"` // UnmanagedSkill.Directory,即文件夹所在的技能目录
+	Name      string `json:"name"`      // UnmanagedSkill.Name,即技能文件夹名
 	// SourceInput 是找到的来源,和来源记录认出的 UnmanagedSkill.SourceInput 一样用:界面写「来自 …」,入库确认里预填给
 	// FetchUnmanagedRequest.SourceInput 与 UnmanagedFetchItem.SourceInput,整批确认按它分组。格式同 PreviewFetchRequest.Input:
 	// GitHub 仓库为 owner/repo,well-known 站点为 https://<站点>;不带分支,SourceRef 留空。
@@ -731,7 +927,7 @@ func (l *Library) FindUnmanagedSources(ctx context.Context, req FindUnmanagedSou
 			}
 		}
 		if best != nil {
-			found = append(found, FoundUnmanagedSource{Scope: folder.Scope, Name: folder.Name, SourceInput: best.input})
+			found = append(found, FoundUnmanagedSource{Scope: folder.Scope, Directory: folder.directory, Name: folder.Name, SourceInput: best.input})
 		}
 	}
 	return found, nil
@@ -777,23 +973,35 @@ func (p parallelLimit) do(ctx context.Context, work func()) {
 
 type sourcelessFolder struct {
 	FolderInScope
-	name  string
-	files []skillfile.File
+	directory string
+	name      string
+	files     []skillfile.File
 }
 
 func (l *Library) sourcelessFolders(ctx context.Context, requested []FolderInScope) ([]sourcelessFolder, error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
 	const operation = "find unmanaged sources"
+	type folderKey struct {
+		scope     Scope
+		directory string
+		name      string
+	}
 	wanted := map[Scope]bool{}
-	for _, folder := range requested {
+	keys := make([]folderKey, len(requested))
+	for i, folder := range requested {
 		if !validFolderName(folder.Name) {
 			return nil, argumentError(operation, "name", "invalid skill folder name")
 		}
-		if _, err := l.resolveScope(ctx, operation, folder.Scope); err != nil {
+		target, err := l.resolveScope(ctx, operation, folder.Scope)
+		if err != nil {
+			return nil, err
+		}
+		if target, err = l.scopeIn(operation, target, folder.Directory); err != nil {
 			return nil, err
 		}
 		wanted[folder.Scope] = true
+		keys[i] = folderKey{folder.Scope, target.relative, folder.Name}
 	}
 	if len(wanted) == 0 {
 		return nil, nil
@@ -802,25 +1010,26 @@ func (l *Library) sourcelessFolders(ctx context.Context, requested []FolderInSco
 	if err != nil {
 		return nil, err
 	}
-	listed := map[FolderInScope]unmanagedEntry{}
+	listed := map[folderKey]unmanagedEntry{}
 	for _, entry := range entries {
-		listed[FolderInScope{Scope: entry.Scope, Name: entry.Name}] = entry
+		listed[folderKey{entry.Scope, entry.found.target.relative, entry.Name}] = entry
 	}
-	var found []FolderInScope
+	var found []unmanagedEntry
 	var paths []string
-	for _, folder := range requested {
-		entry, ok := listed[folder]
+	for _, key := range keys {
+		entry, ok := listed[key]
 		if !ok || entry.SourceInput != "" || entry.SkillID != 0 || entry.SourceLatestOf != 0 {
 			continue
 		}
-		delete(listed, folder)
-		found = append(found, folder)
+		delete(listed, key)
+		found = append(found, entry)
 		paths = append(paths, entry.Folder)
 	}
 	read := make([]*sourcelessFolder, len(found))
 	err = agentdir.ReadFolders(ctx, paths, maxFetchFiles, maxFetchSize, func(i int, state agentdir.FolderState) error {
 		if disk, parsed, err := parseSkillFolder(operation, state.Path, found[i].Name, state); err == nil {
-			read[i] = &sourcelessFolder{FolderInScope: found[i], name: parsed.Name, files: disk.files}
+			folder := FolderInScope{Scope: found[i].Scope, Directory: found[i].Directory, Name: found[i].Name}
+			read[i] = &sourcelessFolder{FolderInScope: folder, directory: found[i].Directory, name: parsed.Name, files: disk.files}
 		}
 		return nil
 	})
