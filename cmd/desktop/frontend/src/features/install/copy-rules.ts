@@ -25,7 +25,7 @@ import { sortSkills } from "@/lib/pages";
 import { lastSegment } from "@/lib/paths";
 import { mergeProjectAgents, mergedScope, placeCount, sameFolderAt, scopeLabel, type AgentList } from "@/lib/places";
 import { placeOf, scopeKey, scopeOf, type Place, type ScopeKey } from "@/lib/scope";
-import { notTakenOver, repoOwned, unmanagedIn } from "@/lib/unmanaged";
+import { extraCopy, notTakenOver, repoOwned, unmanagedIn } from "@/lib/unmanaged";
 import { memberRows, type ResultRow } from "@/components/app/result-rows";
 import { occupied } from "./install-rules";
 
@@ -119,7 +119,8 @@ export function uncopiedUnmanaged(s: Snapshot, from: AgentCode, to: AgentCode): 
   return splitUncopied(
     s.unmanaged.filter((u) => {
       const place = placeOf(u.scope);
-      if (u.scope.agent !== from || sameFolderAt(s, from, to, place)) return false;
+      // 装着那个技能的地方多出来的一份(extraCopy)不用入库，照装时那个技能本来就带得过去。
+      if (u.scope.agent !== from || sameFolderAt(s, from, to, place) || extraCopy(s, u)) return false;
       const toKey = scopeKey(scopeOf(copyTarget(s, to, place), place));
       return !folderNamesIn(s, toKey).includes(u.name);
     }),
@@ -164,7 +165,7 @@ export function uncopiedProjectUnmanaged(s: Snapshot, from: ProjectID, to: Proje
   return splitUncopied(
     mergeProjectAgents(s, s.agents).flatMap((a) => {
       const there = folderNamesIn(s, scopeKey(scopeOf(a.code, to)));
-      return unmanagedIn(s, scopeKey(scopeOf(a.code, from))).filter((u) => !there.includes(u.name));
+      return unmanagedIn(s, scopeKey(scopeOf(a.code, from))).filter((u) => !there.includes(u.name) && !extraCopy(s, u));
     }),
   );
 }

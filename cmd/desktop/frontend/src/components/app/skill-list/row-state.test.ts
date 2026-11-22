@@ -194,6 +194,18 @@ describe("作用域页一行的状态", () => {
     expect(labels(state)).toEqual(["旧版本", "别处有同名的，内容不同", "有新版本"]);
   });
 
+  it("装在这里的技能，这里还多一份一样的文件夹时有一条提示，写出它在哪里", () => {
+    const x = skill(1, "pdf");
+    const copy = unmanaged("pdf-copy", at(claude, 1), { skill_id: 1 });
+    const another = unmanaged("pdf-backup", at(claude, 1), { skill_id: 1 });
+    const s = snapshot({ skills: [x], skillScopes: [installed(1, at(claude, 1))], unmanaged: [copy, another] });
+    expect(rowInstall(s, x, here).identical).toBeUndefined();
+    expect(scopeRow(s, x, here).alerts).toMatchObject([{ tone: "info", label: "多一份一样的", className: "extra-copy" }]);
+    expect(scopeRow(s, x, here).alerts[0].tip).toContain(copy.folder);
+    expect(scopeRow(s, x, here).alerts[0].tip).toContain(another.folder);
+    expect(scopeRow(snapshot({ skills: [x], skillScopes: [installed(1, at(claude, 1))] }), x, here).alerts).toEqual([]);
+  });
+
   it("那一份归项目仓库管时不带库里这个技能的提醒，只留这个文件夹自己的同名提醒", () => {
     const x = skill(1, "pdf", available, { version_id: 3 });
     const copy = unmanaged("pdf", at(claude, 1), { skill_id: 1, version_id: 2, in_repository: true });

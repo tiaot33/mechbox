@@ -48,7 +48,7 @@ func TestConcludeCheckKeepsNewerConclusionsButOverwritesFailures(t *testing.T) {
 		check.At = time.Time{}
 		return check
 	}
-	seen := UpdateCheck{Status: "available", Revision: "rev-3", Content: "content-alpha-3"}
+	seen := UpdateCheck{Status: "available", Revision: "rev-3"}
 	if got := stored(); got != seen {
 		t.Fatalf("stored before = %+v; want %+v", got, seen)
 	}

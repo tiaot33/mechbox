@@ -294,3 +294,31 @@ func TestSkipRejectsRemovedSkillAndReplacedLibrary(t *testing.T) {
 		t.Fatalf("skip after the library was replaced = %v; want Conflict", err)
 	}
 }
+
+// 脚本只去掉了可执行位也是脚本的改动:更新计划的风险里列出来。
+func TestUpdatePlanFlagsAScriptThatLosesItsExecutableBit(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	source := filepath.Join(t.TempDir(), "tool")
+	writeLocalSkill(t, source, "v1")
+	script := filepath.Join(source, "scripts", "run.sh")
+	writeFile(t, script, []byte("#!/bin/sh\n"), 0o755)
+	skill, err := fetchLocalDir(ctx, lib, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeLocalSkill(t, source, "v2")
+	if err := os.Chmod(script, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := lib.PlanUpdate(ctx, skill.CollectionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if risks := plan.Skills[0].Risks; !slices.ContainsFunc(risks, func(r library.UpdateRisk) bool {
+		return r.Kind == library.RiskScriptChanged && r.Path == "scripts/run.sh"
+	}) {
+		t.Fatalf("risks = %#v, want scripts/run.sh flagged as changed", risks)
+	}
+}

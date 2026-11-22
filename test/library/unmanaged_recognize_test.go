@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/tiaot33/mechbox/internal/library"
@@ -133,10 +134,10 @@ func TestUnmanagedCopyOfALibrarySkillIsThatSkill(t *testing.T) {
 	if beta := unmanagedIn(t, f.lib, f.codex, "beta"); beta.SkillID != 0 || beta.VersionID != 0 || beta.SourceLatestOf != 0 {
 		t.Fatalf("beta = %#v", beta)
 	}
-	// 已经装在这个作用域的技能不算:Claude Code 全局里装着 alpha,另一个同样内容的文件夹不认作 alpha。
+	// 只看内容,不看这个作用域装没装:Claude Code 全局里装着 alpha,另一个同样内容的文件夹也是 alpha。
 	writeFile(t, filepath.Join(scopeDirectory(t, f.lib, f.claude), "alpha-copy", "SKILL.md"), []byte(skillDocument("alpha", "v1")), 0o644)
-	if other := unmanagedIn(t, f.lib, f.claude, "alpha-copy"); other.SkillID != 0 {
-		t.Fatalf("alpha-here = %#v, want unrecognized in a scope alpha is installed in", other)
+	if other := unmanagedIn(t, f.lib, f.claude, "alpha-copy"); other.SkillID != alpha.ID || other.VersionID != alpha.VersionID {
+		t.Fatalf("alpha-copy = %#v, want alpha in a scope alpha is installed in too", other)
 	}
 
 	// 整批入库确认里也是库里的 alpha:不带来源,链到 Agent 目录以外,默认不勾。
@@ -337,4 +338,90 @@ func TestFindUnmanagedSourcesPrefersSourcesTheLibraryFollows(t *testing.T) {
 	if found := findUnmanagedSources(t, f.lib, folders...); !reflect.DeepEqual(found, want) {
 		t.Fatalf("found after reorder = %#v, want %#v", found, want)
 	}
+}
+
+// SKILL.md 超过列出时只读的上限(1 MiB),列出时也读全部内容来认,和入库时认的一样;
+// 列出时读不到它的 name、查不了 skills-lock.json,所以只认出、不自动纳入,入库只补记这一处。
+func TestUnmanagedCopyWithALargeSkillMDIsRecognizedWhenListed(t *testing.T) {
+	t.Parallel()
+	setTestHome(t, t.TempDir())
+	lib := openTestLibrary(t)
+	body := strings.Repeat("large body\n", 1<<17)
+	skill := fetchSkillWithBody(t, lib, "large", body)
+	codex := library.GlobalScope(library.AgentCodex)
+	writeFile(t, filepath.Join(scopeDirectory(t, lib, codex), "large", "SKILL.md"), []byte(skillDocument("large", body)), 0o644)
+
+	if here := unmanagedIn(t, lib, codex, "large"); here.SkillID != skill.ID || here.VersionID != skill.VersionID {
+		t.Fatalf("unmanaged = %#v, want it recognized as skill %d", here, skill.ID)
+	}
+	if fetched := fetchUnmanaged(t, lib, codex, "large"); !fetched.Matched || fetched.Skill.ID != skill.ID {
+		t.Fatalf("fetched = %#v, want skill %d matched", fetched, skill.ID)
+	}
+	requireScopeStatus(t, lib, skill.ID, codex, library.SkillScopeCurrent)
+}
+
+// 库里几个技能的某一版一模一样时,各处同样的内容都认作同一个技能,不看哪个作用域已经装着哪个。
+func TestSameContentIsAlwaysTheSameSkill(t *testing.T) {
+	t.Parallel()
+	f := newRecognizeFixture(t)
+	f.publish(t, "https://author.example", "alpha", "v1")
+	f.publish(t, "https://fork.example", "alpha", "v1")
+	first := f.fetch(t, "https://author.example", "alpha")
+	second := f.fetch(t, "https://fork.example", "alpha")
+	f.install(t, first, f.claude)
+	f.install(t, second, f.codex)
+	other := f.project(t)
+	for _, scope := range []library.Scope{f.claude, f.codex} {
+		writeFile(t, filepath.Join(scopeDirectory(t, f.lib, scope), "alpha-copy", "SKILL.md"), []byte(skillDocument("alpha", "v1")), 0o644)
+	}
+	f.write(t, other, "alpha", "v1")
+
+	// 自动纳入的记成了装在那里,没纳入的(那个作用域已经装着它)留在未纳管技能里:三处都要认成同一个。
+	var copies []library.SkillID
+	for _, skill := range listUnmanagedSkills(t, f.lib) {
+		copies = append(copies, skill.SkillID)
+	}
+	inspections, err := f.lib.InspectSkillScopes(t.Context(), library.SkillScopeFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, inspection := range inspections {
+		if filepath.Base(inspection.Folder) == "alpha-copy" || inspection.Scope == other {
+			copies = append(copies, inspection.SkillID)
+		}
+	}
+	if len(copies) != 3 || copies[0] == 0 || copies[1] != copies[0] || copies[2] != copies[0] {
+		t.Fatalf("copies taken as skills %v, want all three as one skill", copies)
+	}
+}
+
+// 入库一处时一并记下别处的同一个文件夹(npx skills 的布局);那边已经装着这个技能的,只是不另记,不会因此多出一个技能。
+func TestFetchUnmanagedWithTheSameFolderWhereTheSkillIsInstalledAddsNoSkill(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	f := newRecognizeFixture(t)
+	f.publish(t, "https://author.example", "alpha", "v1")
+	alpha := f.fetch(t, "https://author.example", "alpha")
+	f.install(t, alpha, f.codex)
+	// Codex 全局另有一份一样的 alpha-copy,Claude Code 全局的 alpha-copy 链过去。
+	codexDirectory, claudeDirectory := scopeDirectory(t, f.lib, f.codex), scopeDirectory(t, f.lib, f.claude)
+	writeFile(t, filepath.Join(codexDirectory, "alpha-copy", "SKILL.md"), []byte(skillDocument("alpha", "v1")), 0o644)
+	if err := os.MkdirAll(claudeDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(codexDirectory, "alpha-copy"), filepath.Join(claudeDirectory, "alpha-copy")); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := f.lib.FetchUnmanaged(ctx, library.FetchUnmanagedRequest{Scope: f.claude, Name: "alpha-copy"})
+	if err != nil || !result.Matched || result.Skill.ID != alpha.ID {
+		t.Fatalf("FetchUnmanaged() = %#v, %v, want alpha matched", result, err)
+	}
+	if skills, err := f.lib.ListSkills(ctx); err != nil || len(skills) != 1 {
+		t.Fatalf("skills = %#v, %v, want only alpha", skills, err)
+	}
+	if inspection := requireScopeStatus(t, f.lib, alpha.ID, f.codex, library.SkillScopeCurrent); inspection.Folder != filepath.Join(codexDirectory, "alpha") {
+		t.Fatalf("codex inspection = %#v, want the folder named alpha still", inspection)
+	}
+	requireScopeStatus(t, f.lib, alpha.ID, f.claude, library.SkillScopeCurrent)
 }

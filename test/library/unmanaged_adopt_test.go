@@ -184,7 +184,7 @@ func TestOnlyOneCopyIsAdoptedPerScope(t *testing.T) {
 	f.publish(t, "https://author.example", "alpha", "v1")
 	alpha := f.fetch(t, "https://author.example", "alpha")
 	directory := scopeDirectory(t, f.lib, f.claude)
-	// 同一个作用域里两份一样的:记文件夹名就是技能名的那一份,另一份照旧是未纳管技能。
+	// 同一个作用域里两份一样的:记文件夹名就是技能名的那一份,另一份仍认作 alpha,留在未纳管技能里显示在 alpha 下。
 	writeFile(t, filepath.Join(directory, "a-copy", "SKILL.md"), []byte(skillDocument("alpha", "v1")), 0o644)
 	f.write(t, f.claude, "alpha", "v1")
 	// 和 Claude Code 共用全局目录的自定义 Agent 本来就算已装,不另记一处。
@@ -194,13 +194,33 @@ func TestOnlyOneCopyIsAdoptedPerScope(t *testing.T) {
 
 	unmanaged := listUnmanagedSkills(t, f.lib)
 	for _, skill := range unmanaged {
-		if skill.Name != "a-copy" || skill.SkillID != 0 {
-			t.Fatalf("unmanaged = %#v, want only a-copy left, not taken as alpha", unmanaged)
+		if skill.Name != "a-copy" || skill.SkillID != alpha.ID {
+			t.Fatalf("unmanaged = %#v, want only a-copy left, taken as alpha", unmanaged)
 		}
 	}
 	inspection := requireScopeStatus(t, f.lib, alpha.ID, f.claude, library.SkillScopeCurrent)
 	if inspection.Folder != filepath.Join(directory, "alpha") {
 		t.Fatalf("inspection = %#v, want the folder named alpha", inspection)
+	}
+	// 整批入库没什么可做:计划里没有它。单独入库它也不另记一处、不多出技能。
+	if plan := planFetchUnmanaged(t, f.lib, f.claude); len(plan) != 0 {
+		t.Fatalf("plan = %#v, want nothing to fetch", plan)
+	}
+	for _, source := range []string{"", "https://author.example"} {
+		result, err := f.lib.FetchUnmanaged(ctx, library.FetchUnmanagedRequest{Scope: f.claude, Name: "a-copy", SourceInput: source})
+		if err != nil || !result.Matched || result.Skill.ID != alpha.ID {
+			t.Fatalf("FetchUnmanaged(a-copy, %q) = %#v, %v, want alpha matched", source, result, err)
+		}
+	}
+	results := fetchUnmanagedSkills(t, f.lib, library.FetchUnmanagedSkillsRequest{Skills: []library.UnmanagedFetchItem{{Folders: []library.FolderInScope{{Scope: f.claude, Name: "a-copy"}}}}})
+	if results[0].Error != nil || !results[0].Matched || results[0].Skill.ID != alpha.ID {
+		t.Fatalf("FetchUnmanagedSkills(a-copy) = %#v, want alpha matched", results)
+	}
+	if inspection := requireScopeStatus(t, f.lib, alpha.ID, f.claude, library.SkillScopeCurrent); inspection.Folder != filepath.Join(directory, "alpha") {
+		t.Fatalf("inspection = %#v, want the folder named alpha still", inspection)
+	}
+	if skills, err := f.lib.ListSkills(ctx); err != nil || len(skills) != 1 {
+		t.Fatalf("skills = %#v, %v, want only alpha", skills, err)
 	}
 	// 只记了一处:从 Claude Code 卸载后,共用目录的 Agent 也不再算已装。
 	if err := f.lib.Uninstall(ctx, alpha.ID, f.claude); err != nil {
@@ -208,5 +228,47 @@ func TestOnlyOneCopyIsAdoptedPerScope(t *testing.T) {
 	}
 	if scopes, err := f.lib.ListSkillScopes(ctx, library.SkillScopeFilter{SkillID: alpha.ID}); err != nil || len(scopes) != 0 {
 		t.Fatalf("skill scopes after uninstall = %#v, %v, want none left", scopes, err)
+	}
+}
+
+// 共用目录的另一个 Agent 名下装着这个技能时,这个作用域也算已装:多出来的那份不另记一处,卸载时只删库装的那个文件夹。
+func TestExtraCopyInASharedDirectoryIsNotRecordedAgain(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	f := newRecognizeFixture(t)
+	f.publish(t, "https://author.example", "alpha", "v1")
+	alpha := f.fetch(t, "https://author.example", "alpha")
+	directory := scopeDirectory(t, f.lib, f.claude)
+	agent, err := f.lib.AddAgent(ctx, library.CustomAgent{Name: "Shared", GlobalDirectory: directory, ProjectDirectory: ".shared/skills"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 装在排在 claude-code 后面的自定义 Agent 名下:列出时先轮到 Claude Code 的那一份。
+	shared := library.GlobalScope(agent.Code)
+	f.install(t, alpha, shared)
+	writeFile(t, filepath.Join(directory, "a-copy", "SKILL.md"), []byte(skillDocument("alpha", "v1")), 0o644)
+
+	for _, skill := range listUnmanagedSkills(t, f.lib) {
+		if skill.Name != "a-copy" || skill.SkillID != alpha.ID {
+			t.Fatalf("unmanaged = %#v, want only a-copy, taken as alpha", skill)
+		}
+	}
+	if result := fetchUnmanaged(t, f.lib, f.claude, "a-copy"); !result.Matched || result.Skill.ID != alpha.ID {
+		t.Fatalf("FetchUnmanaged(a-copy) = %#v, want alpha matched", result)
+	}
+	scopes, err := f.lib.ListSkillScopes(ctx, library.SkillScopeFilter{SkillID: alpha.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range scopes {
+		if scope.Folder != filepath.Join(directory, "alpha") {
+			t.Fatalf("skill scopes = %#v, want every one at the folder named alpha", scopes)
+		}
+	}
+	if err := f.lib.Uninstall(ctx, alpha.ID, shared); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, "a-copy")); err != nil {
+		t.Fatalf("a-copy after uninstall: %v, want it left alone", err)
 	}
 }

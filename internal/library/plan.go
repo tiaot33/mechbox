@@ -1,10 +1,12 @@
 package library
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -139,6 +141,10 @@ type plannedState struct {
 	versionID int64
 	latest    source.Skill
 	content   string
+}
+
+func (p *plannedState) reviewed(files []skillfile.File) bool {
+	return maps.Equal(skillfile.Digests(p.latest.Files), skillfile.Digests(files))
 }
 
 // PlanUpdate 对一个集合生成更新计划:读一次来源,集合里的技能都按来源的同一份内容判断,返回的句柄供 GetUpdatePlanFile
@@ -569,7 +575,7 @@ func updateRisks(from, to []skillfile.File) []UpdateRisk {
 			risks = append(risks, UpdateRisk{Kind: RiskExecutableAdded, Path: file.Path})
 		case !existed && isScript(file):
 			risks = append(risks, UpdateRisk{Kind: RiskScriptAdded, Path: file.Path})
-		case existed && (isScript(file) || isScript(old)) && !skillfile.Equal([]skillfile.File{old}, []skillfile.File{file}):
+		case existed && (isScript(file) || isScript(old)) && (old.Mode != file.Mode || !bytes.Equal(old.Content, file.Content)):
 			risks = append(risks, UpdateRisk{Kind: RiskScriptChanged, Path: file.Path})
 		}
 	}

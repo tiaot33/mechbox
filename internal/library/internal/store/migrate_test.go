@@ -153,8 +153,12 @@ func sequences(t *testing.T, db *sql.DB) map[string]int {
 	return got
 }
 
+// clearedByUpgrade 是升级有意清空的列:内容指纹改成不含可执行位(00033)后,旧算法算的指纹对不上新的,下次读成来源时重算。
+var clearedByUpgrade = map[string][]string{"skills": {"update_check_content"}}
+
 func requireDataKept(t *testing.T, before tableDump, beforeColumns map[string][]string, after *sql.DB) {
 	t.Helper()
+	before = withCleared(before, beforeColumns)
 	_, afterColumns := dumpTables(t, after)
 	for table, columns := range beforeColumns {
 		if afterColumns[table] == nil {
@@ -174,6 +178,27 @@ func requireDataKept(t *testing.T, before tableDump, beforeColumns map[string][]
 			t.Errorf("table %s after upgrade = %q; want %q", table, got, want)
 		}
 	}
+}
+
+func withCleared(dump tableDump, columns map[string][]string) tableDump {
+	result := tableDump{}
+	for table, rows := range dump {
+		result[table] = rows
+		for _, column := range clearedByUpgrade[table] {
+			index := slices.Index(columns[table], column)
+			if index < 0 {
+				continue
+			}
+			cleared := make([]string, len(result[table]))
+			for i, row := range result[table] {
+				values := strings.Split(row, "|")
+				values[index] = "''"
+				cleared[i] = strings.Join(values, "|")
+			}
+			result[table] = cleared
+		}
+	}
+	return result
 }
 
 func selectColumnsFromDump(t *testing.T, dump tableDump, columns map[string][]string, table string, kept []string) []string {

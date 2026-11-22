@@ -477,9 +477,11 @@ describe("照着装时装哪些", () => {
     it("未纳管技能按作用域页的口径数：归项目仓库管的单独算，指向 Agent 目录以外的不算，这里已有同名文件夹的不算", () => {
       const s = snapshot({
         ...base,
-        skillScopes: [installed(1, at(claude, 3), { folder: "/p/new/.claude/skills/taken" })],
+        skillScopes: [installed(1, at(claude, 3), { folder: "/p/new/.claude/skills/taken" }), installed(2, at(claude, 1))],
         unmanaged: [
           { scope: at(claude, 1), name: "mine" },
+          // 这里装着的技能 2 多出来的一份：照装时技能 2 本来就带得过去，不用先入库。
+          { scope: at(claude, 1), name: "extra", skill_id: 2 },
           { scope: at(codex, 1), name: "also-mine" },
           { scope: at(claude, 1), name: "team", in_repository: true },
           { scope: at(claude, 1), name: "locked", in_project_lock: true },

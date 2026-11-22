@@ -5,6 +5,7 @@ package agentdir
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -83,7 +84,7 @@ func TestDistroReadMatchesNative(t *testing.T) {
 	for _, folder := range []string{".claude/skills/shared", ".claude/skills/own", ".agents/skills/shared"} {
 		local := filepath.Join(home, folder)
 		want, got := readFolders(t, local), readFolders(t, unc(local))
-		if got[0].Err != nil || want[0].Err != nil || !skillfile.Equal(got[0].Files, want[0].Files) {
+		if got[0].Err != nil || want[0].Err != nil || !maps.Equal(skillfile.Digests(got[0].Files), skillfile.Digests(want[0].Files)) {
 			t.Errorf("ReadFolders(%s) = %v %v, want %v %v", folder, got[0].Files, got[0].Err, want[0].Files, want[0].Err)
 		}
 		if wantTime := want[0].Modified; !got[0].Modified.Equal(wantTime.Truncate(1e9)) && !got[0].Modified.Equal(wantTime) {
@@ -365,7 +366,7 @@ func TestDistroChange(t *testing.T) {
 	if err != nil || info.Mode().Perm()&0o111 == 0 {
 		t.Fatalf("executable not kept: %v %v", info, err)
 	}
-	if got, err := ReadFolder(ctx, unc(filepath.Join(skills, "new")), 10, 1<<20); err != nil || !skillfile.Equal(got.Files, files) {
+	if got, err := ReadFolder(ctx, unc(filepath.Join(skills, "new")), 10, 1<<20); err != nil || !maps.Equal(skillfile.Digests(got.Files), skillfile.Digests(files)) {
 		t.Fatalf("written files = %v %v", got, err)
 	}
 	if entries, _ := os.ReadDir(skills); len(entries) != 1 {
@@ -384,7 +385,7 @@ func TestDistroChange(t *testing.T) {
 	if err := change.Rollback(); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := ReadFolder(ctx, unc(filepath.Join(skills, "new")), 10, 1<<20); !skillfile.Equal(got.Files, files) {
+	if got, _ := ReadFolder(ctx, unc(filepath.Join(skills, "new")), 10, 1<<20); !maps.Equal(skillfile.Digests(got.Files), skillfile.Digests(files)) {
 		t.Fatalf("rollback did not restore: %v", got.Files)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".claude/skills/own/SKILL.md")); err != nil {

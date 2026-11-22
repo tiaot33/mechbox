@@ -119,8 +119,8 @@ func TestDiffSameVersionIsEmpty(t *testing.T) {
 	}
 }
 
-// 只改了可执行权限也产生新版本,差异把该文件列为改动,界面能看出这次为什么有新版本。
-func TestExecutableOnlyChangeShowsInDiff(t *testing.T) {
+// 判断技能有没有变不比可执行位:来源里只改了可执行权限,检查更新是没有新版本,更新也不产生新版本。
+func TestExecutableOnlyChangeIsNotANewVersion(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	source := filepath.Join(t.TempDir(), "script-skill")
@@ -135,21 +135,12 @@ func TestExecutableOnlyChangeShowsInDiff(t *testing.T) {
 	if err := os.Chmod(script, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if status, err := checkSkillUpdate(t, lib, ctx, fetched.ID); err != nil || status != library.UpdateCurrent {
+		t.Fatalf("CheckUpdates = %v, %v; want current", status, err)
+	}
 	updated, err := updateSkill(t, lib, ctx, fetched.ID)
-	if err != nil || !updated.Changed || updated.Skill.VersionID == fetched.VersionID {
-		t.Fatalf("Update = %#v, %v; want a new version", updated, err)
-	}
-	diff, err := lib.DiffVersions(ctx, fetched.VersionID, updated.Skill.VersionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := library.VersionDiff{Changed: []string{"run.sh"}, Added: []string{}, Deleted: []string{}}
-	if !reflect.DeepEqual(diff, want) {
-		t.Fatalf("DiffVersions() = %#v, want %#v", diff, want)
-	}
-	file, err := lib.GetVersionFile(ctx, updated.Skill.VersionID, "run.sh")
-	if err != nil || file.Mode != library.ModeExecutable {
-		t.Fatalf("GetVersionFile(run.sh) = %#v, %v; want executable", file, err)
+	if err != nil || updated.Changed || updated.Skill.VersionID != fetched.VersionID {
+		t.Fatalf("Update = %#v, %v; want no new version", updated, err)
 	}
 }
 

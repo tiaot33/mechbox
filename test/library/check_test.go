@@ -135,7 +135,8 @@ func TestCheckUpdatesIsReadOnlyAndUpdateIsLibraryOnly(t *testing.T) {
 	}
 }
 
-func TestLocalCheckUpdatesDetectsContentAndMode(t *testing.T) {
+// 只改了可执行位不算有新版本。
+func TestLocalCheckUpdatesDetectsContentButNotMode(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	lib := openTestLibrary(t)
@@ -156,7 +157,7 @@ func TestLocalCheckUpdatesDetectsContentAndMode(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			want := change != "unchanged"
+			want := change == "content"
 			status, err := checkSkillUpdate(t, lib, ctx, skill.ID)
 			if err != nil || (status == library.UpdateAvailable) != want {
 				t.Fatalf("CheckUpdates = %v, %v", status, err)
@@ -171,7 +172,7 @@ func TestLocalCheckUpdatesDetectsContentAndMode(t *testing.T) {
 		})
 	}
 	versions, err := lib.ListVersions(ctx, skill.ID)
-	if err != nil || len(versions) != 3 {
+	if err != nil || len(versions) != 2 {
 		t.Fatalf("versions = %v, %v", versions, err)
 	}
 	// 来源是技能文件夹的上一级目录。
@@ -291,7 +292,7 @@ func TestCheckUpdatesReadsEachCollectionOnceAndKeepsCollectionsIndependent(t *te
 	}
 }
 
-func TestCheckUpdatesSeparatesRefsAndDetectsOnlyExecutableChanges(t *testing.T) {
+func TestCheckUpdatesSeparatesRefs(t *testing.T) {
 	t.Parallel()
 	repository, _ := githubRemote(t)
 	runGit(t, repository, "tag", "fixed")
@@ -316,18 +317,16 @@ func TestCheckUpdatesSeparatesRefsAndDetectsOnlyExecutableChanges(t *testing.T) 
 	}
 	skills = append(skills, skill)
 	for _, root := range []string{repository, local} {
-		if err := os.Chmod(filepath.Join(root, "SKILL.md"), 0o755); err != nil {
-			t.Fatal(err)
-		}
+		writeFile(t, filepath.Join(root, "notes.md"), []byte("new notes"), 0o644)
 	}
-	commitGit(t, repository, "executable mode")
+	commitGit(t, repository, "add notes")
 	results, err := lib.CheckUpdates(t.Context(), []library.CollectionID{skills[0].CollectionID, skills[1].CollectionID, skills[2].CollectionID})
 	if err != nil || len(results) != 3 {
 		t.Fatalf("results = %#v, %v", results, err)
 	}
 	for i, want := range []library.UpdateCheckStatus{library.UpdateAvailable, library.UpdateCurrent, library.UpdateAvailable} {
 		if results[i].Error != nil || len(results[i].Skills) != 1 || results[i].Skills[0].LastUpdateCheck.Status != want {
-			t.Fatalf("ref and mode = %#v", results)
+			t.Fatalf("refs = %#v", results)
 		}
 	}
 	for _, skill := range skills {

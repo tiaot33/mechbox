@@ -550,3 +550,20 @@ func TestKeepDeletedSkillFoundByUpdatePlan(t *testing.T) {
 		t.Fatalf("KeepDeletedSkill after the plan = %#v, %v", kept, err)
 	}
 }
+
+// 更新只写用户在计划里看过的内容:计划之后来源只给某个文件加了可执行位,确认时返回 Conflict,不把没审阅过的可执行位写进库。
+func TestUpdateRefusesAnExecutableBitAddedAfterThePlan(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	lib := openTestLibrary(t)
+	skill, folder := fetchLocalSkill(t, lib, "tool", "v1")
+	helper := filepath.Join(folder, "helper.txt")
+	writeFile(t, helper, []byte("help\n"), 0o644)
+	request := mustPlanUpdate(t, lib, skill.ID)
+	if err := os.Chmod(helper, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.Update(ctx, request); !library.IsCode(err, library.Conflict) {
+		t.Fatalf("Update() = %v, want Conflict", err)
+	}
+}

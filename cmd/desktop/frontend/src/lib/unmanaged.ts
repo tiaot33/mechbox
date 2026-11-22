@@ -1,10 +1,10 @@
 // 未纳管技能：作用域的技能目录里不是库装的技能文件夹。能不能入库、归谁管，和库里某个技能一模一样的那一份怎么说。
 // 默认勾不勾(归项目仓库管的、指向 Agent 目录以外的默认不接)是默认勾选的规则，见 lib/consent。
-import { SkillFileProblemKind, type Skill, type SkillFileProblem, type SkillID, type UnmanagedSkill } from "@bindings/internal/library";
+import { SkillFileProblemKind, SkillScopeStatus, type Skill, type SkillFileProblem, type SkillID, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
 import { messages } from "./i18n";
+import { skillScopeIn } from "./installs";
 import type { Snapshot } from "./library";
 import { homePath } from "./paths";
-import { eachPlace } from "./places";
 import { scopeKey, type ScopeKey } from "./scope";
 
 // unmanagedIn 是作用域的技能目录里不是库装的技能文件夹(未纳管技能)。
@@ -80,17 +80,40 @@ export function identicalIn(s: Snapshot, key: ScopeKey, skillID: SkillID): Unman
   return unmanagedIn(s, key).find((u) => u.skill_id === skillID);
 }
 
-// identicalsOf 是各处这个技能的、不是库装的文件夹(见 identicalIn),逐处一条：项目里共用一个目录的几个 Agent 那里是同一个文件夹，只算一处。
+// extraCopy 是这个作用域已经装着它那个技能时，同一个作用域里另一份一样的文件夹：它也是那个技能，但一个技能在一个作用域只记一处安装，
+// 入库没什么可做(技能库不另记，整批入库的计划里也没有它),不给"入库",不算进要入库的个数。
+export function extraCopy(s: Snapshot, u: UnmanagedSkill): boolean {
+  return !!u.skill_id && !!skillScopeIn(s, u.skill_id, scopeKey(u.scope));
+}
+
+// extraCopyNote 是多出来的那一份(extraCopy)怎么说：here 是这里装着的那一处;它的文件夹不在了时(如用户给它改了名),
+// 不说"多一份",只说这一份和库里的一样。
+export function extraCopyNote(skill: Skill, here: SkillScopeInspection): { text: string; title: string } {
+  const t = messages().list;
+  return here.status === SkillScopeStatus.SkillScopeMissing
+    ? { text: t.extraCopyMissing, title: t.extraCopyMissingTitle(skill.name) }
+    : { text: t.extraCopy, title: t.extraCopyTitle(skill.name) };
+}
+
+// identicalsOf 是各处这个技能的、不是库装的文件夹(见 identicalIn),一个文件夹一条：共用一个目录的几个 Agent 那里是同一个文件夹，只算一处;
+// 同一处有几份一样的(多出来的几份)各算一条。
 export function identicalsOf(s: Snapshot, skillID: SkillID): UnmanagedSkill[] {
-  return eachPlace(s, s.unmanaged.filter((u) => u.skill_id === skillID));
+  const folders = new Set<string>();
+  return s.unmanaged.filter((u) => {
+    if (u.skill_id !== skillID || folders.has(u.folder)) return false;
+    folders.add(u.folder);
+    return true;
+  });
 }
 
 // identicalState 是这个技能那一份不是库装的文件夹(identicalIn)怎么说：不是 app 装的，接着写归谁管、指向哪里(folderNotes),
 // 符号链接时 title 里写出指向哪里(指向 Agent 目录以外的，folderNotes 已经写了，不再写一遍);stale 表示和库里的旧版本一样。作用域页的行和技能详情的安装表都用它。
-export function identicalState(skill: Skill, u: UnmanagedSkill, home?: string): { text: string; title: string; stale: boolean } {
+// here 是这个作用域里这个技能的安装(有就是多出来的一份，见 extraCopy):写明这里已经装着这个技能、不用入库(extraCopyNote)。
+export function identicalState(skill: Skill, u: UnmanagedSkill, home?: string, here?: SkillScopeInspection): { text: string; title: string; stale: boolean } {
   const t = messages().list;
   // 归谁管写在前面(在项目仓库里、链到哪里),一眼看得出这一份不是库装过来的。
-  const notes = [...folderNotes(u, home), { text: t.identicalHere, title: t.identicalHereTitle(skill.name) }];
+  const own = here ? extraCopyNote(skill, here) : { text: t.identicalHere, title: t.identicalHereTitle(skill.name) };
+  const notes = [...folderNotes(u, home), own];
   const titles = [...notes.map((x) => x.title), ...(u.link_target && !u.link_outside ? [t.linkTitle(u.link_target)] : [])];
   return { text: notes.map((x) => x.text).join(" · "), title: titles.join("\n"), stale: u.version_id !== skill.version_id };
 }

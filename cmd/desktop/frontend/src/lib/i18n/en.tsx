@@ -826,6 +826,11 @@ export const en = {
     identicalHere: "In the Library · this copy not installed by the app",
     identicalHereTitle: (name: string) => `It is already in the Library: the folder here is identical to “${name}”, only this copy was not installed by the app. Click “Fetch” to let the app manage it: it only records that it is installed here; the folder stays as it is. It works the same if you leave it`,
     takeOver: "Fetch",
+    extraCopy: "Extra copy",
+    extraCopyMissing: "Same as the Library",
+    extraCopyMissingTitle: (name: string) =>
+      `“${name}” is recorded as installed here, but its folder is gone; this folder is identical to it. A skill is recorded once per place, so there is nothing to fetch; the folder stays as it is`,
+    extraCopyTitle: (name: string) => `“${name}” from the Library is already installed here, and this folder is an identical extra copy. A skill is recorded once per place, so there is nothing to fetch; the folder stays as it is`,
     sameAsLibrary: (name: string) => `Same as “${name}” in the Library`,
     sourceLatestOf: (name: string) => `Newer version of “${name}”`,
     sourceLatestOfTitle: (name: string, adopted: boolean) =>

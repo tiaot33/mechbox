@@ -6,7 +6,7 @@ import { agentName, parseScope, placeOf, projectName, type ScopeKey } from "@/li
 import { agentNameIn, scopeLabel } from "@/lib/places";
 import { groupStateIn, editedHere, needsRepair, reinstallLevel, skillScopeIn, skillScopesIn } from "@/lib/installs";
 import { shortPath, wslTitle } from "@/lib/paths";
-import { splitIdentical, unmanagedIn, fetchable } from "@/lib/unmanaged";
+import { extraCopy, splitIdentical, unmanagedIn, fetchable } from "@/lib/unmanaged";
 import type { Level } from "@/lib/level";
 import { cn } from "@/lib/utils";
 import { offerFetchProject } from "@/features/fetch/fetch-unmanaged-all";
@@ -43,7 +43,8 @@ export function ScopeSummary({ scope, directory, here, global }: { scope: ScopeK
   // 和库里某个技能一样的文件夹就是那个技能，不算"不在技能库里",单独数。
   const split = splitIdentical(unmanagedIn(s, scope));
   const unmanaged = split.unmanaged.length;
-  const identical = split.identical.length;
+  // 装在这里的技能多出来的一份(extraCopy)已经算在已安装里，不再数一遍。
+  const identical = split.identical.filter((u) => !extraCopy(s, u)).length;
   const sc = parseScope(scope);
   const groups = s.groups;
   const others = s.skillScopes.some((p) => p.scope.agent !== sc.agent) || s.groupInstalls.some((g) => g.scope.agent !== sc.agent);
@@ -133,8 +134,9 @@ export function ProjectSummary({ project, total, unmanaged }: { project: Registe
   const others = s.skillScopes.some((p) => !!p.scope.project_id && p.scope.project_id !== project.id);
   const name = projectName(s, project.id);
   // 不是库装的文件夹都算(和库里某个技能一样的也算：入库只记下装在这里;SKILL.md 写错了的不算):有就在顶部放一次入库的入口。
-  const notOurs = new Set(s.unmanaged.filter((u) => placeOf(u.scope) === project.id && fetchable(u)).map((u) => u.folder));
-  const identical = new Set(s.unmanaged.filter((u) => placeOf(u.scope) === project.id && !!u.skill_id).map((u) => u.folder)).size;
+  // 已经装着那个技能的地方多出来的一份(extraCopy)没什么可入库的，也已经算在已安装里，都不算。
+  const notOurs = new Set(s.unmanaged.filter((u) => placeOf(u.scope) === project.id && fetchable(u) && !extraCopy(s, u)).map((u) => u.folder));
+  const identical = new Set(s.unmanaged.filter((u) => placeOf(u.scope) === project.id && !!u.skill_id && !extraCopy(s, u)).map((u) => u.folder)).size;
   return (
     <div className={cn(barClass, nameIndent, "pr-3")}>
       <div className="flex min-w-0 items-center gap-1.5">

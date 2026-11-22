@@ -52,18 +52,18 @@ type UnmanagedSkill struct {
 	// InProjectLock 表示项目根目录的 skills-lock.json 记了这个技能(认不认得出来源都算):技能是团队约定装的,文件夹本身不一定提交了,
 	// 和 InRepository 一样归项目仓库管。只出现在项目作用域。
 	InProjectLock bool `json:"in_project_lock,omitzero"`
-	// SkillID 不为 0 时,文件夹的内容(文件路径、内容与可执行位都相同,Windows 本机的目录只比路径与内容)和库里这个技能的某个版本完全一致,VersionID 是那个版本:
-	// 和当前版本一致的优先,其次是最新的旧版本。这样的文件夹列出时(ListUnmanagedSkills、PlanFetchUnmanaged)自动记为这个技能装在这里,
-	// 不再出现在结果里;留下的只有不自动纳入的几种:提交在项目仓库里的(InRepository)、记在 skills-lock.json 里的(InProjectLock)、
-	// 指向 Agent 目录以外的符号链接(LinkOutside)。它们就是库里的这个技能,只是这一处不是库装的,界面把它显示在这个技能下;
-	// 入库(FetchUnmanaged、FetchUnmanagedSkills)只给这个技能补记这一处安装,不论带不带来源、带的是哪个来源。
-	// 已经装在这个作用域的技能不算:一个技能在一个作用域只记一处安装。
+	// SkillID 不为 0 时,文件夹的内容(文件路径与内容都相同,不比可执行位;符号链接按它指向的文件夹)和库里这个技能的某个版本一致,
+	// VersionID 是那个版本:和当前版本一致的优先,其次是最新的旧版本;库里几个技能都有这样一版时取同一个,不看这个作用域装没装过哪个。
+	// 这样的文件夹列出时(ListUnmanagedSkills、PlanFetchUnmanaged)自动记为这个技能装在这里,不再出现在结果里;留下的有不自动纳入的几种:
+	// 提交在项目仓库里的(InRepository)、记在 skills-lock.json 里的(InProjectLock)、指向 Agent 目录以外的符号链接(LinkOutside),
+	// 入库(FetchUnmanaged、FetchUnmanagedSkills)只给这个技能补记这一处安装,不论带不带来源、带的是哪个来源;
+	// 还有这个作用域已经装着这个技能时,同一个作用域里另一份一样的文件夹:一个技能在一个作用域只记一处安装,入库不另记,整批入库的计划里没有它。
+	// 它们就是库里的这个技能,只是这一处不是库装的,界面把它显示在这个技能下。
 	SkillID   SkillID   `json:"skill_id,omitzero"`
 	VersionID VersionID `json:"version_id,omitzero"`
 	// SourceLatestOf 不为 0 时,文件夹的内容和库里这个技能在来源里现在的那一版完全一致(最近一次检查更新看到的、比库里新的那一版):
 	// 是这个技能的新版,在库外更新过。按来源入库会因集合里已有同名技能返回 AlreadyExists;界面引导用更新(PlanUpdate、Update)
 	// 把库里的技能换成这一版,之后这一处和库里的当前版本一致,SkillID 就是它。SkillID 不为 0 时为 0。
-	// Windows 本机的目录里,来源的新版加了可执行文件或改了可执行位时认不出(见包说明「实现」一节)。
 	SourceLatestOf SkillID `json:"source_latest_of,omitzero"`
 	// SameFolder 是别的作用域里和这一处解析符号链接后是同一个文件夹的未纳管技能(如 npx skills 的布局:Claude Code 的目录里是链接,
 	// 真实文件夹在 Codex 的目录里),按 Agent、作用域排序;入库这一处时(FetchUnmanaged、FetchUnmanagedSkills)一并记为装在那里,
@@ -117,24 +117,16 @@ func skillFileProblem(err error) *SkillFileProblem {
 // 认出是库里的技能的,除 UnmanagedSkill.SkillID 列出的几种外,先自动纳入:记为这个技能直接装在这个作用域(和 FetchUnmanaged 补记的一样),
 // 结果里不再有它,之后巡检、更新、重新安装、回滚、卸载与移除技能都包括这一处。一个作用域里有几个文件夹和同一个技能一致时只记一处:
 // 文件夹名和 SKILL.md 里的 name 相同的优先,其次按文件夹名取第一个;几个 Agent 共用目录时只记一处,共用的 Agent 本来就算已装。
+// SKILL.md 超过列出时的读取上限(1 MiB)的只认出、不自动纳入:列出时读不到它的 name,查不了它是不是记在 skills-lock.json 里。
 // 存着 WSL 发行版([Library.WSLDistro])、全局目录却还在 Windows 本机时(启动时发行版打不开,或还没调用 [Library.SetWSLDistro] 换过去)
 // 只列出、不自动纳入:全局安装不分主目录,这时记下的安装换到发行版后都会是缺失。换过去之后照常纳入。
 func (l *Library) ListUnmanagedSkills(ctx context.Context) (skills []UnmanagedSkill, err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	found, err := l.recognizedUnmanaged(ctx, nil)
+	found, err := l.adoptedUnmanaged(ctx, nil)
 	if err != nil {
 		return nil, err
-	}
-	adopted, err := l.adoptMatching(ctx, found)
-	if err != nil {
-		return nil, err
-	}
-	if adopted {
-		if found, err = l.recognizedUnmanaged(ctx, nil); err != nil {
-			return nil, err
-		}
 	}
 	skills = []UnmanagedSkill{}
 	for _, entry := range found {
@@ -156,6 +148,18 @@ func (l *Library) recognizedUnmanaged(ctx context.Context, only map[Scope]bool) 
 	return entries, l.recognizeUnmanaged(ctx, entries)
 }
 
+func (l *Library) adoptedUnmanaged(ctx context.Context, only map[Scope]bool) ([]unmanagedEntry, error) {
+	found, err := l.recognizedUnmanaged(ctx, only)
+	if err != nil {
+		return nil, err
+	}
+	adopted, err := l.adoptMatching(ctx, found)
+	if err != nil || !adopted {
+		return found, err
+	}
+	return l.recognizedUnmanaged(ctx, only)
+}
+
 func (l *Library) adoptMatching(ctx context.Context, entries []unmanagedEntry) (bool, error) {
 	chosenDistro, err := l.store.WSLDistro(ctx)
 	if err != nil || chosenDistro != l.distro {
@@ -163,7 +167,7 @@ func (l *Library) adoptMatching(ctx context.Context, entries []unmanagedEntry) (
 	}
 	var chosen []unmanagedEntry
 	for _, entry := range entries {
-		if entry.SkillID == 0 || entry.InRepository || entry.InProjectLock || entry.LinkOutside {
+		if entry.SkillID == 0 || entry.InRepository || entry.InProjectLock || entry.LinkOutside || entry.found.SkillMD == nil {
 			continue
 		}
 		other := slices.IndexFunc(chosen, func(c unmanagedEntry) bool {
@@ -179,16 +183,19 @@ func (l *Library) adoptMatching(ctx context.Context, entries []unmanagedEntry) (
 	if len(chosen) == 0 {
 		return false, nil
 	}
+	adopted := false
 	err = l.store.InTx(ctx, func(tx *store.Tx) error {
 		now := clockNow()
 		for _, entry := range chosen {
-			if err := tx.RecordFetchedSkillScope(ctx, int64(entry.SkillID), entry.found.target.Scope, entry.Name, now); err != nil {
+			recorded, err := tx.RecordFetchedSkillScope(ctx, int64(entry.SkillID), entry.found.target.Scope, entry.Name, now)
+			if err != nil {
 				return err
 			}
+			adopted = adopted || recorded
 		}
 		return nil
 	})
-	return err == nil, err
+	return adopted, err
 }
 
 func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]unmanagedEntry, error) {
@@ -320,7 +327,7 @@ func (l *Library) recognizeUnmanaged(ctx context.Context, entries []unmanagedEnt
 		if !validFolderName(entry.Name) {
 			continue
 		}
-		if !manifests[skillfile.Fingerprint(entry.found.SkillMD)] && !names[skillName(entry.found.Folder)] {
+		if entry.found.SkillMD != nil && !manifests[skillfile.Fingerprint(entry.found.SkillMD)] && !names[skillName(entry.found.Folder)] {
 			continue
 		}
 		paths = append(paths, entry.Folder)
@@ -331,7 +338,7 @@ func (l *Library) recognizeUnmanaged(ctx context.Context, entries []unmanagedEnt
 			return nil
 		}
 		entry := &entries[indexes[index]]
-		found, err := recognize(ctx, l.store, diskOf(state), []store.Scope{entry.found.target.Scope}, latests)
+		found, err := recognize(ctx, l.store, diskOf(state), latests)
 		if err != nil {
 			return err
 		}
@@ -786,7 +793,7 @@ func (l *Library) sourcelessFolders(ctx context.Context, requested []FolderInSco
 	if len(wanted) == 0 {
 		return nil, nil
 	}
-	entries, err := l.unmanagedSkills(ctx, wanted)
+	entries, err := l.recognizedUnmanaged(ctx, wanted)
 	if err != nil {
 		return nil, err
 	}
@@ -795,33 +802,19 @@ func (l *Library) sourcelessFolders(ctx context.Context, requested []FolderInSco
 		listed[FolderInScope{Scope: entry.Scope, Name: entry.Name}] = entry
 	}
 	var found []FolderInScope
-	var targets []resolvedScope
 	var paths []string
 	for _, folder := range requested {
 		entry, ok := listed[folder]
-		if !ok || entry.SourceInput != "" {
+		if !ok || entry.SourceInput != "" || entry.SkillID != 0 || entry.SourceLatestOf != 0 {
 			continue
 		}
 		delete(listed, folder)
 		found = append(found, folder)
-		targets = append(targets, entry.found.target)
 		paths = append(paths, entry.Folder)
-	}
-	latests, err := l.store.SourceLatests(ctx)
-	if err != nil {
-		return nil, err
 	}
 	read := make([]*sourcelessFolder, len(found))
 	err = agentdir.ReadFolders(ctx, paths, maxFetchFiles, maxFetchSize, func(i int, state agentdir.FolderState) error {
-		disk, parsed, err := parseSkillFolder(operation, state.Path, found[i].Name, state)
-		if err != nil {
-			return nil
-		}
-		recognized, err := recognize(ctx, l.store, disk, []store.Scope{targets[i].Scope}, latests)
-		if err != nil {
-			return err
-		}
-		if recognized == (recognition{}) {
+		if disk, parsed, err := parseSkillFolder(operation, state.Path, found[i].Name, state); err == nil {
 			read[i] = &sourcelessFolder{FolderInScope: found[i], name: parsed.Name, files: disk.files}
 		}
 		return nil

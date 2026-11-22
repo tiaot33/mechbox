@@ -164,9 +164,9 @@ func TestSourceLatestWithoutFileModesIsRecognized(t *testing.T) {
 	}
 }
 
-// Windows 本机的一份读不出可执行位,只按内容认作库里的技能;WSL 里同样内容、可执行位和库里不同的一份不是那个技能。
-// 整批入库的计划不能借着前一份把后一份也认作「库里的技能」一并纳入,也不能因此多出一个技能。
-func TestPlanFetchUnmanagedKeepsWSLCopyWithOtherModesApart(t *testing.T) {
+// 认是不是库里的技能不比可执行位:Windows 本机读不出可执行位的一份、WSL 里可执行位和库里不同的一份,内容一样就都是那个技能,
+// 整批入库的计划前都自动纳入,不多出一个技能。
+func TestPlanFetchUnmanagedAdoptsCopiesWhateverTheirModes(t *testing.T) {
 	setTestHome(t, t.TempDir())
 	platformtest.EmulateWSL(t, "sh")
 	lib := openTestLibrary(t)
@@ -188,15 +188,15 @@ func TestPlanFetchUnmanagedKeepsWSLCopyWithOtherModesApart(t *testing.T) {
 	inProject := library.ProjectScope(library.AgentClaudeCode, project.ID)
 	withoutFileModes(t)
 
-	// Windows 本机那份在计划前自动记为装在 Codex 全局;WSL 里那份不是 alpha,单独一条,不借前一份并进来。
 	plan, err := lib.PlanFetchUnmanaged(ctx, library.PlanFetchUnmanagedRequest{Scopes: []library.Scope{codex, inProject}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan) != 1 || len(plan[0].Folders) != 1 || plan[0].Folders[0].Scope != inProject || plan[0].SkillID != 0 {
-		t.Fatalf("plan = %#v; want only the WSL copy with other modes, not taken as skill %d", plan, skill.ID)
+	if len(plan) != 0 {
+		t.Fatalf("plan = %#v; want both copies adopted as skill %d", plan, skill.ID)
 	}
 	requireScopeStatus(t, lib, skill.ID, codex, library.SkillScopeCurrent)
+	requireScopeStatus(t, lib, skill.ID, inProject, library.SkillScopeCurrent)
 	if skills, err := lib.ListSkills(ctx); err != nil || len(skills) != 1 {
 		t.Fatalf("skills = %#v, %v; want no new skill", skills, err)
 	}
