@@ -233,6 +233,7 @@ func (l *Library) ApplyDetectedAgents(ctx context.Context) (agents []Agent, err 
 
 // AddAgent 手填添加一个 Agent,生成它的代码;它直接是已添加的,和其他已添加的 Agent 一样组成全局与各已登记项目的作用域,可以安装。
 // 目录与已添加的 Agent 有相同的时,那里已经装着的技能这个 Agent 立刻也算已装。填写的内容不合法返回 InvalidArgument(规则见 AgentInput)。
+// 先检测(Detected)再写进数据库:检测失败时什么都不添加,用户重试不会加出两个。
 func (l *Library) AddAgent(ctx context.Context, agent AgentInput) (added Agent, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -243,10 +244,14 @@ func (l *Library) AddAgent(ctx context.Context, agent AgentInput) (added Agent, 
 	}
 	row.Code = customAgentPrefix + hex.EncodeToString(randomBytes(6))
 	row.Enabled = true
+	added, err = l.agentOf(ctx, row)
+	if err != nil {
+		return Agent{}, err
+	}
 	if err := l.store.AddAgent(ctx, row); err != nil {
 		return Agent{}, err
 	}
-	return l.agentOf(ctx, row)
+	return added, nil
 }
 
 // EditAgent 修改一个已添加的 Agent 的名称、技能目录和检测目录,代码不变;填写规则同 AgentInput。未知代码或候选池里的 Agent
