@@ -660,33 +660,8 @@ type FetchedUnmanagedSkill struct {
 func (l *Library) FetchUnmanagedSkills(ctx context.Context, req FetchUnmanagedSkillsRequest) (results []FetchedUnmanagedSkill, err error) {
 	defer func() { err = typedError(err) }()
 	const operation = "fetch unmanaged skills"
-	seen := map[FolderInScope]bool{}
-	for _, item := range req.Skills {
-		if len(item.Folders) == 0 {
-			return nil, argumentError(operation, "folders", "each skill needs at least one folder")
-		}
-		scopes := map[Scope]bool{}
-		for _, folder := range item.Folders {
-			if !validFolderName(folder.Name) {
-				return nil, argumentError(operation, "name", "invalid skill folder name")
-			}
-			key := folder
-			if target, err := l.resolveScope(ctx, operation, folder.Scope); err == nil {
-				if target, err = l.scopeIn(operation, target, folder.Directory); err == nil {
-					key.Directory = target.relative
-				}
-			}
-			if seen[key] {
-				return nil, argumentError(operation, "folders", "a folder is given more than once")
-			}
-			if scopes[folder.Scope] {
-				return nil, argumentError(operation, "folders", "a skill is installed once per scope")
-			}
-			seen[key], scopes[folder.Scope] = true, true
-		}
-		if strings.TrimSpace(item.SourceInput) == "" && item.SourceRef != "" {
-			return nil, argumentError(operation, "source_ref", "a ref needs a source input")
-		}
+	if err := l.validateFetchUnmanaged(ctx, operation, req); err != nil {
+		return nil, err
 	}
 	results = make([]FetchedUnmanagedSkill, len(req.Skills))
 	names := make([]string, len(req.Skills))
@@ -752,6 +727,40 @@ func (l *Library) FetchUnmanagedSkills(ctx context.Context, req FetchUnmanagedSk
 type versionReader interface {
 	VersionsWithFile(ctx context.Context, path, fingerprint string) ([]store.VersionMatch, error)
 	VersionDigests(ctx context.Context, versionID int64) (map[string]skillfile.Digest, error)
+}
+
+func (l *Library) validateFetchUnmanaged(ctx context.Context, operation string, req FetchUnmanagedSkillsRequest) error {
+	ctx, unlock := l.sharedOperation(ctx)
+	defer unlock()
+	seen := map[FolderInScope]bool{}
+	for _, item := range req.Skills {
+		if len(item.Folders) == 0 {
+			return argumentError(operation, "folders", "each skill needs at least one folder")
+		}
+		scopes := map[Scope]bool{}
+		for _, folder := range item.Folders {
+			if !validFolderName(folder.Name) {
+				return argumentError(operation, "name", "invalid skill folder name")
+			}
+			key := folder
+			if target, err := l.resolveScope(ctx, operation, folder.Scope); err == nil {
+				if target, err = l.scopeIn(operation, target, folder.Directory); err == nil {
+					key.Directory = target.relative
+				}
+			}
+			if seen[key] {
+				return argumentError(operation, "folders", "a folder is given more than once")
+			}
+			if scopes[folder.Scope] {
+				return argumentError(operation, "folders", "a skill is installed once per scope")
+			}
+			seen[key], scopes[folder.Scope] = true, true
+		}
+		if strings.TrimSpace(item.SourceInput) == "" && item.SourceRef != "" {
+			return argumentError(operation, "source_ref", "a ref needs a source input")
+		}
+	}
+	return nil
 }
 
 func recordFetchedFolders(ctx context.Context, tx *store.Tx, id int64, folders []unmanagedFolder, now time.Time) error {
