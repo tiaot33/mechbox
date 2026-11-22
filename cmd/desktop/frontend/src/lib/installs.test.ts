@@ -149,6 +149,25 @@ describe("装不上时占着文件夹的同名技能", () => {
   });
 });
 
+describe("installedSummary 的装在哪", () => {
+  // Cline、Codex 全局都只读 ~/.agents/skills,合成一处;Cursor 被关掉显示，只因共用目录被动算出已装。
+  const agents = [
+    { code: "cline", name: "Cline", global_directories: ["/home/.agents/skills"], project_directories: [".agents/skills"] },
+    { code: AgentCode.AgentCodex, name: "Codex", global_directories: ["/home/.agents/skills"], project_directories: [".agents/skills"] },
+    { code: "cursor", name: "Cursor", global_directories: ["/home/.agents/skills", "/home/.cursor/skills"], project_directories: [".agents/skills"] },
+  ] as Agent[];
+  const at = (agent: string, extra: Partial<SkillScopeInspection> = {}) =>
+    ({ skill_id: 1, scope: where(agent), folder: "/home/.agents/skills/x", direct: true, status: SkillScopeStatus.SkillScopeCurrent, ...extra }) as SkillScopeInspection;
+  it("合成一处的几个 Agent 只写一次，被关掉显示、只是被动算出已装的不写", () => {
+    const s = snapshot({
+      agents,
+      agentsShown: { cursor: false },
+      skillScopes: [at("cline"), at(AgentCode.AgentCodex), at("cursor", { shared_only: true })],
+    } as Partial<Snapshot>);
+    expect(installedSummary(s, 1).text).toBe("Cline、Codex 全局");
+  });
+});
+
 describe("groupStateIn", () => {
   // Codex、Amp 在项目里都只读 .agents/skills,合成一处;Amp 的代码排序更靠前，添加后成了代表。
   const agents = [

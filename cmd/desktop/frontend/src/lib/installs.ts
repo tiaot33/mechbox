@@ -1,11 +1,11 @@
 // 安装状态：技能装在哪几处、每一处和库里的当前版本一不一样、要不要重新安装，都从快照里的巡检结果派生。
 // 逐处列出、数几处、写名字时目录列表相同、合成一处的几个 Agent 算一处，见 lib/places。
-import { ErrorCode, SkillScopeStatus, type Group, type Scope, type SkillID, type SkillScopeInspection } from "@bindings/internal/library";
+import { ErrorCode, SkillScopeStatus, type Agent, type Group, type Scope, type SkillID, type SkillScopeInspection } from "@bindings/internal/library";
 import { messages } from "./i18n";
 import { worstLevel, type Level, type Mark, type Tone } from "./level";
 import type { Snapshot } from "./library";
 import { shortPath } from "./paths";
-import { eachPlace, mergedAgents, placeNames, scopeLabel } from "./places";
+import { agentShown, eachPlace, mergedAgents, placeAgentNames, placeNames, scopeLabel } from "./places";
 import { parseScope, placeOf, projectName, scopeKey, type ScopeKey } from "./scope";
 
 // ---------- 装在哪 ----------
@@ -67,11 +67,13 @@ export function installedWhere(s: Snapshot, skillID: number): InstalledWhere {
 // 项目只有一个时写项目名，多个时写个数。没装在任何地方时 text 为空。title 逐处列出;bad 表示有地方真要重新安装(needsRepair)。
 export function installedSummary(s: Snapshot, skillID: SkillID): { text: string; title: string; bad: boolean } {
   const m = messages().model;
-  const places = skillScopesOf(s, skillID);
-  const globals = s.agents.filter((a) => places.some((p) => !placeOf(p.scope) && p.scope.agent === a.code));
+  // 只因共用目录被动算出已装、又被关掉显示的 Agent 不写;合成一处的几个 Agent 写一次(名字按 placeNames 的规则)。
+  const places = skillScopesOf(s, skillID).filter((p) => !p.shared_only || agentShown(s.agentsShown, s.agents.find((a) => a.code === p.scope.agent) ?? ({ code: p.scope.agent } as Agent)));
+  const order = (p: SkillScopeInspection) => s.agents.findIndex((a) => a.code === p.scope.agent);
+  const globals = eachPlace(s, places.filter((p) => !placeOf(p.scope)).sort((a, b) => order(a) - order(b))).map((p) => placeAgentNames(s, p));
   const projects = [...new Set(places.map((p) => placeOf(p.scope)).filter(Boolean))];
   const text = [
-    !globals.length ? "" : m.agentsGlobal(globals.map((a) => a.name)),
+    !globals.length ? "" : m.agentsGlobal(globals),
     !projects.length ? "" : projects.length === 1 ? projectName(s, projects[0]) : m.projectCount(projects.length),
   ]
     .filter(Boolean)

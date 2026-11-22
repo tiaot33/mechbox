@@ -153,9 +153,14 @@ function placeAgents(s: AgentList, p: Placed): Agent[] {
 
 // placeLabel 是一条安装所在那一处的名字(见 scopeLabel):合成的几个 Agent 各自装在不同目录时，写读这个文件夹的那几个。
 export function placeLabel(s: AgentList & Pick<Snapshot, "projects">, p: Placed): string {
+  return `${placeAgentNames(s, p)} · ${where(s, p.scope)}`;
+}
+
+// placeAgentNames 是一条安装所在那一处的 Agent 名字(placeLabel 去掉「· 全局」「· 项目名」的部分)。
+export function placeAgentNames(s: AgentList, p: Placed): string {
   const named = placeAgents(s, p);
-  if (!named.length) return scopeLabel(s, p.scope);
-  return `${messages().model.agentNames(named.map((a) => a.name))} · ${where(s, p.scope)}`;
+  if (!named.length) return agentNameIn(s, p.scope.agent, placeOf(p.scope));
+  return messages().model.agentNames(named.map((a) => a.name));
 }
 
 // eachPlace 是这几条逐处列出时的每一处：一个技能在合成的一处里、同一个文件夹只算一处(留第一条),保持原来的先后。
