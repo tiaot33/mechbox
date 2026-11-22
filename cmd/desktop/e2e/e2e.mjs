@@ -3855,6 +3855,8 @@ await step("组安装遇到外来文件夹：选择跳过，结果列出被跳�
   await btn(modal(), "安装").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "组安装「前端调试」" }).waitFor();
   assert((await modal().locator('[data-slot="list-row"]', { hasText: "delta" }).locator('[data-slot="badge"]', { hasText: "已跳过" }).count()) === 1, "delta 应被跳过");
+  const reason = await modal().locator('[data-slot="list-row"]', { hasText: "delta" }).textContent();
+  assert(reason.includes("已存在，但不是从技能库装的") && reason.includes("~/") && !reason.includes("target already exists"), `跳过原因应是中文说明、路径缩写成 ~:${reason}`);
   await btn(modal(), "知道了").click();
   assert(fs.existsSync(path.join(dir, "delta", "x.txt")), "外来文件夹应保持原样");
   await page.locator(".gchip", { hasText: "前端调试" }).click(); // 卸载组安装，恢复
