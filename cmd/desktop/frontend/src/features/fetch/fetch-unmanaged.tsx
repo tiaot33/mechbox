@@ -10,7 +10,7 @@ import { outsideLinkNote } from "@/lib/unmanaged";
 import { sameNameFetchNote, sameNameInLibrary, twinNote } from "@/lib/same-name";
 import { scopeKey } from "@/lib/scope";
 import { placeNames, scopeLabel } from "@/lib/places";
-import { sourceLabel } from "@/lib/source";
+import { sourceLabel, sourceWithRef } from "@/lib/source";
 import { shortPath } from "@/lib/paths";
 import { Modal, ui, useUI } from "@/lib/ui";
 import { flashSkill } from "@/lib/view";
@@ -138,7 +138,7 @@ function FetchUnmanagedDialog({
             />
           </Field>
           <Hint className="unmanaged-source-note">
-            {input ? t.actions.sourceNote(input === found, `${input}${ref ? ` · ${ref}` : ""}`) : t.actions.noSourceNote}
+            {input ? t.actions.sourceNote(input === found, sourceWithRef(input, ref)) : t.actions.noSourceNote}
           </Hint>
         </>
       )}

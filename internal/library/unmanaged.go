@@ -45,7 +45,8 @@ type UnmanagedSkill struct {
 	// 全局作用域读 ~/.agents/.skill-lock.json(不跟随 XDG_STATE_HOME,只认 version 3 及以上),
 	// 项目作用域读项目根目录的 skills-lock.json;记录按技能名对上文件夹:先比 SKILL.md 里的 name,再比文件夹名。
 	// 记录里的来源类型为 github、gitlab、git、well-known、download 与 local(项目里记录的相对路径按项目根解析)时认得出,其他的认不出。
-	// SkillID 不为 0 时为空:它就是库里的那个技能,跟着那个技能的来源,来源记录让位于它。
+	// SkillID 不为 0 时,那个技能有来源则为空:它就是库里的那个技能,跟着那个技能的来源,来源记录让位于它;
+	// 那个技能没有来源时照样给出,入库不读它(只补记安装),界面据此提示可以把这个来源接到那个技能上(AttachSource)。
 	SourceInput string `json:"source_input,omitempty"`
 	// SourceRef 是来源记录里记的分支或 tag,只对 Git 类来源(github、gitlab、git)有;预填给 FetchUnmanagedRequest.SourceRef。
 	SourceRef string `json:"source_ref,omitempty"`
@@ -321,6 +322,10 @@ func (l *Library) recognizeUnmanaged(ctx context.Context, entries []unmanagedEnt
 	if err != nil {
 		return err
 	}
+	sourceless, err := l.store.SourcelessSkills(ctx)
+	if err != nil {
+		return err
+	}
 	var paths []string
 	var indexes []int
 	for i, entry := range entries {
@@ -342,14 +347,14 @@ func (l *Library) recognizeUnmanaged(ctx context.Context, entries []unmanagedEnt
 		if err != nil {
 			return err
 		}
-		entry.recognized(found)
+		entry.recognized(found, sourceless)
 		return nil
 	})
 }
 
-func (u *UnmanagedSkill) recognized(found recognition) {
+func (u *UnmanagedSkill) recognized(found recognition, sourceless map[int64]string) {
 	u.SkillID, u.VersionID, u.SourceLatestOf = found.skillID, found.versionID, found.sourceLatestOf
-	if found.skillID != 0 {
+	if _, ok := sourceless[int64(found.skillID)]; found.skillID != 0 && !ok {
 		u.SourceInput, u.SourceRef = "", ""
 	}
 }

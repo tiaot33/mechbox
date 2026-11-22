@@ -147,6 +147,10 @@
 //     不记哪些作用域看过,每次都是现查。
 //   - [Library.FetchUnmanagedSkills] 按确认的勾选整批入库,每个技能的规则和 FetchUnmanaged 相同;同一个来源只读一次,
 //     一个技能失败不影响其余的,结果逐条返回。
+//   - 给没有来源的技能接上来源(attach_source.go):它装着的那几处([SkillScopeInspection].SourceInput)、显示在它下面的未纳管技能
+//     ([UnmanagedSkill].SourceInput)在来源记录里记着来源时,[Library.AttachSource] 把这个来源接上:技能进这个来源的集合,
+//     之后照常检查更新、更新、回滚,版本历史、各处安装与组都不变,不改磁盘。当前版本和来源里的一样就是来源里的那一版;
+//     不一样时,能用来源记录的哈希确认是原样的是作者的旧版,用目录里的修改更新进来的照旧算修改,其余标为 [SkillVersion].MaybeEdited。
 //   - [Library.ListSameNameSkills] 列出同一个 Agent 的全局和某个已登记项目里同名的技能,不论是不是库装的,两处都要标出来;
 //     后果按 [Agent].SameName:Claude Code 里全局的那个生效,Codex 里两份都会出现,没有已知规则的 Agent 只标出同名。
 //

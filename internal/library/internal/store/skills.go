@@ -358,6 +358,54 @@ func (t *Tx) CurrentVersionID(ctx context.Context, skillID int64) (int64, error)
 	return current.Int64, nil
 }
 
+func (q queries) SourcelessSkills(ctx context.Context) (map[int64]string, error) {
+	rows, err := q.q.QueryContext(ctx, `SELECT id, name FROM skills WHERE source_id IS NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("list sourceless skills: %w", wrap(err))
+	}
+	defer rows.Close()
+	names := map[int64]string{}
+	for rows.Next() {
+		var id int64
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, fmt.Errorf("list sourceless skills: %w", wrap(err))
+		}
+		names[id] = name
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list sourceless skills: %w", wrap(err))
+	}
+	return names, nil
+}
+
+func (t *Tx) AttachSource(ctx context.Context, skillID, sourceID int64) error {
+	if _, err := t.q.ExecContext(ctx, `UPDATE skills SET source_id = ? WHERE id = ?`, sourceID, skillID); err != nil {
+		return fmt.Errorf("attach source: %w", wrap(err))
+	}
+	return nil
+}
+
+func (t *Tx) MarkSourceVersion(ctx context.Context, skillID int64, state, revision string) error {
+	if _, err := t.q.ExecContext(ctx, `
+		UPDATE skill_versions SET source_state = ?, revision = ?, maybe_edited = 0, base_version_id = NULL
+		WHERE id = (SELECT current_version_id FROM skills WHERE id = ?)
+	`, state, revision, skillID); err != nil {
+		return fmt.Errorf("mark current version: %w", wrap(err))
+	}
+	return nil
+}
+
+func (t *Tx) MarkMaybeEdited(ctx context.Context, skillID int64) error {
+	if _, err := t.q.ExecContext(ctx, `
+		UPDATE skill_versions SET maybe_edited = 1
+		WHERE id = (SELECT current_version_id FROM skills WHERE id = ?)
+	`, skillID); err != nil {
+		return fmt.Errorf("mark current version: %w", wrap(err))
+	}
+	return nil
+}
+
 func (t *Tx) ConfirmVersion(ctx context.Context, skillID int64, state, revision string) error {
 	if _, err := t.q.ExecContext(ctx, `
 		UPDATE skill_versions SET source_state = ?, revision = ?, maybe_edited = 0

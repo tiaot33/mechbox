@@ -52,6 +52,21 @@ export function unmanagedSourceError(err: LibraryError, name: string): string {
   return describeError(err);
 }
 
+// attachSourceError 说明给没有来源的技能接上来源为什么没成：集合里已有同名、来源里没有这个技能、连不上，其余同 describeError。
+export function attachSourceError(err: LibraryError, name: string): string {
+  const m = messages().errors;
+  switch (err.code) {
+    case ErrorCode.AlreadyExists:
+      return m.attachExists(err.details?.name ?? name);
+    case ErrorCode.NotFound:
+      if (err.details?.name) return m.attachMissing(err.details.name, err.message);
+      break;
+    case ErrorCode.SourceUnreachable:
+      return m.attachUnreachable;
+  }
+  return describeError(err);
+}
+
 // aiError 说明调用 AI(测试连接、翻译描述)为什么没成、该查哪一项，后面附上服务给出的原因：通用文案会把 AI 服务说成「来源」。
 // 回答被 max_tokens 截断时说明去请求体里调大 max_tokens;请求头、请求体以外的字段错误与其他错误码返回 undefined,交给 describeError。
 export function aiError(err: LibraryError): string | undefined {

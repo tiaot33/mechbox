@@ -1,6 +1,6 @@
 // 来源与集合：来源是哪一种、在界面上叫什么，集合里有哪些技能、在哪个来源版本上。
 // 来源那边有没有新内容见 lib/source-state。
-import { SourceType, type Collection, type CollectionID, type Skill, type Source } from "@bindings/internal/library";
+import { SourceType, type Collection, type CollectionID, type Scope, type Skill, type Source } from "@bindings/internal/library";
 import { messages } from "./i18n";
 import type { Snapshot } from "./library";
 import { lastSegment, shortPath } from "./paths";
@@ -150,4 +150,33 @@ export function revisionText(summary: RevisionSummary | undefined): string {
     default:
       return "";
   }
+}
+
+// ---------- 来源记录记着的来源 ----------
+
+// sourceWithRef 是界面上写一个来源链接连同分支的样子:「owner/repo · main」，没有分支时只写链接。
+export function sourceWithRef(input: string, ref?: string): string {
+  return ref ? `${input} · ${ref}` : input;
+}
+
+// RecordedSource 是没有来源的技能在 npx skills 的来源记录里记着的一个来源:places 是记着它的那几处(装着的，或显示在技能下面的未纳管技能)。
+export interface RecordedSource {
+  input: string;
+  ref?: string;
+  places: Scope[];
+}
+
+// recordedSources 列出没有来源的技能在各处的来源记录里记着的来源，同一个来源(连同分支)合成一条，按第一次出现的先后;
+// 技能有来源时为空。技能详情据此提示可以把来源接上(AttachSource)。
+export function recordedSources(s: Pick<Snapshot, "skillScopes" | "unmanaged">, skill: Skill): RecordedSource[] {
+  if (!noSource(skill.source)) return [];
+  const found: RecordedSource[] = [];
+  for (const place of [...s.skillScopes, ...s.unmanaged]) {
+    if (place.skill_id !== skill.id || !place.source_input) continue;
+    const ref = place.source_ref || undefined;
+    const same = found.find((x) => x.input === place.source_input && x.ref === ref);
+    if (same) same.places.push(place.scope);
+    else found.push({ input: place.source_input, ref, places: [place.scope] });
+  }
+  return found;
 }

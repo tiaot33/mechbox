@@ -75,6 +75,10 @@ export const en = {
     sourceMissing: (name: string, clear: string, message: string) =>
       `“${name}” isn't in the Source. You can change the link. ${clear}\n${message}`,
     sourceUnrecognized: (clear: string, message: string) => `This Source link isn't recognized. You can edit it. ${clear}\n${message}`,
+    attachExists: (name: string) =>
+      `This Source’s collection already has “${name}”, so it can’t be attached. To keep just one, remove the other under “Same name” in the skill details.`,
+    attachMissing: (name: string, message: string) => `“${name}” isn’t in this Source, so it can’t be attached.\n${message}`,
+    attachUnreachable: "Can’t reach this Source. You can try again later.",
   },
 
   paths: {
@@ -636,6 +640,15 @@ export const en = {
     metadata: "Metadata",
     collection: "Collection",
     noSourceHint: "Fetched from a Scope—you're the author. After editing it where it's installed, update it with those edits",
+    recordedSource: "Source record",
+    recordedSourceTitle: (places: string[], source: string) =>
+      `The npx skills source record in ${and(places)} says it comes from ${source}. Attach this Source and it checks for updates and updates from there; its versions, installs and groups stay the same, and no folder is touched`,
+    attachSource: "Attach Source",
+    attachSourceTitle: (name: string, source: string) => `Attach ${source} to “${name}”?`,
+    attachSourceBody:
+      "It then works like a skill fetched from this Source: checking for updates, updating and rolling back as usual. Its versions, installs and groups stay the same, and no folder is touched.",
+    attachingSource: (name: string) => `Attaching a Source to “${name}”`,
+    attachedSource: (name: string, source: string) => `“${name}” now follows ${source}`,
     sameSource: "Same Source",
     revision: "Revision",
     sameName: "Same name",

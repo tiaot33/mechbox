@@ -146,7 +146,7 @@ func (s *seeder) layoutHome(webApp, oldProject string) error {
 		{filepath.Join(drafts, "pr-summary", "SKILL.md"), skillMD("pr-summary", "Use when the user asks for a summary of a pull request, listing the changed areas, risky files and open questions.")},
 		{filepath.Join(s.home, ".claude", "skills", "release-notes", "SKILL.md"), strings.Replace(skillMD("release-notes", "Use when drafting release notes for an app release; group changes by user-visible area."), "\n---\n", "\ndisable-model-invocation: true\n---\n", 1)},
 		{filepath.Join(s.home, ".agents", "skills", "release-notes", "SKILL.md"), skillMD("release-notes", "Use when drafting release notes; one bullet per merged pull request, newest first.")},
-		{filepath.Join(s.home, ".agents", ".skill-lock.json"), `{"version":3,"skills":{"webapp-testing":{"source":"anthropics/skills","sourceType":"git","sourceUrl":"https://git.dev.test/anthropics/skills.git","ref":"main"}}}` + "\n"},
+		{filepath.Join(s.home, ".agents", ".skill-lock.json"), `{"version":3,"skills":{"webapp-testing":{"source":"anthropics/skills","sourceType":"git","sourceUrl":"https://git.dev.test/anthropics/skills.git","ref":"main"},"internal-comms":{"source":"anthropics/skills","sourceType":"git","sourceUrl":"https://git.dev.test/anthropics/skills.git","ref":"main"}}}` + "\n"},
 		{filepath.Join(webApp, "README.md"), "# web-app\n"},
 		{filepath.Join(oldProject, "README.md"), "# old-project\n"},
 	}
