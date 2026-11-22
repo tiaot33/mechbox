@@ -396,7 +396,7 @@ export const zh = {
     fetchIdentical: (name: string, source: string, place: string) =>
       `这份和库里的「${name}」（${source}）一模一样：入库只记下它也装在 ${place}，不会多出一个技能，之后跟着库里的「${name}」更新。`,
     fetch: "入库",
-    fetchHandOver: (place: string) => `入库就是把它交给 app 管。${place} 里的文件夹原样不动，Agent 用到的内容不变。`,
+    fetchHandOver: (place: string, folder: string) => `入库就是把它交给 app 管。${place} 的文件夹 ${folder} 原样不动，Agent 用到的内容不变。`,
     fetchCliCost: "之后如果还用命令行工具更新它：更新到作者的新版时，app 会认出来，在 app 里点「更新」就能对上；改成别的内容，app 会把它报为被手动改过。",
     fetchInRepository: "它提交在项目仓库里。之后在 app 里更新它，会改动项目仓库里的文件。",
     sourceLink: "来源链接",

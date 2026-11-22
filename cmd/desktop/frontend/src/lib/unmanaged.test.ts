@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { ScopeKind, SkillFileProblemKind, SkillScopeStatus, type Skill, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { extraCopy, fetchable, folderNotes, identicalsOf, identicalState, skillFileProblemText } from "./unmanaged";
+import { extraCopy, fetchable, folderNotes, handOverNote, identicalsOf, identicalState, skillFileProblemText } from "./unmanaged";
 
 const where = (agent: string, project_id?: number) =>
   project_id ? { kind: ScopeKind.ScopeProject, agent, project_id } : { kind: ScopeKind.ScopeGlobal, agent };
@@ -97,5 +97,12 @@ describe("identicalState 的悬停说明", () => {
   it("指向 Agent 目录以外的只写一遍", () => {
     const outside = lines({ ...copy, link_outside: true, link_target: "/home/code/drafts/screenshot" });
     expect(outside.filter((x) => x.startsWith("符号链接"))).toEqual(["符号链接，指向 /home/code/drafts/screenshot：不在任何 Agent 的技能目录里，默认不入库"]);
+  });
+});
+
+describe("handOverNote", () => {
+  it("写出文件夹在哪个目录：一个 Agent 一个层级读几个目录时看得出是哪一个", () => {
+    const skill = { ...unmanaged("foo", "gemini-cli"), folder: "/home/.gemini/skills/foo", directory: "/home/.gemini/skills" } as UnmanagedSkill;
+    expect(handOverNote(snapshot({}), skill, "Gemini CLI · 全局")).toBe("入库就是把它交给 app 管。Gemini CLI · 全局 的文件夹 ~/.gemini/skills/foo 原样不动，Agent 用到的内容不变。");
   });
 });

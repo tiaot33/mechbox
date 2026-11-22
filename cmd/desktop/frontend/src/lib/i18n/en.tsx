@@ -431,7 +431,8 @@ export const en = {
     fetchIdentical: (name: string, source: string, place: string) =>
       `This copy is identical to “${name}” in the Library (${source}). Fetching it only records that it is also installed in ${place}; no second skill is added, and it follows “${name}” in the Library from now on.`,
     fetch: "Fetch",
-    fetchHandOver: (place: string) => `Fetching hands it over to the app. The folder in ${place} stays exactly as it is, and the Agent sees the same content.`,
+    fetchHandOver: (place: string, folder: string) =>
+      `Fetching hands it over to the app. The folder ${folder} in ${place} stays exactly as it is, and the Agent sees the same content.`,
     fetchCliCost: "If you keep updating it with a command-line tool afterwards: when it is updated to the author’s newer version, the app recognizes it, and “Update” in the app brings the Library in line; other changes are reported as edited by hand.",
     fetchInRepository: "It's committed in the project repository. Updating it in the app later changes files in the project repository.",
     sourceLink: "Source link",

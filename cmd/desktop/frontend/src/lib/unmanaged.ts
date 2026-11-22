@@ -117,3 +117,9 @@ export function identicalState(skill: Skill, u: UnmanagedSkill, home?: string, h
   const titles = [...notes.map((x) => x.title), ...(u.link_target && !u.link_outside ? [t.linkTitle(u.link_target)] : [])];
   return { text: notes.map((x) => x.text).join(" · "), title: titles.join("\n"), stale: u.version_id !== skill.version_id };
 }
+
+// handOverNote 是单个入库确认开头那句：交给 app 管，文件夹原样不动。写出文件夹的路径(主目录下的缩写成 ~),
+// 一个 Agent 在一个层级读几个目录时，看得出是哪个目录里的那一个。place 是作用域的名字。
+export function handOverNote(s: Snapshot, skill: UnmanagedSkill, place: string): string {
+  return messages().actions.fetchHandOver(place, homePath(s.info.home_dir, skill.folder));
+}
