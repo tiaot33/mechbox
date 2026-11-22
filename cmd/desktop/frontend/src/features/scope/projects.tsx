@@ -71,5 +71,3 @@ export async function unregisterProject(project: RegisteredProject) {
     success: t.unregistered,
   });
 }
-
-// 只有自定义 Agent 能改、能删。它离开或删除时，旧目录里还有别的 Agent 在读的文件夹不动，确认框里逐个列出。

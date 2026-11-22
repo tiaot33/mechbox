@@ -124,12 +124,11 @@ func (t *Tx) EditAgent(ctx context.Context, agent Agent) error {
 	return nil
 }
 
-func (t *Tx) RemoveAgentInstalls(ctx context.Context, code string, global, project bool) error {
-	const levels = `agent = ? AND ((? AND project_id IS NULL) OR (? AND project_id IS NOT NULL))`
-	if _, err := t.q.ExecContext(ctx, `DELETE FROM skill_scopes WHERE `+levels, code, global, project); err != nil {
+func (t *Tx) RemoveAgentInstalls(ctx context.Context, code string) error {
+	if _, err := t.q.ExecContext(ctx, `DELETE FROM skill_scopes WHERE agent = ?`, code); err != nil {
 		return fmt.Errorf("remove agent skill scopes: %w", wrap(err))
 	}
-	if _, err := t.q.ExecContext(ctx, `DELETE FROM group_installs WHERE `+levels, code, global, project); err != nil {
+	if _, err := t.q.ExecContext(ctx, `DELETE FROM group_installs WHERE agent = ?`, code); err != nil {
 		return fmt.Errorf("remove agent group installs: %w", wrap(err))
 	}
 	return nil
@@ -146,7 +145,7 @@ func (t *Tx) RemoveAgentGroupInstalls(ctx context.Context, code string, project 
 }
 
 func (t *Tx) DisableAgent(ctx context.Context, code string) error {
-	if err := t.RemoveAgentInstalls(ctx, code, true, true); err != nil {
+	if err := t.RemoveAgentInstalls(ctx, code); err != nil {
 		return err
 	}
 	if _, err := t.q.ExecContext(ctx, `UPDATE agents SET enabled = 0 WHERE code = ?`, code); err != nil {
@@ -156,7 +155,7 @@ func (t *Tx) DisableAgent(ctx context.Context, code string) error {
 }
 
 func (t *Tx) ForgetAgent(ctx context.Context, code string) error {
-	if err := t.RemoveAgentInstalls(ctx, code, true, true); err != nil {
+	if err := t.RemoveAgentInstalls(ctx, code); err != nil {
 		return err
 	}
 	if _, err := t.q.ExecContext(ctx, `DELETE FROM agents WHERE code = ?`, code); err != nil {

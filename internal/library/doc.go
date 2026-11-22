@@ -127,7 +127,7 @@
 //   - [Library.PlanGroupInstall] 再 [Library.InstallGroup]:组安装;[Library.UninstallGroup] 撤销。
 //   - [Library.ListSkillScopes]、[Library.ListGroupInstalls] 列出安装记录。看一个技能装在哪些地方,用
 //     [Library.ListSkillScopes] 或 [Library.InspectSkillScopes] 按技能筛选。
-//   - 会删技能文件夹的操作(卸载、组卸载、移除技能、移出组或删除组时一并卸载、注销项目、删除自定义 Agent)的确认框,
+//   - 会删技能文件夹的操作(卸载、组卸载、移除技能、移出组或删除组时一并卸载、注销项目、移除 Agent、恢复默认时移除手填的 Agent)的确认框,
 //     按界面上已有的巡检结果说明哪几处用户改过、修改会丢掉,不必先现查磁盘;这几处放进选项的 DiscardEdits。
 //     库在动磁盘之前只读这次要删的文件夹:确认之后才被改过的,整次返回 Conflict(Details.Paths),一个都不删,
 //     界面再问一次用户,同意后把它们加进 DiscardEdits 重新调用。

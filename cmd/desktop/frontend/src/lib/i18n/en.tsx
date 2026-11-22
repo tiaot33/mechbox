@@ -1266,7 +1266,7 @@ export const en = {
     retry: "Retry",
     uninstall: "Uninstall and quit",
     what: () =>
-      "Deletes the Library on this machine (its skills, Version history and Update history, Groups, registered projects, custom Agents, and the settings on the Settings page, including the GitHub token, AI and Sync); " +
+      "Deletes the Library on this machine (its skills, Version history and Update history, Groups, registered projects, the Agent settings, and the settings on the Settings page, including the GitHub token, AI and Sync); " +
       {
         mac: "then quits and moves Mechbox to the Trash. If it can't be moved to the Trash, it's selected in Finder so you can drag it there.",
         windows: "then quits. Mechbox itself isn't removed; uninstall it afterwards in Settings → Apps.",
