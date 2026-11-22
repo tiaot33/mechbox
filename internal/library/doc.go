@@ -1,5 +1,5 @@
 // Package library 用 SQLite 数据库统一管理 Agent Skills:先对来源做入库预览再入库,然后把 skill 安装到
-// 各 Agent(内置的 Claude Code、Codex 与用户添加的自定义 Agent)在各作用域读取的 skills 目录。数据库是唯一权威数据源:
+// 各已添加的 Agent(应用收录的与用户手填添加的)在各作用域读取的 skills 目录。数据库是唯一权威数据源:
 // Agent 目录里的技能文件夹都在安装时从库写出;在那里做的修改只有用户用它更新([Library.PlanUpdateFromScope])时才进库,巡检拿它们与库里的版本比对。
 //
 // 单说"技能"(Skill)指的都是库里的技能;市场搜到的是 SearchSkill,入库预览里的是 Candidate,
@@ -98,14 +98,19 @@
 //   - [Library.AddSkillToGroup]、[Library.RemoveSkillFromGroup] 增删成员,并同步到该组已安装到的 Scope;
 //     [Library.RemoveSkillsFromGroup] 一次移出勾选的几个。
 //
-// 设置 Agent(agents.go):
-//   - [Library.ListAgents] 列出 Agent,带是否在这台机器上检测到、是否自定义,以及它读取技能的目录。
-//   - [Library.AddAgent]、[Library.EditAgent]、[Library.DeleteAgent] 添加、修改、删除自定义 Agent;改目录时选择是否迁移,
-//     删除时选择是否一并删除文件夹。内置 Agent 不能改。改目录或删除都不动其他 Agent 还在读的文件夹:迁移时复制过去,
-//     删除时即使选了一并删除也保留,安装记录转给还在读的 Agent。
-//   - 几个 Agent 的目录相同时共用技能文件夹:装到其中一个,共用的 Agent 也算已装;从其中一个卸载,没有组安装留着时
-//     文件夹随之删除,它们都不再算已装。列表与巡检里每个共用的 Agent 各列一处,[SkillScope].SharedWith 给出共用的 Agent,
-//     卸载前界面据此提示。
+// 设置 Agent(agents.go):所有 Agent 存在数据库的一张表里,地位相同:应用收录的(按 skills CLI 的目录表)和用户手填添加的,
+// 名称、技能目录、检测目录都能改,都能移回候选池。应用打开数据库、拉回别的库时只插入它收录的、表里还没有的 Agent,从不改写已有的行。
+//   - [Library.ListAgents] 列出已添加的 Agent,带是否在这台机器上检测到,以及它读取技能的目录;[Library.ListAgentPool] 列出候选池。
+//   - [Library.AddAgentsFromPool] 一次添加几个候选池里的 Agent;[Library.AddAgent] 手填添加一个;[Library.ApplyDetectedAgents]
+//     第一次打开时按这台机器上检测到的设定已添加的 Agent(新数据库先添加 Claude Code 和 Codex,不经桌面端时库照样能用)。
+//   - [Library.EditAgent] 改名称、技能目录列表与检测目录;实际目录不在新列表里的安装选择是否迁移到新的第 1 个目录。
+//     [Library.DeleteAgent] 把 Agent 移回候选池,选择是否一并删除文件夹,组安装转给目录列表完全相同的另一个已添加 Agent。
+//     改目录或移除都不动其他已添加 Agent 还在读的文件夹:迁移时复制过去,移除时即使选了一并删除也保留,安装记录转给还在读的 Agent。
+//   - 一个层级可以有几个技能目录:新装的技能装进第 1 个,其余目录里已有的技能原地入库,记下它在哪个目录([SkillScope].Directory)。
+//     一处安装是「全局或哪个项目 + 技能目录 + 文件夹」,已添加的 Agent 里目录列表有这个目录的都读得到它;一个 Agent 在一个作用域里
+//     对一个技能只认一处(见 [SkillScope])。认同一处的几个 Agent 共用这个文件夹:装到其中一个,其余也算已装([SkillScope].SharedOnly);
+//     从其中一个卸载,没有组安装留着时文件夹随之删除,它们都不再算已装。列表与巡检里每个共用的 Agent 各列一处,
+//     [SkillScope].SharedWith 给出共用的 Agent,卸载前界面据此提示。
 //
 // 选择安装位置(projects.go):
 //   - [Library.ListAgents]、[Library.ListRegisteredProjects] 列出可选的 Agent 与项目;界面上的
@@ -124,12 +129,15 @@
 //     库在动磁盘之前只读这次要删的文件夹:确认之后才被改过的,整次返回 Conflict(Details.Paths),一个都不删,
 //     界面再问一次用户,同意后把它们加进 DiscardEdits 重新调用。
 //
-// 安装与安装计划方法都只接受 Scope 身份:Agent 目录与 [Library.ScopeDirectory] 给出的相同,记录按身份落库,
-// 未知 Agent 或未登记项目返回 NotFound。Agent 目录变了之后只认新目录,旧目录里的文件夹不管。
+// 安装与安装计划方法都只接受 Scope 身份:新装的技能装进 [Library.ScopeDirectory] 给出的第 1 个技能目录,记录按身份落库;
+// 已经装着的按记录的实际目录找文件夹。未知 Agent、候选池里的 Agent 或未登记项目返回 NotFound。
+// Agent 的目录列表改了之后只认新列表,去掉的目录里的文件夹不管(编辑时可以选择迁移)。
 //
 // 看作用域里的未纳管技能与入库(unmanaged.go、fetch_unmanaged.go):
-//   - [Library.ListUnmanagedSkills] 列出各作用域的技能目录里不是库装的技能文件夹(命令行工具装的、手动拷的、自己写的、
-//     提交在项目仓库里的),和 [Library.ListSkillScopes] 放在一起,就是 Agent 在这个作用域能看到的技能。只列出,不改、不删。
+//   - [Library.ListUnmanagedSkills] 列出各作用域的全部技能目录里不是库装的技能文件夹(命令行工具装的、手动拷的、自己写的、
+//     提交在项目仓库里的),带上所在的技能目录([UnmanagedSkill].Directory),和 [Library.ListSkillScopes] 放在一起,
+//     就是 Agent 在这个作用域能看到的技能。只列出,不改、不删。同一个作用域里经符号链接指到另一个目录里同一个文件夹的只算一处;
+//     这个作用域已经在一个目录里认得某个技能时,另一个目录里和它的当前版本一致的那一份不列出。
 //     npx skills 的来源记录里记了来源的,带出认出的来源([UnmanagedSkill].SourceInput),入库确认里预填。
 //     同时按内容认出它是库里哪个技能的哪一版([UnmanagedSkill].SkillID),或是库里哪个技能在来源里现在的那一版
 //     ([UnmanagedSkill].SourceLatestOf,在库外更新过,用更新换上);同一个技能就是一个技能,不因为放在别处、用别的链接找到而多出一个。
@@ -157,8 +165,9 @@
 //     ([UnmanagedSkill].SourceInput)在来源记录里记着来源时,[Library.AttachSource] 把这个来源接上:技能进这个来源的集合,
 //     之后照常检查更新、更新、回滚,版本历史、各处安装与组都不变,不改磁盘。当前版本和来源里的一样就是来源里的那一版;
 //     不一样时,能用来源记录的哈希确认是原样的是作者的旧版,用目录里的修改更新进来的照旧算修改,其余标为 [SkillVersion].MaybeEdited。
-//   - [Library.ListSameNameSkills] 列出同一个 Agent 的全局和某个已登记项目里同名的技能,不论是不是库装的,两处都要标出来;
-//     后果按 [Agent].SameName:Claude Code 里全局的那个生效,Codex 里两份都会出现,没有已知规则的 Agent 只标出同名。
+//   - [Library.ListSameNameSkills] 列出同名的技能文件夹,不论是不是库装的,两处都要标出来:同一个 Agent 的全局和某个已登记项目里同名的,
+//     后果按 [Agent].SameName(Claude Code 里全局的那个生效,Codex 里两份都会出现,没有已知规则的 Agent 只标出同名);
+//     同一个作用域两个技能目录里同名、又不是同一个技能的,只标出同名。
 //
 // 巡检与重新安装(reinstall.go):
 //   - [Library.InspectSkillScopes] 看每一处安装现在的状态:是当前版本、落后、用户改过、文件夹不在了,还是项目不在这台机器上。
@@ -167,9 +176,9 @@
 //     (可能是用户有意删掉的)要单独同意装回去;不想要了就用 [Library.Uninstall] 卸载。
 //     想留下改过的那一处的修改,用 [Library.PlanUpdateFromScope] 再 [Library.Update]。
 //   - 技能文件夹是符号链接的那一处(如 npx skills 的布局),入库、巡检、列出都不动它,读它指向的内容;库第一次写这一处时
-//     (更新、重新安装、回滚、自定义 Agent 改目录迁移)写成独立的文件夹,不写进链接指向的地方。库要覆盖或删除一处,
+//     (更新、重新安装、回滚、Agent 改目录迁移)写成独立的文件夹,不写进链接指向的地方。库要覆盖或删除一处,
 //     而别的安装处的链接(包括经过几级链接)指着它、这次又没一起写或一起删时(没勾的地方、卸载、移除技能、组卸载、
-//     自定义 Agent 改目录或删除),先给那几处换上独立的一份,保持它们读到的内容。巡检里的
+//     Agent 改目录或移除),先给那几处换上独立的一份,保持它们读到的内容。巡检里的
 //     [SkillScopeInspection].LinkTarget、LinkedBy 给出这两种情况,确认前界面据此说明。
 //
 // 同步(sync.go):S3 上每台机器一个设备目录,每次推送在里面新建一份备份:<文件夹>/<设备目录>/library-<推送时间>.db。
@@ -181,6 +190,12 @@
 //     用 [Library.InspectSkillScopes] 与 [Library.Reinstall] 把各处安装对上。
 //
 // # 实现
+//
+// 一个 Agent 在一个作用域里认哪一处安装的规则在 store.Recognize:自己有记录的认记录,没有的按目录顺序认第一个有记录的目录;
+// 记录的 directory 为空时是它这一层级的第 1 个目录。用到这条规则的有两处:store 的 PlaceSkillScopes 按它查单个 Agent 的那一处,
+// place.go 的 installedAt 据此给出这一处的实际目录与文件夹;install.go 的 listSkillScopes 对全库算出每个已添加 Agent 认的那一处。按 Agent 找文件夹的流程
+// (卸载、重新安装、更新、回滚、巡检、移除技能、改目录)都经这两处,不用作用域的第 1 个目录拼路径。删掉一处文件夹时连同 place.go 的
+// staleLinksOf 找出的旧链接(认这一处的 Agent 在别的技能目录里指向它、又没有记录的同名符号链接)。
 //
 // 改动数据库又改动 Agent 目录的操作(安装、卸载、更新、回滚、重新安装等)都经 place.go 的 applyChange 一次提交:
 // 先把要写的文件夹暂存好,再开事务写记录,把文件夹移到位,提交事务,最后清理备份;任何一步失败都倒序撤销,

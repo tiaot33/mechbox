@@ -7,79 +7,59 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/tiaot33/mechbox/internal/library"
 )
 
 // 内置 Agent 的名称和目录以应用版本为准:库里的行缺了或被改过,重开后都恢复为应用内置的值;
-// 已按身份记录的 SkillScope 按恢复后的目录算出,并可继续按身份安装。
-func TestOpenRestoresBuiltinAgentsFromApplication(t *testing.T) {
+
+// 打开数据库时只插入应用收录的、表里还没有的 Agent,放进候选池;表里已有的行(包括用户改过名称和目录的)从不改写,
+// 装在那里的技能照旧按改过的目录算。
+func TestOpenInsertsMissingAgentsButNeverRewritesExistingOnes(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
 	setTestHome(t, home)
 	path := filepath.Join(t.TempDir(), "library.db")
-	lib, err := library.Open(path, testOptions(t)...)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lib.Close() })
+	lib := openTestLibraryAt(t, path)
 	ctx := t.Context()
-	source := filepath.Join(t.TempDir(), "example")
-	writeLocalSkill(t, source, "example\n")
-	skill, err := fetchLocalDir(ctx, lib, source)
-	if err != nil {
+	skill := fetchNamedSkill(t, lib, "example")
+	if err := lib.Install(ctx, skill.ID, library.GlobalScope(library.AgentClaudeCode), library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	project, err := lib.RegisterProject(ctx, t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	scopes := []library.Scope{
-		library.GlobalScope(library.AgentClaudeCode),
-		library.GlobalScope(library.AgentCodex),
-		library.ProjectScope(library.AgentClaudeCode, project.ID),
-	}
-	for _, scope := range scopes {
-		if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
-			t.Fatal(err)
-		}
+	pool, err := lib.ListAgentPool(ctx)
+	if err != nil || len(pool) != 73 {
+		t.Fatalf("ListAgentPool() = %d agents, %v; want the 73 collected agents not added yet", len(pool), err)
 	}
 	if err := lib.Close(); err != nil {
 		t.Fatal(err)
 	}
-	// 只用 SQL 构造缺 Agent 行且另一行名称与目录被改过的输入文件,相当于旧版应用写下的库;结果仍经技能库公开方法观察。
+	// 用 SQL 改出用户改过的 Claude Code、删掉候选池里的 Cursor,相当于旧版应用写下的库;结果经技能库公开方法观察。
 	editLibraryFixture(t, path, `
-		DELETE FROM agents WHERE code = 'codex';
-		UPDATE agents SET name = 'Old Claude', global_path = '.old/global', project_path = '.old/project' WHERE code = 'claude-code';
+		DELETE FROM agents WHERE code = 'cursor';
+		UPDATE agents SET name = 'My Claude', global_paths = '[".claude/skills", ".mine/skills"]', detect_paths = '[]' WHERE code = 'claude-code';
 	`)
-	want := []library.SkillScope{
-		{SkillID: skill.ID, Scope: scopes[0], Folder: filepath.Join(home, ".claude", "skills", skill.Name), Direct: true},
-		{SkillID: skill.ID, Scope: scopes[2], Folder: filepath.Join(project.Path, ".claude", "skills", skill.Name), Direct: true},
-		{SkillID: skill.ID, Scope: scopes[1], Folder: filepath.Join(home, ".agents", "skills", skill.Name), Direct: true},
-	}
-	// 装到 Claude Code 全局时建出了 ~/.claude,之后它算检测到。
-	wantAgents := seededAgents(home)
-	wantAgents[0].Detected = true
+	claude := seededAgents(home)[0]
+	claude.Name, claude.DetectDirectories = "My Claude", []string{}
+	claude.GlobalDirectories = append(claude.GlobalDirectories, filepath.Join(home, ".mine", "skills"))
 	for range 2 {
-		reopened, err := library.Open(path, testOptions(t)...)
+		reopened := openTestLibraryAt(t, path)
+		agents := listAgents(t, reopened)
+		if len(agents) != 2 || !reflect.DeepEqual(agents[0], claude) {
+			t.Fatalf("ListAgents after Open = %#v; want %#v kept as edited", agents, claude)
+		}
+		pool, err := reopened.ListAgentPool(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { _ = reopened.Close() })
-		agents, err := reopened.ListAgents(ctx)
-		if err != nil || !reflect.DeepEqual(agents, wantAgents) {
-			t.Fatalf("ListAgents after Open = %#v, %v; want %#v", agents, err, wantAgents)
+		cursor := slices.IndexFunc(pool, func(agent library.Agent) bool { return agent.Code == "cursor" })
+		if cursor < 0 || pool[cursor].Name != "Cursor" || !reflect.DeepEqual(pool[cursor].GlobalDirectories, []string{filepath.Join(home, ".agents", "skills"), filepath.Join(home, ".cursor", "skills")}) {
+			t.Fatalf("ListAgentPool after Open = %#v; want Cursor back in the pool", pool)
 		}
-		got, err := reopened.ListSkillScopes(ctx, library.SkillScopeFilter{})
-		if err != nil || !reflect.DeepEqual(withoutCreatedAt(got), want) {
-			t.Fatalf("ListSkillScopes after Open = %#v, %v; want %#v", got, err, want)
-		}
-		for _, skillScope := range want {
-			if err := reopened.Install(ctx, skill.ID, skillScope.Scope, library.InstallOptions{}); err != nil {
-				t.Fatal(err)
-			}
-		}
+		requireSkillScopes(t, reopened, []library.SkillScope{
+			{SkillID: skill.ID, Scope: library.GlobalScope(library.AgentClaudeCode), Folder: filepath.Join(home, ".claude", "skills", "example"), Direct: true},
+		})
 		if err := reopened.Close(); err != nil {
 			t.Fatal(err)
 		}
@@ -99,12 +79,13 @@ func TestOpenKeepsAgentsUnknownToThisVersion(t *testing.T) {
 	if err := lib.Close(); err != nil {
 		t.Fatal(err)
 	}
-	editLibraryFixture(t, path, `INSERT INTO agents(code, name, global_path, project_path) VALUES ('future-agent', 'Future Agent', '.future/skills', '.future/project-skills')`)
+	editLibraryFixture(t, path, `INSERT INTO agents(code, name, global_paths, project_paths, enabled) VALUES ('future-agent', 'Future Agent', '[".future/skills"]', '[".future/project-skills"]', 1)`)
 	reopened := openTestLibraryAt(t, path)
 	ctx := t.Context()
 	agents, err := reopened.ListAgents(ctx)
 	want := append(seededAgents(home), library.Agent{
-		Code: "future-agent", Name: "Future Agent", GlobalDirectory: filepath.Join(home, ".future", "skills"), ProjectDirectory: ".future/project-skills",
+		Code: "future-agent", Name: "Future Agent", DetectDirectories: []string{},
+		GlobalDirectories: []string{filepath.Join(home, ".future", "skills")}, ProjectDirectories: []string{".future/project-skills"},
 	})
 	if err != nil || !reflect.DeepEqual(agents, want) {
 		t.Fatalf("ListAgents after Open = %#v, %v; want %#v", agents, err, want)

@@ -359,10 +359,11 @@ func TestInspectSkillScopesInspectsGroupSkillScopes(t *testing.T) {
 	got := inspectSkillScopes(t, lib)
 	want := []library.SkillScopeInspection{{
 		SkillScope: library.SkillScope{
-			SkillID: skill.ID,
-			Scope:   scope,
-			Folder:  filepath.Join(directory, skill.Name),
-			Groups:  []library.GroupID{group.ID},
+			SkillID:   skill.ID,
+			Scope:     scope,
+			Directory: directory,
+			Folder:    filepath.Join(directory, skill.Name),
+			Groups:    []library.GroupID{group.ID},
 		},
 		Status:    library.SkillScopeCurrent,
 		VersionID: skill.VersionID,

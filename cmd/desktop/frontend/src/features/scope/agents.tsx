@@ -1,6 +1,6 @@
 // 自定义 Agent:添加、编辑(改目录时可选把装着的技能搬过去)、删除。
 import { LibraryService } from "@bindings/cmd/desktop";
-import { FolderPolicy, MigrationOutcome, type Agent, type CustomAgent } from "@bindings/internal/library";
+import { FolderPolicy, MigrationOutcome, type Agent, type AgentInput } from "@bindings/internal/library";
 import { detachedBy, discardedEdits, lostEdits } from "@/lib/consent";
 import { messages } from "@/lib/i18n";
 import { currentSnapshot, type LibraryError } from "@/lib/library";
@@ -15,7 +15,7 @@ import { runDiscardingEdits } from "@/components/app/discard-edits";
 import { showResults } from "@/components/app/results";
 import { agentDelete, agentEdit } from "./agents-rules";
 
-export async function addAgent(input: CustomAgent, onInvalid: (err: LibraryError) => boolean): Promise<boolean> {
+export async function addAgent(input: AgentInput, onInvalid: (err: LibraryError) => boolean): Promise<boolean> {
   const added = await ui.run(() => LibraryService.AddAgent(input), {
     success: (a) => messages().actions.agentAdded(a.name),
     onError: onInvalid,
@@ -25,7 +25,7 @@ export async function addAgent(input: CustomAgent, onInvalid: (err: LibraryError
 
 // editAgent 修改自定义 Agent。某一层级的目录改了、这个 Agent 在那里已装了技能(含因共用目录而算已装的)或有组安装时，
 // 先问是否迁移(不迁移会连组安装一起去掉,空组的组安装也是);迁移后列出因新目录已有同名文件夹而没搬的。input.global_directory 是展开 ~ 后的绝对路径。
-export async function editAgent(agent: Agent, input: CustomAgent, onInvalid: (err: LibraryError) => boolean): Promise<boolean> {
+export async function editAgent(agent: Agent, input: AgentInput, onInvalid: (err: LibraryError) => boolean): Promise<boolean> {
   const s = currentSnapshot();
   const t = messages().actions;
   const { affected, groupInstalls, asks, shared, detached } = agentEdit(s, agent, input);

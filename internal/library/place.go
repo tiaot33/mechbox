@@ -116,7 +116,7 @@ func (l *Library) targetClaimant(ctx context.Context, id SkillID, name string, t
 		if err != nil {
 			return nil, err
 		}
-		if agentdir.Canonical(claimed.directory) != want {
+		if agentdir.Canonical(claimed.in(other.Directory).directory) != want {
 			continue
 		}
 		return &claimant{skillID: SkillID(other.SkillID), name: other.Name}, nil
@@ -233,4 +233,160 @@ func (l *Library) requireFreeFolder(ctx context.Context, operation string, skill
 		return existsError(operation, "a folder with the skill's name is in the way", ErrorDetails{Path: path})
 	}
 	return nil
+}
+
+type installedPlace struct {
+	skillID SkillID
+	target  resolvedScope
+	rows    []store.PlaceSkillScope
+}
+
+func (p installedPlace) installed() bool {
+	return len(p.rows) > 0
+}
+
+func (p installedPlace) folder() string {
+	return agentdir.FolderPath(p.target.directory, p.rows[0].Folder)
+}
+
+func (p installedPlace) owned() bool {
+	return p.installed() && p.rows[0].Agent == p.target.Agent
+}
+
+func (l *Library) installedAt(ctx context.Context, id SkillID, target resolvedScope) (installedPlace, error) {
+	rows, err := l.store.PlaceSkillScopes(ctx, int64(id), target.Scope)
+	if err != nil {
+		return installedPlace{}, err
+	}
+	place := installedPlace{skillID: id, target: target, rows: rows}
+	if len(rows) > 0 {
+		place.target = target.in(rows[0].Directory)
+	}
+	return place, nil
+}
+
+func (l *Library) readsTwice(ctx context.Context, id SkillID, target resolvedScope) ([]Scope, error) {
+	agents, err := l.store.ListAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var scopes []Scope
+	for _, agent := range agents {
+		if !agent.Enabled || agent.Code == target.Agent || !slices.Contains(agent.Paths(target.ProjectID != nil), target.relative) {
+			continue
+		}
+		reader := store.Scope{Agent: agent.Code, ProjectID: target.ProjectID}
+		place, err := l.store.PlaceSkillScopes(ctx, int64(id), reader)
+		if err != nil {
+			return nil, err
+		}
+		if len(place) > 0 && place[0].Directory != target.relative {
+			scopes = append(scopes, scopeFrom(reader))
+		}
+	}
+	return scopes, nil
+}
+
+func (l *Library) staleLinksOf(ctx context.Context, places []installedPlace) ([][]string, error) {
+	links := make([][]string, len(places))
+	agents, err := l.store.ListAgents(ctx)
+	if err != nil {
+		return nil, err
+	}
+	type candidates struct {
+		folder int
+		links  []int
+	}
+	var folders []string
+	at := map[string]int{}
+	index := func(folder string) int {
+		if i, ok := at[folder]; ok {
+			return i
+		}
+		at[folder] = len(folders)
+		folders = append(folders, folder)
+		return at[folder]
+	}
+	checks := make([]candidates, len(places))
+	claimed := map[string][]store.Claimant{}
+	for i, place := range places {
+		if !place.installed() {
+			continue
+		}
+		name := place.rows[0].Folder
+		if _, ok := claimed[name]; !ok {
+			if claimed[name], err = l.store.Claimants(ctx, name, 0); err != nil {
+				return nil, err
+			}
+		}
+		recorded := func(directory string) bool {
+			return slices.ContainsFunc(claimed[name], func(other store.Claimant) bool {
+				return other.Directory == directory && sameProject(other.Scope.ProjectID, place.target.ProjectID)
+			})
+		}
+		var seen []string
+		for _, agent := range agents {
+			paths := agent.Paths(place.target.ProjectID != nil)
+			if !agent.Enabled || !slices.Contains(paths, place.target.relative) {
+				continue
+			}
+			recognized, err := l.store.PlaceSkillScopes(ctx, int64(place.skillID), store.Scope{Agent: agent.Code, ProjectID: place.target.ProjectID})
+			if err != nil {
+				return nil, err
+			}
+			if len(recognized) == 0 || recognized[0].Directory != place.target.relative {
+				continue
+			}
+			for _, directory := range paths {
+				if directory != place.target.relative && !slices.Contains(seen, directory) && !recorded(directory) {
+					seen = append(seen, directory)
+					checks[i].links = append(checks[i].links, index(agentdir.FolderPath(agentdir.Join(place.target.root, directory), name)))
+				}
+			}
+		}
+		if len(checks[i].links) > 0 {
+			checks[i].folder = index(place.folder())
+		}
+	}
+	if len(folders) == 0 {
+		return links, nil
+	}
+	states, err := agentdir.StatFolders(ctx, folders)
+	if err != nil {
+		return nil, err
+	}
+	for i, check := range checks {
+		target := states[check.folder]
+		for _, link := range check.links {
+			if state := states[link]; state.LinkTarget != "" && !state.SameEntry(target) && state.LinksThrough(target) {
+				links[i] = append(links[i], state.Path)
+			}
+		}
+		slices.Sort(links[i])
+	}
+	return links, nil
+}
+
+func sameProject(a, b *int64) bool {
+	return (a == nil) == (b == nil) && (a == nil || *a == *b)
+}
+
+func (l *Library) placeRemovals(ctx context.Context, places []installedPlace) ([]removal, error) {
+	links, err := l.staleLinksOf(ctx, places)
+	if err != nil {
+		return nil, err
+	}
+	var removals []removal
+	for i, place := range places {
+		removals = append(removals, place.removals(links[i])...)
+	}
+	return removals, nil
+}
+
+func (p installedPlace) removals(links []string) []removal {
+	removals := []removal{{skillID: p.skillID, folder: p.folder()}}
+	for _, link := range links {
+		removals = append(removals, removal{skillID: p.skillID, folder: link})
+	}
+	return removals
 }

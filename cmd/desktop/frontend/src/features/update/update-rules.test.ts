@@ -62,7 +62,7 @@ const snapshot = (s: Partial<Snapshot> = {}) =>
   ({
     skills: [],
     skillScopes: [],
-    agents: [{ code: claude, name: "Claude Code", project_directory: ".agents" } as Agent, { code: codex, name: "Codex", project_directory: ".agents" } as Agent],
+    agents: [{ code: claude, name: "Claude Code", project_directories: [".agents" ]} as Agent, { code: codex, name: "Codex", project_directories: [".agents" ]} as Agent],
     projects: [{ id: 7, name: "proj" }],
     info: { home_dir: "/home" },
     ...s,
@@ -255,7 +255,7 @@ describe("更新计划弹窗里的几节", () => {
 });
 
 describe("用目录里的修改更新：哪些地方已经是这份修改", () => {
-  const place = (scope: Scope): SkillScopeInspection => ({ skill_id: 1, scope, folder: "/f", direct: true, status: SkillScopeStatus.SkillScopeCurrent });
+  const place = (scope: Scope): SkillScopeInspection => ({ skill_id: 1, scope, directory: "", folder: "/f", direct: true, status: SkillScopeStatus.SkillScopeCurrent });
 
   it("计划里不列的其他地方算;取内容的这一处、和它合成一处的、计划里列着的不算", () => {
     const s = snapshot({ skillScopes: [place(project(claude, 7)), place(project(codex, 7)), place(global(claude)), place(global(codex))] });

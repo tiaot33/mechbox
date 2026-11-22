@@ -113,8 +113,8 @@ func WithHomeDirectory(dir string) Option {
 // 返回 FailedPrecondition。不是 SQLite 文件、应用标识不符、v0.0.1 建的(schema 版本 24)或比本版应用新的 schema 版本、
 // 表结构不符时返回 FailedPrecondition 且不改动内容;另一进程占着写锁超过等待上限返回 Busy。
 // 数据库里明文存着 GitHub 令牌、AI 的 API Key 与 S3 密钥,所以打开时把数据库文件(连同 -wal、-shm)改成只有当前用户能读写(0600)。
-// 应用内置的 Agent 以本版应用为准:缺的补上,已有的名称和目录被覆盖,厂商换了读取目录时已有的库也随应用版本用上新目录;
-// 库里有、本版应用不认识的 Agent(例如从装了更新版本应用的机器同步来的)保持原样。
+// 应用收录的 Agent 里库里还没有的补进候选池([Library.ListAgentPool]);库里已有的 Agent 从不改写(用户改过的目录不会被应用升级盖掉),
+// 本版应用没有收录的(例如从装了更新版本应用的机器同步来的)同样保持原样。新数据库先添加 Claude Code 和 Codex。
 func Open(path string, options ...Option) (lib *Library, err error) {
 	defer func() { err = typedError(err) }()
 	opened := &Library{}

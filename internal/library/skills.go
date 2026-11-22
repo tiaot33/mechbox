@@ -261,7 +261,8 @@ func (l *Library) SetSkillNote(ctx context.Context, id SkillID, note string) (er
 // opts.Folders 为 Keep 时保留这些文件夹;只从一个作用域撤掉而保留在库里用 Uninstall。
 // 删之前核对文件夹有没有被改过:确认框按界面上已有的巡检结果说明哪几处的修改会丢掉,把它们放进 opts.DiscardEdits;
 // 确认之后才被改过的,返回 Conflict,不移除(见 RemoveSkillOptions)。
-// 符号链接指向的真实文件夹和链接本身一起删;链接那一处选了保留时,和别处一样留在磁盘上不动。
+// 符号链接指向的真实文件夹和链接本身一起删;链接那一处选了保留时,和别处一样留在磁盘上不动。删掉的文件夹,
+// 认那一处的 Agent 在别的技能目录里指向它、又没有安装记录的旧链接一并删掉(SkillScopeInspection.StaleLinks)。
 func (l *Library) RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) (err error) {
 	defer func() { err = typedError(err) }()
 	return l.removeSkills(ctx, "remove skill", []SkillID{id}, opts)
@@ -282,7 +283,7 @@ func (l *Library) removeSkills(ctx context.Context, operation string, ids []Skil
 		return err
 	}
 	ids = slices.Compact(slices.Sorted(slices.Values(ids)))
-	var removals []removal
+	var places []installedPlace
 	for _, id := range ids {
 		if _, err := l.GetSkill(ctx, id); err != nil {
 			return err
@@ -295,8 +296,20 @@ func (l *Library) removeSkills(ctx context.Context, operation string, ids []Skil
 			return err
 		}
 		for _, skillScope := range skillScopes {
-			removals = append(removals, removal{skillID: id, folder: skillScope.Folder})
+			target, err := l.resolveScope(ctx, operation, skillScope.Scope)
+			if err != nil {
+				return err
+			}
+			place, err := l.installedAt(ctx, id, target)
+			if err != nil {
+				return err
+			}
+			places = append(places, place)
 		}
+	}
+	removals, err := l.placeRemovals(ctx, places)
+	if err != nil {
+		return err
 	}
 	var change agentdir.Change
 	defer func() { err = errors.Join(err, change.Rollback()) }()

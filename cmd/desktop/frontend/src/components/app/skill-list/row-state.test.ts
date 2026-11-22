@@ -25,8 +25,8 @@ const claude = AgentCode.AgentClaudeCode;
 const codex = AgentCode.AgentCodex;
 const at = (agent: AgentCode, project_id = 0): Scope => (project_id ? { kind: ScopeKind.ScopeProject, agent, project_id } : { kind: ScopeKind.ScopeGlobal, agent });
 const agents = [
-  { code: claude, name: "Claude Code", global_directory: "/home/.claude/skills", project_directory: ".claude/skills", detected: true },
-  { code: codex, name: "Codex", global_directory: "/home/.codex/skills", project_directory: ".agents/skills", detected: true },
+  { code: claude, name: "Claude Code", global_directories: ["/home/.claude/skills"], project_directories: [".claude/skills"], detected: true },
+  { code: codex, name: "Codex", global_directories: ["/home/.codex/skills"], project_directories: [".agents/skills"], detected: true },
 ] as Agent[];
 const snapshot = (s: Partial<Snapshot>) =>
   ({

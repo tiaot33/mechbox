@@ -238,7 +238,7 @@ func (s *seeder) populate(ctx context.Context, anthropics, openai, superpowers g
 			return fmt.Errorf("install %s: %w", install.skill, err)
 		}
 	}
-	cursor, err := s.lib.AddAgent(ctx, library.CustomAgent{Name: "Cursor", GlobalDirectory: "~/.cursor/skills", ProjectDirectory: ".cursor/skills"})
+	cursor, err := s.lib.AddAgent(ctx, library.AgentInput{Name: "Cursor", GlobalDirectories: []string{"~/.cursor/skills"}, ProjectDirectories: []string{".cursor/skills"}})
 	if err != nil {
 		return err
 	}

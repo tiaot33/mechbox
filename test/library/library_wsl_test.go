@@ -57,7 +57,7 @@ func TestWSLDistroMovesGlobalDirectories(t *testing.T) {
 	}
 	writeFile(t, filepath.Join(home, ".claude/skills/own/SKILL.md"), []byte(skillDocument("own", "v1")), 0o644)
 	agents, err := lib.ListAgents(ctx)
-	if err != nil || agents[0].Code != library.AgentClaudeCode || !agents[0].Detected || agents[0].GlobalDirectory != directory {
+	if err != nil || agents[0].Code != library.AgentClaudeCode || !agents[0].Detected || agents[0].GlobalDirectories[0] != directory {
 		t.Fatalf("agents = %+v, %v", agents, err)
 	}
 	if err := lib.SetWSLDistro(ctx, ""); err != nil {
@@ -332,14 +332,14 @@ func TestWSLDistroListsSharedDirectoryOnce(t *testing.T) {
 	sharing := []library.AgentCode{library.AgentCodex}
 	directories := map[library.AgentCode]string{library.AgentCodex: ".agents/skills"}
 	for i := range 3 {
-		agent, err := lib.AddAgent(ctx, library.CustomAgent{Name: fmt.Sprintf("Shared %d", i), GlobalDirectory: "~/.agents/skills", ProjectDirectory: ".agents/skills"})
+		agent, err := lib.AddAgent(ctx, library.AgentInput{Name: fmt.Sprintf("Shared %d", i), GlobalDirectories: []string{"~/.agents/skills"}, ProjectDirectories: []string{".agents/skills"}})
 		if err != nil {
 			t.Fatal(err)
 		}
 		sharing = append(sharing, agent.Code)
 		directories[agent.Code] = ".agents/skills"
 	}
-	alias, err := lib.AddAgent(ctx, library.CustomAgent{Name: "Alias", GlobalDirectory: "~/.alias/skills", ProjectDirectory: ".alias/skills"})
+	alias, err := lib.AddAgent(ctx, library.AgentInput{Name: "Alias", GlobalDirectories: []string{"~/.alias/skills"}, ProjectDirectories: []string{".alias/skills"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -433,8 +433,9 @@ func TestWSLDistroListsSharedDirectoryOnce(t *testing.T) {
 		t.Fatalf("same-name skills = %+v", same)
 	}
 	for _, skill := range same {
-		project := projects[slices.IndexFunc(projects, func(p library.RegisteredProject) bool { return p.ID == skill.ProjectID })]
-		if skill.Global.Folder != folderIn(skill.Agent, nil) || skill.Project.Folder != folderIn(skill.Agent, &project) {
+		project := projects[slices.IndexFunc(projects, func(p library.RegisteredProject) bool { return p.ID == skill.Second.Scope.ProjectID })]
+		agent := skill.Second.Scope.Agent
+		if skill.Kind != library.SameNameGlobalAndProject || skill.First.Folder != folderIn(agent, nil) || skill.Second.Folder != folderIn(agent, &project) {
 			t.Errorf("same-name skill = %+v", skill)
 		}
 	}
@@ -462,7 +463,7 @@ func TestWSLDistroDetectsAndInspectsManyAgentsInBatches(t *testing.T) {
 		if i < sharing {
 			directory = ".agents/skills"
 		}
-		editLibraryFixture(t, path, `INSERT INTO agents(code, name, global_path, project_path, detect_path) VALUES (?, ?, ?, ?, ?)`, code, code, directory, directory, detect)
+		editLibraryFixture(t, path, `INSERT INTO agents(code, name, global_paths, project_paths, detect_paths, enabled) VALUES (?, ?, json_array(?), json_array(?), json_array(?), 1)`, code, code, directory, directory, detect)
 		switch {
 		case i == 4:
 			if err := os.Symlink(".codex", filepath.Join(home, detect)); err != nil {
@@ -504,6 +505,9 @@ func TestWSLDistroDetectsAndInspectsManyAgentsInBatches(t *testing.T) {
 		t.Fatalf("detected = %v\nwant %v", got, detected)
 	}
 
+	// 再添加几个全局读 ~/.agents/skills 和自己目录的 Agent:每一处都要查自己目录里有没有指过来的旧链接,也是一条命令查完。
+	addFromPool(t, lib, "cursor", "gemini-cli", "github-copilot")
+	const twoDirectories = 3
 	skill := fetchNamedSkill(t, lib, "shared")
 	if err := lib.Install(ctx, skill.ID, library.GlobalScope(library.AgentCodex), library.InstallOptions{}); err != nil {
 		t.Fatal(err)
@@ -514,8 +518,11 @@ func TestWSLDistroDetectsAndInspectsManyAgentsInBatches(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	if len(inspections) != 1+sharing {
+	if len(inspections) != 1+sharing+twoDirectories {
 		t.Fatalf("inspections = %+v", inspections)
+	}
+	if stats := countWSLCommands(commands, wslInspectCommand); stats > 3 {
+		t.Errorf("InspectSkillScopes ran %d folder commands for %d places, want them batched", stats, len(inspections))
 	}
 	for _, inspection := range inspections {
 		if inspection.Status != library.SkillScopeCurrent || inspection.Folder != wslPath(t, filepath.Join(home, ".agents/skills/shared")) {

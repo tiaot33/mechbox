@@ -26,6 +26,7 @@ const global = (agent: AgentCode): Scope => ({ kind: ScopeKind.ScopeGlobal, agen
 const t = messages().actions;
 
 const place = (skill_id: number, scope: Scope, extra: Partial<SkillScopeInspection> = {}): SkillScopeInspection => ({
+  directory: "",
   skill_id,
   scope,
   folder: `/home/.${scope.agent}/skills/s${skill_id}`,

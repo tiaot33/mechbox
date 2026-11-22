@@ -3457,12 +3457,12 @@ await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 
   };
   const groupChip = (name) => page.locator(".gchip", { hasText: name });
 
-  // 内置 Agent:检测到的默认勾上，不能编辑、删除。
+  // 新数据库里先添加的 Claude Code、Codex:检测到的默认勾上，和其他 Agent 一样能编辑、移除。
   await open();
   for (const name of ["Claude Code", "Codex"]) {
     assert((await row(name).locator('[data-slot="badge"]', { hasText: "检测到" }).count()) === 1, `${name} 应标检测到`);
     assert((await shownSwitch(name).getAttribute("aria-checked")) === "true", `${name} 默认应显示`);
-    assert((await row(name).getByRole("button", { name: "编辑" }).count()) === 0, `${name} 不能编辑`);
+    assert((await row(name).getByRole("button", { name: "编辑" }).count()) === 1, `${name} 应能编辑`);
   }
 
   // 显示勾选：连着关掉两个、保存还没完成就返回，主界面也按最后的勾选;存进数据库，重新载入后仍关着。
@@ -3500,8 +3500,8 @@ await step("设置页 Agent 分区：显示勾选、自定义 Agent 的添加 / 
   await btn(modal(), "添加").click();
   await toast("已添加 Agent「My Agent」");
   await settle();
-  assert((await row("My Agent").locator('[data-slot="badge"]', { hasText: "自定义" }).count()) === 1, "应标自定义");
-  assert((await shownSwitch("My Agent").getAttribute("aria-checked")) === "true", "自定义 Agent 默认应显示");
+  assert((await row("My Agent").locator('[data-slot="badge"]', { hasText: "未检测到" }).count()) === 1, "手填添加的 Agent 没有检测目录，应标未检测到");
+  assert((await shownSwitch("My Agent").getAttribute("aria-checked")) === "true", "手填添加的 Agent 默认应显示");
   await back();
 
   // 装到自定义 Agent。
@@ -3668,7 +3668,7 @@ await step("项目里共用一个目录的 Agent 合成一处：右栏、弹层�
   const proj = page.locator(".a-right .nav-item.proj", { hasText: "proj-b" });
   if ((await proj.getAttribute("aria-expanded")) !== "true") await proj.locator(".proj-toggle").click();
   await page.locator('.a-right .nav-item.proj[aria-expanded="true"]', { hasText: "proj-b" }).waitFor({ timeout: 3000 });
-  // 自定义 Agent 不检测，折在"其他 N 个 Agent"里。
+  // 手填添加的 Agent 不检测;显示开关没动过时照样显示，折起来时点开"其他 N 个 Agent"。
   const inProj = page.locator(".a-right li", { has: page.locator(".nav-item.proj", { hasText: "proj-b" }) });
   const more = inProj.locator(".nav-item.more", { hasText: "其他" });
   if (await more.count()) await more.click();

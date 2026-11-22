@@ -18,6 +18,7 @@ export {
     ProxyMode,
     ReinstallOutcome,
     RollbackOutcome,
+    SameNamePairKind,
     SameNameRule,
     ScopeKind,
     SkillFileProblemKind,
@@ -32,6 +33,7 @@ export {
 export type {
     AISettings,
     Agent,
+    AgentInput,
     AgentMigration,
     AgentSettings,
     AttachSourceRequest,
@@ -45,7 +47,6 @@ export type {
     CollectionID,
     CollectionUpdateCheck,
     Commit,
-    CustomAgent,
     DeleteAgentOptions,
     DeleteAgentResult,
     DeleteGroupOptions,

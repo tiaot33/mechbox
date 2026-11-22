@@ -8,6 +8,7 @@ import (
 	_ "embed"
 	"encoding/hex"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -15,17 +16,12 @@ import (
 )
 
 const (
-	applicationID    = 1397443650
-	oldestVersion    = 27
-	baselineFile     = "testdata/00027_schema.sql"
-	builtinAgentsSQL = `
-		INSERT INTO agents(code, name, global_path, project_path, detect_path) VALUES
-			('claude-code', 'Claude Code', '.claude/skills', '.claude/skills', '.claude'),
-			('codex', 'Codex', '.agents/skills', '.agents/skills', '.codex')
-		ON CONFLICT(code) DO UPDATE SET name = excluded.name, global_path = excluded.global_path, project_path = excluded.project_path, detect_path = excluded.detect_path
-		WHERE custom = 0 AND (name, global_path, project_path, detect_path) IS NOT (excluded.name, excluded.global_path, excluded.project_path, excluded.detect_path)
-	`
+	applicationID = 1397443650
+	oldestVersion = 27
+	baselineFile  = "testdata/00027_schema.sql"
 )
+
+var EnabledInNewLibrary = []string{"claude-code", "codex"}
 
 func newToken() string {
 	return rand.Text()
@@ -57,14 +53,19 @@ func (l layout) validator() func(context.Context, *sql.Tx) error {
 	}
 }
 
-func writeBuiltinAgents(ctx context.Context, db *sql.DB, l layout) error {
+func writeCatalogAgents(ctx context.Context, db *sql.DB, l layout, fresh bool) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, builtinAgentsSQL); err != nil {
-		return err
+	for _, agent := range catalog {
+		enabled := fresh && slices.Contains(EnabledInNewLibrary, agent.Code)
+		if _, err := tx.ExecContext(ctx, `INSERT INTO agents(code, name, global_paths, project_paths, detect_paths, same_name, enabled)
+			VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(code) DO NOTHING`,
+			agent.Code, agent.Name, jsonList(agent.GlobalPaths), jsonList(agent.ProjectPaths), jsonList(agent.DetectPaths), agent.SameName, enabled); err != nil {
+			return err
+		}
 	}
 	if err := validateSchema(ctx, tx, l); err != nil {
 		return err

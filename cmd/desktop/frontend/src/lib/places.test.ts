@@ -11,9 +11,9 @@ const at = (agent: AgentCode, project_id = 0): Scope => (project_id ? { kind: Sc
 // Codex 和 Cursor 在项目里都读 .agents/skills,全局目录各是各的。
 const s = {
   agents: [
-    { code: claude, name: "Claude Code", global_directory: "/home/.claude/skills", project_directory: ".claude/skills", detected: true },
-    { code: codex, name: "Codex", global_directory: "/home/.codex/skills", project_directory: ".agents/skills", detected: true },
-    { code: cursor, name: "Cursor", global_directory: "/home/.cursor/skills", project_directory: ".agents/skills", detected: true },
+    { code: claude, name: "Claude Code", global_directories: ["/home/.claude/skills"], project_directories: [".claude/skills"], detected: true },
+    { code: codex, name: "Codex", global_directories: ["/home/.codex/skills"], project_directories: [".agents/skills"], detected: true },
+    { code: cursor, name: "Cursor", global_directories: ["/home/.cursor/skills"], project_directories: [".agents/skills"], detected: true },
   ] as Agent[],
   agentsShown: {},
   projects: [{ id: 1, name: "web" }] as RegisteredProject[],

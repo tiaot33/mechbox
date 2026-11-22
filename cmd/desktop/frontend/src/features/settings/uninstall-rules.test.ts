@@ -8,7 +8,7 @@ const claude = AgentCode.AgentClaudeCode;
 const codex = AgentCode.AgentCodex;
 const global = (agent: AgentCode): Scope => ({ kind: ScopeKind.ScopeGlobal, agent });
 const project = (agent: AgentCode, project_id: number): Scope => ({ kind: ScopeKind.ScopeProject, agent, project_id });
-const place = (folder: string, scope: Scope, status = SkillScopeStatus.SkillScopeCurrent): SkillScopeInspection => ({ skill_id: 1, scope, folder, direct: true, status });
+const place = (folder: string, scope: Scope, status = SkillScopeStatus.SkillScopeCurrent): SkillScopeInspection => ({ skill_id: 1, scope, directory: "", folder, direct: true, status });
 
 const places = [
   place("/home/.claude/skills/a", global(claude)),

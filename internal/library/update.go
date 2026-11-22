@@ -212,14 +212,14 @@ func (l *Library) sameFolder(ctx context.Context, operation string, id SkillID, 
 	if err != nil {
 		return false
 	}
-	if target.sharesFolderWith(edit.target) {
-		return true
-	}
-	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.Scope)
-	if err != nil || len(place) == 0 {
+	place, err := l.installedAt(ctx, id, target)
+	if err != nil || !place.installed() {
 		return false
 	}
-	return agentdir.SameFolder(agentdir.FolderPath(target.directory, place[0].Folder), edit.folder)
+	if place.target.sharesFolderWith(edit.target) {
+		return true
+	}
+	return agentdir.SameFolder(place.folder(), edit.folder)
 }
 
 func selectedSkills(operation string, state *planState, requested []SkillID) ([]SkillID, error) {

@@ -13,7 +13,7 @@ import {
 } from "@bindings/internal/library";
 import { describeError, unmanagedSourceError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
-import { toLibraryError, useLoadedSnapshot } from "@/lib/library";
+import { reloadLibrary, toLibraryError, useLoadedSnapshot } from "@/lib/library";
 import { useFoundSources, withFoundSource } from "@/lib/found-sources";
 import { fetchPlan, sameFolderElsewhere, toggleFetchGroup } from "@/lib/consent";
 import { agentNameIn, placeNames, scopeLabel } from "@/lib/places";
@@ -41,9 +41,15 @@ export type Where =
   // elsewhere:这个作用域里的技能在同一层的别处有同名、内容不同的，按这里的文件夹列出那几处的地名。
   | { kind: "scope"; label: string; elsewhere?: Map<string, string[]> };
 
-// offerFirstOpen 在这台机器上第一次打开 app 时，把用户带到各 Agent 全局目录里不是库装的技能;没有就什么都不做。
+// offerFirstOpen 在这台机器上第一次打开 app 时，先按检测结果设定已添加的 Agent(这台机器上装了的都添加),
+// 再把用户带到各 Agent 全局目录里不是库装的技能;没有就什么都不做。检测失败时照旧用原来的 Agent。
 export async function offerFirstOpen(agents: Agent[]) {
   if (!(await AppService.FirstOpen())) return;
+  const detected = await LibraryService.ApplyDetectedAgents().catch(() => null);
+  if (detected) {
+    agents = detected;
+    await reloadLibrary();
+  }
   await offerFetchUnmanaged(agents, agents.map((a) => scopeOf(a.code, 0)), { kind: "first-open" });
 }
 

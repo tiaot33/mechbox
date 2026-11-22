@@ -126,8 +126,8 @@ type MissingMention struct {
 // ListMissingMentions 列出装在各作用域的库里技能提到了、Agent 在那个作用域里却找不到的技能:作用域页的提醒、
 // 技能详情与装好后的提示都用它。提到按 [Library.GetSkillMentions] 的规则,AI 只用已经存下的结论,没判断的不算。
 //
-// 找不找得到看磁盘上的技能文件夹(按文件夹名),库装的和未纳管技能都算:项目作用域里看这个 Agent 在项目里的目录
-// 和它的全局目录,全局作用域只看全局目录。Agent 目录、项目不在这台机器上的作用域不列;装着的技能自己的文件夹已经不在了的也不列。
+// 找不找得到看磁盘上的技能文件夹(按文件夹名),库装的和未纳管技能都算:项目作用域里看这个 Agent 在项目里的全部技能目录
+// 和它的全部全局目录,全局作用域只看全局目录。Agent 目录、项目不在这台机器上的作用域不列;装着的技能自己的文件夹已经不在了的也不列。
 // 只读,不联网。结果按技能 ID、Agent、作用域(全局在前,项目按 ID)、名字排序;没有时为空列表。
 func (l *Library) ListMissingMentions(ctx context.Context) (missing []MissingMention, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
@@ -141,7 +141,8 @@ func (l *Library) ListMissingMentions(ctx context.Context) (missing []MissingMen
 }
 
 // ListLostMentions 在卸载、从库里删除之前给出:gone 这几处的技能文件夹不在了以后,哪些装着的技能会因此找不到它们提到的技能
-// (现在找得到、之后找不到的,规则同 [Library.ListMissingMentions])。共用这个文件夹的其他 Agent 一并算不在,gone 里的技能
+// (现在找得到、之后找不到的,规则同 [Library.ListMissingMentions])。按要删的实际文件夹判断:认同一处的其他 Agent 一并算不在,
+// 同一个作用域另一个技能目录里的同名文件夹照样算找得到;gone 里的技能
 // 自己不再算;不是装在那里的忽略。只读,一次扫描算出,排序同 ListMissingMentions;没有时为空列表。
 // gone 里的作用域组合不合法时返回 InvalidArgument。
 func (l *Library) ListLostMentions(ctx context.Context, gone []SkillInScope) (lost []MissingMention, err error) {
@@ -157,18 +158,11 @@ func (l *Library) ListLostMentions(ctx context.Context, gone []SkillInScope) (lo
 	if err != nil {
 		return nil, err
 	}
-	removed := map[folderAt]bool{}
+	removed := map[string]bool{}
 	for _, place := range gone {
 		for _, in := range installed {
-			if in.SkillID != place.SkillID || in.Scope != place.Scope {
-				continue
-			}
-			name := agentdir.FolderName(in.Folder)
-			removed[folderAt{in.Scope, name}] = true
-			for _, agent := range in.SharedWith {
-				shared := in.Scope
-				shared.Agent = agent
-				removed[folderAt{shared, name}] = true
+			if in.SkillID == place.SkillID && in.Scope == place.Scope {
+				removed[in.Folder] = true
 			}
 		}
 	}
@@ -202,11 +196,11 @@ func (l *Library) scanInstalled(ctx context.Context) (*libraryScan, []SkillScope
 	return scan, installed, nil
 }
 
-func (s *libraryScan) missing(installed []SkillScope, removed map[folderAt]bool) []MissingMention {
+func (s *libraryScan) missing(installed []SkillScope, removed map[string]bool) []MissingMention {
 	present := map[folderAt]bool{}
 	for _, folder := range s.folders {
-		if at := (folderAt{folder.target.scope(), folder.Name}); !removed[at] {
-			present[at] = true
+		if !removed[folder.Path] || slices.ContainsFunc(folder.twins, func(path string) bool { return !removed[path] }) {
+			present[folderAt{folder.target.scope(), folder.Name}] = true
 		}
 	}
 	visible := func(scope Scope, name string) bool {
@@ -214,7 +208,7 @@ func (s *libraryScan) missing(installed []SkillScope, removed map[folderAt]bool)
 	}
 	missing := []MissingMention{}
 	for _, in := range installed {
-		if !present[folderAt{in.Scope, agentdir.FolderName(in.Folder)}] {
+		if removed[in.Folder] || !present[folderAt{in.Scope, agentdir.FolderName(in.Folder)}] {
 			continue
 		}
 		from := s.byID[int64(in.SkillID)]

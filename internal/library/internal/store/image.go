@@ -229,7 +229,7 @@ func (i *Image) Summary(ctx context.Context) (Summary, error) {
 }
 
 func (s *Store) Replace(ctx context.Context, image *Image) error {
-	if err := writeBuiltinAgents(ctx, image.db, s.layout); err != nil {
+	if err := writeCatalogAgents(ctx, image.db, s.layout, false); err != nil {
 		return wrap(err)
 	}
 	if _, err := image.db.ExecContext(ctx, `UPDATE replica SET token = ?`, newToken()); err != nil {

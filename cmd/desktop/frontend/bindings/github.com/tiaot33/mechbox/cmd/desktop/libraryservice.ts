@@ -23,8 +23,12 @@ export function AISettings(): $CancellablePromise<library$0.AISettings> {
     return $Call.ByID(2011808321);
 }
 
-export function AddAgent(agent: library$0.CustomAgent): $CancellablePromise<library$0.Agent> {
+export function AddAgent(agent: library$0.AgentInput): $CancellablePromise<library$0.Agent> {
     return $Call.ByID(3992441198, agent);
+}
+
+export function AddAgentsFromPool(codes: library$0.AgentCode[] | null): $CancellablePromise<library$0.Agent[] | null> {
+    return $Call.ByID(1706211065, codes);
 }
 
 export function AddSkillToGroup(groupID: library$0.GroupID, skillID: library$0.SkillID): $CancellablePromise<library$0.GroupMemberResult[] | null> {
@@ -33,6 +37,10 @@ export function AddSkillToGroup(groupID: library$0.GroupID, skillID: library$0.S
 
 export function AppSettings(): $CancellablePromise<{ [_ in string]?: string } | null> {
     return $Call.ByID(1008065512);
+}
+
+export function ApplyDetectedAgents(): $CancellablePromise<library$0.Agent[] | null> {
+    return $Call.ByID(2344503118);
 }
 
 export function AttachSource(req: library$0.AttachSourceRequest): $CancellablePromise<library$0.Skill> {
@@ -66,7 +74,7 @@ export function DiffVersions($from: library$0.VersionID, to: library$0.VersionID
     return $Call.ByID(4170673460, $from, to);
 }
 
-export function EditAgent(code: library$0.AgentCode, agent: library$0.CustomAgent, opts: library$0.EditAgentOptions): $CancellablePromise<library$0.EditAgentResult> {
+export function EditAgent(code: library$0.AgentCode, agent: library$0.AgentInput, opts: library$0.EditAgentOptions): $CancellablePromise<library$0.EditAgentResult> {
     return $Call.ByID(3668119015, code, agent, opts);
 }
 
@@ -155,6 +163,10 @@ export function JudgeSkillMentions(id: library$0.SkillID): $CancellablePromise<l
 
 export function KeepDeletedSkill(id: library$0.SkillID): $CancellablePromise<library$0.Skill> {
     return $Call.ByID(2236391569, id);
+}
+
+export function ListAgentPool(): $CancellablePromise<library$0.Agent[] | null> {
+    return $Call.ByID(1173585253);
 }
 
 export function ListAgents(): $CancellablePromise<library$0.Agent[] | null> {

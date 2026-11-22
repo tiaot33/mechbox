@@ -17,11 +17,15 @@ import (
 // addAgent 添加一个自定义 Agent,全局目录在 home 下的 global,项目目录为 project。
 func addAgent(t *testing.T, lib *library.Library, home, name, global, project string) library.Agent {
 	t.Helper()
-	agent, err := lib.AddAgent(t.Context(), library.CustomAgent{Name: name, GlobalDirectory: filepath.Join(home, global), ProjectDirectory: project})
+	agent, err := lib.AddAgent(t.Context(), library.AgentInput{Name: name, GlobalDirectories: []string{filepath.Join(home, global)}, ProjectDirectories: []string{project}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return agent
+}
+
+func hasAgent(agents []library.Agent, want library.Agent) bool {
+	return slices.ContainsFunc(agents, func(agent library.Agent) bool { return reflect.DeepEqual(agent, want) })
 }
 
 func listAgents(t *testing.T, lib *library.Library) []library.Agent {
@@ -33,8 +37,8 @@ func listAgents(t *testing.T, lib *library.Library) []library.Agent {
 	return agents
 }
 
-// 内置 Agent 按主目录下它的配置目录是否存在报出是否检测到,列出时现查。
-func TestListAgentsReportsWhetherBuiltinAgentsAreDetected(t *testing.T) {
+// 新数据库里先添加 Claude Code 和 Codex;它们按主目录下的检测目录是否存在报出是否检测到,列出时现查。
+func TestListAgentsReportsWhetherAgentsAreDetected(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
 	setTestHome(t, home)
@@ -59,15 +63,15 @@ func TestListAgentsReportsWhetherBuiltinAgentsAreDetected(t *testing.T) {
 	}
 }
 
-// 添加的自定义 Agent 和内置 Agent 一样能装到全局和项目;重开库时写入内置 Agent 不动它。
-func TestCustomAgentInstallsLikeBuiltinAgents(t *testing.T) {
+// 手填添加的 Agent 和其他已添加的 Agent 一样能装到全局和项目;重开库时插入收录的 Agent 不动它。
+func TestAddedAgentInstallsLikeOtherAgents(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
 	setTestHome(t, home)
 	path := filepath.Join(t.TempDir(), "library.db")
 	lib := openTestLibraryAt(t, path)
-	agent, err := lib.AddAgent(ctx, library.CustomAgent{Name: "  My Agent ", GlobalDirectory: "~/.my-agent/skills", ProjectDirectory: "./.my-agent/skills/"})
+	agent, err := lib.AddAgent(ctx, library.AgentInput{Name: "  My Agent ", GlobalDirectories: []string{"~/.my-agent/skills"}, ProjectDirectories: []string{"./.my-agent/skills/"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,13 +79,13 @@ func TestCustomAgentInstallsLikeBuiltinAgents(t *testing.T) {
 		t.Fatalf("AddAgent code = %q, want custom- prefix", agent.Code)
 	}
 	want := library.Agent{
-		Code: agent.Code, Name: "My Agent", Custom: true,
-		GlobalDirectory: filepath.Join(home, ".my-agent", "skills"), ProjectDirectory: ".my-agent/skills",
+		Code: agent.Code, Name: "My Agent", DetectDirectories: []string{},
+		GlobalDirectories: []string{filepath.Join(home, ".my-agent", "skills")}, ProjectDirectories: []string{".my-agent/skills"},
 	}
-	if agent != want {
+	if !reflect.DeepEqual(agent, want) {
 		t.Fatalf("AddAgent() = %#v, want %#v", agent, want)
 	}
-	if got := listAgents(t, lib); !slices.Contains(got, want) || len(got) != 3 {
+	if got := listAgents(t, lib); !hasAgent(got, want) || len(got) != 3 {
 		t.Fatalf("ListAgents() = %#v, want built-in agents and %#v", got, want)
 	}
 	skill := fetchNamedSkill(t, lib, "example")
@@ -109,65 +113,92 @@ func TestCustomAgentInstallsLikeBuiltinAgents(t *testing.T) {
 		t.Fatal(err)
 	}
 	reopened := openTestLibraryAt(t, path)
-	if got := listAgents(t, reopened); !slices.Contains(got, want) {
+	if got := listAgents(t, reopened); !hasAgent(got, want) {
 		t.Fatalf("ListAgents() after reopen = %#v, want %#v kept", got, want)
 	}
 	requireSkillScopes(t, reopened, wantScopes)
 }
 
-// 填写不合法时返回 InvalidArgument 并指向字段,什么都不添加;全局目录必须在主目录里面。
+// 填写不合法时返回 InvalidArgument 并指向字段,什么都不添加;目录都必须在主目录或项目里面,列表里不能重复、不能一个在另一个里面。
 func TestAddAgentRejectsInvalidSettings(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
 	setTestHome(t, home)
 	lib := openTestLibrary(t)
-	valid := library.CustomAgent{Name: "Agent", GlobalDirectory: filepath.Join(home, ".agent", "skills"), ProjectDirectory: ".agent/skills"}
+	valid := func() library.AgentInput {
+		return library.AgentInput{
+			Name: "Agent", GlobalDirectories: []string{filepath.Join(home, ".agent", "skills"), "~/.other/skills"},
+			ProjectDirectories: []string{".agent/skills", ".other/skills"}, DetectDirectories: []string{"~/.agent"},
+		}
+	}
 	cases := map[string]struct {
-		edit  func(*library.CustomAgent)
+		edit  func(*library.AgentInput)
 		field string
 	}{
-		"empty name":              {func(a *library.CustomAgent) { a.Name = "  " }, "name"},
-		"global outside home":     {func(a *library.CustomAgent) { a.GlobalDirectory = filepath.Join(t.TempDir(), "skills") }, "global_directory"},
-		"global escapes home":     {func(a *library.CustomAgent) { a.GlobalDirectory = filepath.Join(home, "..", "skills") }, "global_directory"},
-		"global is home":          {func(a *library.CustomAgent) { a.GlobalDirectory = home }, "global_directory"},
-		"global is relative":      {func(a *library.CustomAgent) { a.GlobalDirectory = ".agent/skills" }, "global_directory"},
-		"global missing":          {func(a *library.CustomAgent) { a.GlobalDirectory = "" }, "global_directory"},
-		"project missing":         {func(a *library.CustomAgent) { a.ProjectDirectory = "" }, "project_directory"},
-		"project is absolute":     {func(a *library.CustomAgent) { a.ProjectDirectory = filepath.Join(home, "skills") }, "project_directory"},
-		"project escapes project": {func(a *library.CustomAgent) { a.ProjectDirectory = "../skills" }, "project_directory"},
-		"project is project root": {func(a *library.CustomAgent) { a.ProjectDirectory = "." }, "project_directory"},
+		"empty name":               {func(a *library.AgentInput) { a.Name = "  " }, "name"},
+		"no global directory":      {func(a *library.AgentInput) { a.GlobalDirectories = nil }, "global_directories"},
+		"global outside home":      {func(a *library.AgentInput) { a.GlobalDirectories[1] = filepath.Join(t.TempDir(), "skills") }, "global_directories"},
+		"global escapes home":      {func(a *library.AgentInput) { a.GlobalDirectories[0] = filepath.Join(home, "..", "skills") }, "global_directories"},
+		"global is home":           {func(a *library.AgentInput) { a.GlobalDirectories[0] = home }, "global_directories"},
+		"global is relative":       {func(a *library.AgentInput) { a.GlobalDirectories[0] = ".agent/skills" }, "global_directories"},
+		"global missing":           {func(a *library.AgentInput) { a.GlobalDirectories[1] = "" }, "global_directories"},
+		"global repeated":          {func(a *library.AgentInput) { a.GlobalDirectories[1] = "~/.agent/skills/" }, "global_directories"},
+		"global nested":            {func(a *library.AgentInput) { a.GlobalDirectories[1] = "~/.agent/skills/inner" }, "global_directories"},
+		"no project directory":     {func(a *library.AgentInput) { a.ProjectDirectories = []string{} }, "project_directories"},
+		"project missing":          {func(a *library.AgentInput) { a.ProjectDirectories[0] = "" }, "project_directories"},
+		"project is absolute":      {func(a *library.AgentInput) { a.ProjectDirectories[0] = filepath.Join(home, "skills") }, "project_directories"},
+		"project escapes project":  {func(a *library.AgentInput) { a.ProjectDirectories[1] = "../skills" }, "project_directories"},
+		"project is project root":  {func(a *library.AgentInput) { a.ProjectDirectories[0] = "." }, "project_directories"},
+		"project repeated":         {func(a *library.AgentInput) { a.ProjectDirectories[1] = "./.agent/skills" }, "project_directories"},
+		"project nested":           {func(a *library.AgentInput) { a.ProjectDirectories[0] = ".other" }, "project_directories"},
+		"detect outside home":      {func(a *library.AgentInput) { a.DetectDirectories[0] = t.TempDir() }, "detect_directories"},
+		"detect is relative":       {func(a *library.AgentInput) { a.DetectDirectories[0] = ".agent" }, "detect_directories"},
+		"detect directory missing": {func(a *library.AgentInput) { a.DetectDirectories[0] = "" }, "detect_directories"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			agent := valid
+			agent := valid()
 			tc.edit(&agent)
 			_, err := lib.AddAgent(t.Context(), agent)
 			requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: tc.field})
 		})
 	}
 	if got := listAgents(t, lib); !reflect.DeepEqual(got, seededAgents(home)) {
-		t.Fatalf("ListAgents() = %#v, want only built-in agents", got)
+		t.Fatalf("ListAgents() = %#v, want only the agents of a new library", got)
+	}
+	added, err := lib.AddAgent(t.Context(), valid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{filepath.Join(home, ".agent", "skills"), filepath.Join(home, ".other", "skills")}
+	if !reflect.DeepEqual(added.GlobalDirectories, want) || !reflect.DeepEqual(added.DetectDirectories, []string{filepath.Join(home, ".agent")}) {
+		t.Fatalf("AddAgent() = %#v; want global %q in order and the detect directory", added, want)
 	}
 }
 
-// 内置 Agent 不能改也不能删;未知代码返回 NotFound。
-func TestBuiltinAgentsCannotBeEditedOrDeleted(t *testing.T) {
+// 候选池里的 Agent 和不认识的代码一样:编辑、移除、安装、查目录都返回 NotFound。
+func TestAgentsInThePoolCannotBeUsed(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	home := t.TempDir()
 	setTestHome(t, home)
 	lib := openTestLibrary(t)
-	settings := library.CustomAgent{Name: "Codex", GlobalDirectory: filepath.Join(home, ".other", "skills"), ProjectDirectory: ".other/skills"}
-	_, err := lib.EditAgent(ctx, library.AgentCodex, settings, library.EditAgentOptions{})
-	requireLibraryError(t, err, library.FailedPrecondition)
-	_, err = lib.DeleteAgent(ctx, library.AgentCodex, library.DeleteAgentOptions{})
-	requireLibraryError(t, err, library.FailedPrecondition)
-	_, err = lib.EditAgent(ctx, "custom-missing", settings, library.EditAgentOptions{})
-	requireLibraryError(t, err, library.NotFound)
-	_, err = lib.DeleteAgent(ctx, "custom-missing", library.DeleteAgentOptions{})
-	requireLibraryError(t, err, library.NotFound)
+	skill := fetchNamedSkill(t, lib, "example")
+	settings := library.AgentInput{Name: "Cursor", GlobalDirectories: []string{"~/.cursor/skills"}, ProjectDirectories: []string{".cursor/skills"}}
+	for _, code := range []library.AgentCode{"cursor", "custom-missing"} {
+		_, err := lib.EditAgent(ctx, code, settings, library.EditAgentOptions{})
+		requireLibraryError(t, err, library.NotFound)
+		_, err = lib.DeleteAgent(ctx, code, library.DeleteAgentOptions{})
+		requireLibraryError(t, err, library.NotFound)
+		_, err = lib.ScopeDirectory(ctx, library.GlobalScope(code))
+		requireLibraryError(t, err, library.NotFound)
+		_, err = lib.PlanInstall(ctx, skill.ID, library.GlobalScope(code))
+		requireLibraryError(t, err, library.NotFound)
+		err = lib.Install(ctx, skill.ID, library.GlobalScope(code), library.InstallOptions{})
+		requireLibraryError(t, err, library.NotFound)
+	}
 	if got := listAgents(t, lib); !reflect.DeepEqual(got, seededAgents(home)) {
-		t.Fatalf("ListAgents() = %#v, want built-in agents unchanged", got)
+		t.Fatalf("ListAgents() = %#v, want the agents of a new library unchanged", got)
 	}
 }
 
@@ -184,13 +215,13 @@ func TestEditAgentRenameKeepsInstalls(t *testing.T) {
 	if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	result, err := lib.EditAgent(ctx, agent.Code, library.CustomAgent{Name: "New", GlobalDirectory: agent.GlobalDirectory, ProjectDirectory: agent.ProjectDirectory}, library.EditAgentOptions{Migrate: true})
+	result, err := lib.EditAgent(ctx, agent.Code, library.AgentInput{Name: "New", GlobalDirectories: []string{agent.GlobalDirectories[0]}, ProjectDirectories: []string{agent.ProjectDirectories[0]}}, library.EditAgentOptions{Migrate: true})
 	agent.Name = "New"
-	if err != nil || result.Agent != agent || len(result.Migrations) != 0 {
+	if err != nil || !reflect.DeepEqual(result.Agent, agent) || len(result.Migrations) != 0 {
 		t.Fatalf("EditAgent() = %#v, %v; want renamed %#v and no migrations", result, err, agent)
 	}
-	requireSkillScopes(t, lib, []library.SkillScope{{SkillID: skill.ID, Scope: scope, Folder: filepath.Join(agent.GlobalDirectory, "example"), Direct: true}})
-	requireInstalledFolder(t, agent.GlobalDirectory, "example", "# example\n")
+	requireSkillScopes(t, lib, []library.SkillScope{{SkillID: skill.ID, Scope: scope, Folder: filepath.Join(agent.GlobalDirectories[0], "example"), Direct: true}})
+	requireInstalledFolder(t, agent.GlobalDirectories[0], "example", "# example\n")
 }
 
 // 改目录并迁移:已装的文件夹原样搬到新目录(保留用户改过的内容),记录保留;新目录里已有同名文件夹的不覆盖、
@@ -224,7 +255,7 @@ func TestEditAgentMigratesFoldersAndReportsConflicts(t *testing.T) {
 	writeFile(t, filepath.Join(oldDir, "moved", "notes.md"), edited, 0o644)
 	writeFile(t, filepath.Join(newDir, "blocked", "SKILL.md"), []byte("not from the library\n"), 0o644)
 
-	result, err := lib.EditAgent(ctx, agent.Code, library.CustomAgent{Name: "Agent", GlobalDirectory: newDir, ProjectDirectory: ".agent/skills"}, library.EditAgentOptions{Migrate: true})
+	result, err := lib.EditAgent(ctx, agent.Code, library.AgentInput{Name: "Agent", GlobalDirectories: []string{newDir}, ProjectDirectories: []string{".agent/skills"}}, library.EditAgentOptions{Migrate: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +263,7 @@ func TestEditAgentMigratesFoldersAndReportsConflicts(t *testing.T) {
 		{SkillID: moved.ID, Scope: global, Outcome: library.MigrationMoved, From: filepath.Join(oldDir, "moved"), To: filepath.Join(newDir, "moved")},
 		{SkillID: blocked.ID, Scope: global, Outcome: library.MigrationSkipped, From: filepath.Join(oldDir, "blocked"), To: filepath.Join(newDir, "blocked")},
 	}
-	if result.Agent.GlobalDirectory != newDir || !reflect.DeepEqual(result.Migrations, wantMigrations) {
+	if result.Agent.GlobalDirectories[0] != newDir || !reflect.DeepEqual(result.Migrations, wantMigrations) {
 		t.Fatalf("EditAgent() = %#v; want global %q and migrations %#v", result, newDir, wantMigrations)
 	}
 	requireNoInstalledFolder(t, oldDir, "moved")
@@ -287,7 +318,7 @@ func TestEditAgentWithoutMigrationDropsInstallsOfChangedLevel(t *testing.T) {
 	}
 	oldDir := filepath.Join(home, ".old", "skills")
 	newDir := filepath.Join(home, ".new", "skills")
-	result, err := lib.EditAgent(ctx, agent.Code, library.CustomAgent{Name: "Agent", GlobalDirectory: newDir, ProjectDirectory: ".agent/skills"}, library.EditAgentOptions{})
+	result, err := lib.EditAgent(ctx, agent.Code, library.AgentInput{Name: "Agent", GlobalDirectories: []string{newDir}, ProjectDirectories: []string{".agent/skills"}}, library.EditAgentOptions{})
 	if err != nil || len(result.Migrations) != 0 {
 		t.Fatalf("EditAgent() = %#v, %v; want no migrations", result, err)
 	}
@@ -340,9 +371,9 @@ func TestDeleteAgentRemovesOrKeepsFolders(t *testing.T) {
 				t.Fatalf("ListGroupInstalls() = %#v, %v; want none", installs, err)
 			}
 			if policy == library.Keep {
-				requireInstalledFolder(t, agent.GlobalDirectory, "example", "# example\n")
+				requireInstalledFolder(t, agent.GlobalDirectories[0], "example", "# example\n")
 			} else {
-				requireNoInstalledFolder(t, agent.GlobalDirectory, "example")
+				requireNoInstalledFolder(t, agent.GlobalDirectories[0], "example")
 			}
 			_, err = lib.ScopeDirectory(ctx, global)
 			requireLibraryError(t, err, library.NotFound)
@@ -369,7 +400,7 @@ func TestSharedDirectoryCountsAsInstalledForEveryAgent(t *testing.T) {
 	folder := filepath.Join(directory, "example")
 	want := []library.SkillScope{
 		{SkillID: skill.ID, Scope: codex, Folder: folder, Direct: true, SharedWith: []library.AgentCode{agent.Code}},
-		{SkillID: skill.ID, Scope: shared, Folder: folder, Direct: true, SharedWith: []library.AgentCode{library.AgentCodex}},
+		{SkillID: skill.ID, Scope: shared, Folder: folder, Direct: true, SharedWith: []library.AgentCode{library.AgentCodex}, SharedOnly: true},
 	}
 	if agent.Code < library.AgentCodex {
 		want[0], want[1] = want[1], want[0]
@@ -393,6 +424,9 @@ func TestSharedDirectoryCountsAsInstalledForEveryAgent(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(folder, "notes.md")); err != nil {
 		t.Fatalf("Install(shared) touched the folder: %v", err)
+	}
+	for i := range want {
+		want[i].SharedOnly = false
 	}
 	requireSkillScopes(t, lib, want)
 
@@ -578,7 +612,7 @@ func TestEditAgentLeavingASharedDirectoryKeepsItForTheOthers(t *testing.T) {
 			oldDir := filepath.Join(home, ".agents", "skills")
 			newDir := filepath.Join(home, ".agent", "skills")
 			writeFile(t, filepath.Join(oldDir, "example", "notes.md"), []byte("edited\n"), 0o644)
-			result, err := lib.EditAgent(ctx, agent.Code, library.CustomAgent{Name: "Agent", GlobalDirectory: newDir, ProjectDirectory: ".agent/skills"}, library.EditAgentOptions{Migrate: migrate})
+			result, err := lib.EditAgent(ctx, agent.Code, library.AgentInput{Name: "Agent", GlobalDirectories: []string{newDir}, ProjectDirectories: []string{".agent/skills"}}, library.EditAgentOptions{Migrate: migrate})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -673,10 +707,10 @@ func TestEditAgentMigratesSkillsCountedThroughASharedDirectory(t *testing.T) {
 			}
 			skill := fetchNamedSkill(t, lib, "example")
 			codex, scope := library.GlobalScope(library.AgentCodex), library.GlobalScope(agent.Code)
-			root, settings := home, library.CustomAgent{Name: "Agent", GlobalDirectory: filepath.Join(home, ".new", "skills"), ProjectDirectory: agent.ProjectDirectory}
+			root, settings := home, library.AgentInput{Name: "Agent", GlobalDirectories: []string{filepath.Join(home, ".new", "skills")}, ProjectDirectories: []string{agent.ProjectDirectories[0]}}
 			if level == "project" {
 				codex, scope = library.ProjectScope(library.AgentCodex, project.ID), library.ProjectScope(agent.Code, project.ID)
-				root, settings = project.Path, library.CustomAgent{Name: "Agent", GlobalDirectory: agent.GlobalDirectory, ProjectDirectory: ".new/skills"}
+				root, settings = project.Path, library.AgentInput{Name: "Agent", GlobalDirectories: []string{agent.GlobalDirectories[0]}, ProjectDirectories: []string{".new/skills"}}
 			}
 			if err := lib.Install(ctx, skill.ID, codex, library.InstallOptions{}); err != nil {
 				t.Fatal(err)
@@ -729,7 +763,7 @@ func TestEditAgentMigrationRespectsAnotherSkillsInstall(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(newDir, "example")); err != nil {
 		t.Fatal(err)
 	}
-	result, err := lib.EditAgent(ctx, agent.Code, library.CustomAgent{Name: "Agent", GlobalDirectory: newDir, ProjectDirectory: agent.ProjectDirectory}, library.EditAgentOptions{Migrate: true})
+	result, err := lib.EditAgent(ctx, agent.Code, library.AgentInput{Name: "Agent", GlobalDirectories: []string{newDir}, ProjectDirectories: []string{agent.ProjectDirectories[0]}}, library.EditAgentOptions{Migrate: true})
 	want := []library.AgentMigration{{
 		SkillID: second.ID, Scope: scope, Outcome: library.MigrationSkipped, From: filepath.Join(oldDir, "example"), To: filepath.Join(newDir, "example"),
 	}}
@@ -776,7 +810,7 @@ func TestEditAgentMigrationNeverOverwritesAFolderThatAppearsDuringCopy(t *testin
 		}
 		return false
 	}}
-	_, err := lib.EditAgent(injectDuringCopy, agent.Code, library.CustomAgent{Name: "Agent", GlobalDirectory: newDir, ProjectDirectory: agent.ProjectDirectory}, library.EditAgentOptions{Migrate: true})
+	_, err := lib.EditAgent(injectDuringCopy, agent.Code, library.AgentInput{Name: "Agent", GlobalDirectories: []string{newDir}, ProjectDirectories: []string{agent.ProjectDirectories[0]}}, library.EditAgentOptions{Migrate: true})
 	mu.Lock()
 	injected := appeared
 	mu.Unlock()
@@ -788,7 +822,7 @@ func TestEditAgentMigrationNeverOverwritesAFolderThatAppearsDuringCopy(t *testin
 	requireInstalledFolder(t, oldDir, "example", "# example\n")
 	requireNoStagedEntries(t, newDir)
 	requireSkillScopes(t, lib, []library.SkillScope{{SkillID: skill.ID, Scope: scope, Folder: filepath.Join(oldDir, "example"), Direct: true}})
-	if got := listAgents(t, lib); !slices.Contains(got, agent) {
+	if got := listAgents(t, lib); !hasAgent(got, agent) {
 		t.Fatalf("ListAgents() = %#v, want %#v unchanged", got, agent)
 	}
 }
@@ -809,13 +843,13 @@ func TestEditAgentRejectsDirectoryInsideAnInstalledSkill(t *testing.T) {
 	}
 	source := filepath.Join(home, ".old", "skills", "example")
 	before := snapshotTree(t, filepath.Join(home, ".old"))
-	_, err := lib.EditAgent(ctx, agent.Code, library.CustomAgent{Name: "Agent", GlobalDirectory: filepath.Join(source, "nested"), ProjectDirectory: agent.ProjectDirectory}, library.EditAgentOptions{Migrate: true})
-	requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "global_directory"})
+	_, err := lib.EditAgent(ctx, agent.Code, library.AgentInput{Name: "Agent", GlobalDirectories: []string{filepath.Join(source, "nested")}, ProjectDirectories: []string{agent.ProjectDirectories[0]}}, library.EditAgentOptions{Migrate: true})
+	requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: "global_directories"})
 	if after := snapshotTree(t, filepath.Join(home, ".old")); !reflect.DeepEqual(after, before) {
 		t.Fatalf("source tree changed: %#v, want %#v", after, before)
 	}
 	requireNoInstalledFolder(t, source, "nested")
-	if got := listAgents(t, lib); !slices.Contains(got, agent) {
+	if got := listAgents(t, lib); !hasAgent(got, agent) {
 		t.Fatalf("ListAgents() = %#v, want %#v unchanged", got, agent)
 	}
 }
@@ -850,7 +884,7 @@ func TestEditAgentMigrationFailureWhileCommittingRestoresEverything(t *testing.T
 	t.Cleanup(func() { _ = os.Chmod(readOnlyFolder, 0o755) })
 	makeScopeReadOnly(t, oldProject)
 	before := snapshotTree(t, oldGlobal, oldProject)
-	_, err = lib.EditAgent(ctx, agent.Code, library.CustomAgent{Name: "Agent", GlobalDirectory: newGlobal, ProjectDirectory: ".new/skills"}, library.EditAgentOptions{Migrate: true})
+	_, err = lib.EditAgent(ctx, agent.Code, library.AgentInput{Name: "Agent", GlobalDirectories: []string{newGlobal}, ProjectDirectories: []string{".new/skills"}}, library.EditAgentOptions{Migrate: true})
 	requireLibraryError(t, err, library.Permission)
 	if after := snapshotTree(t, oldGlobal, oldProject); !reflect.DeepEqual(after, before) {
 		t.Fatalf("old folders = %#v, want %#v", after, before)
@@ -864,7 +898,7 @@ func TestEditAgentMigrationFailureWhileCommittingRestoresEverything(t *testing.T
 		{SkillID: skill.ID, Scope: global, Folder: filepath.Join(oldGlobal, "example"), Direct: true},
 		{SkillID: skill.ID, Scope: projectScope, Folder: filepath.Join(oldProject, "example"), Direct: true},
 	})
-	if got := listAgents(t, lib); !slices.Contains(got, agent) {
+	if got := listAgents(t, lib); !hasAgent(got, agent) {
 		t.Fatalf("ListAgents() = %#v, want %#v unchanged", got, agent)
 	}
 }
@@ -893,7 +927,7 @@ func TestEditAgentMigrationFailureLeavesEverythingAsItWas(t *testing.T) {
 		t.Skip("directory permissions are not enforced for this user")
 	}
 	newDir := filepath.Join(home, ".new", "skills")
-	_, err := lib.EditAgent(ctx, agent.Code, library.CustomAgent{Name: "Agent", GlobalDirectory: newDir, ProjectDirectory: ".agent/skills"}, library.EditAgentOptions{Migrate: true})
+	_, err := lib.EditAgent(ctx, agent.Code, library.AgentInput{Name: "Agent", GlobalDirectories: []string{newDir}, ProjectDirectories: []string{".agent/skills"}}, library.EditAgentOptions{Migrate: true})
 	if err == nil {
 		t.Fatal("EditAgent() = nil, want the copy to fail")
 	}
@@ -901,7 +935,7 @@ func TestEditAgentMigrationFailureLeavesEverythingAsItWas(t *testing.T) {
 	requireNoInstalledFolder(t, newDir, "example")
 	requireNoStagedEntries(t, newDir)
 	requireSkillScopes(t, lib, []library.SkillScope{{SkillID: skill.ID, Scope: global, Folder: filepath.Join(oldDir, "example"), Direct: true}})
-	if got := listAgents(t, lib); !slices.Contains(got, agent) {
+	if got := listAgents(t, lib); !hasAgent(got, agent) {
 		t.Fatalf("ListAgents() = %#v, want %#v unchanged", got, agent)
 	}
 }

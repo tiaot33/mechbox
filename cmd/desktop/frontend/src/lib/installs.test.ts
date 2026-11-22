@@ -42,7 +42,7 @@ describe("项目不在这台机器上", () => {
     expect(needsReinstall(off)).toBe(false);
     expect(reinstallLevel([off])).toBeUndefined();
     const s = snapshot({
-      agents: [{ code: AgentCode.AgentClaudeCode, name: "Claude Code", global_directory: "/home/.claude/skills", project_directory: ".claude/skills" }] as Agent[],
+      agents: [{ code: AgentCode.AgentClaudeCode, name: "Claude Code", global_directories: ["/home/.claude/skills"], project_directories: [".claude/skills" ]}] as Agent[],
       projects: [{ id: 2, name: "old", missing: true }] as RegisteredProject[],
       skills: [{ id: 1, name: "s1" }] as Skill[],
       skillScopes: [off],
@@ -57,8 +57,8 @@ describe("项目不在这台机器上", () => {
       ({ skill_id: 1, scope, folder: `${scope.agent}${scope.project_id ?? 0}`, direct: true, status, source_latest }) as SkillScopeInspection;
     const s = snapshot({
       agents: [
-        { code: AgentCode.AgentClaudeCode, name: "Claude Code", global_directory: "/home/.claude/skills", project_directory: ".claude/skills" },
-        { code: AgentCode.AgentCodex, name: "Codex", global_directory: "/home/.agents/skills", project_directory: ".agents/skills" },
+        { code: AgentCode.AgentClaudeCode, name: "Claude Code", global_directories: ["/home/.claude/skills"], project_directories: [".claude/skills" ]},
+        { code: AgentCode.AgentCodex, name: "Codex", global_directories: ["/home/.agents/skills"], project_directories: [".agents/skills" ]},
       ] as Agent[],
       projects: [{ id: 2, name: "old", missing: true }, { id: 3, name: "web" }] as RegisteredProject[],
       skills: [{ id: 1, name: "s1" }] as Skill[],
@@ -87,7 +87,7 @@ describe("被手动改过是用户自己的修改", () => {
   const place = (status: SkillScopeStatus, source_latest = false) =>
     ({ skill_id: 1, scope, folder: "f1", direct: true, status, source_latest }) as SkillScopeInspection;
   const s = snapshot({
-    agents: [{ code: AgentCode.AgentClaudeCode, name: "Claude Code", global_directory: "/home/.claude/skills", project_directory: ".claude/skills" }] as Agent[],
+    agents: [{ code: AgentCode.AgentClaudeCode, name: "Claude Code", global_directories: ["/home/.claude/skills"], project_directories: [".claude/skills" ]}] as Agent[],
     skills: [{ id: 1, name: "s1" }] as Skill[],
     skillScopes: [place(SkillScopeStatus.SkillScopeModified)],
   });

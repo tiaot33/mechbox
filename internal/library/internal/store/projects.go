@@ -2,16 +2,25 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 )
 
 type Agent struct {
-	Code        string
-	Name        string
-	GlobalPath  string
-	ProjectPath string
-	Custom      bool
-	DetectPath  string
+	Code         string
+	Name         string
+	GlobalPaths  []string
+	ProjectPaths []string
+	DetectPaths  []string
+	SameName     string
+	Enabled      bool
+}
+
+func (a Agent) Paths(project bool) []string {
+	if project {
+		return a.ProjectPaths
+	}
+	return a.GlobalPaths
 }
 
 type Project struct {
@@ -19,12 +28,31 @@ type Project struct {
 	Path string
 }
 
-const agentColumns = `code, name, global_path, project_path, custom, detect_path`
+const agentColumns = `code, name, global_paths, project_paths, detect_paths, same_name, enabled`
+
+func jsonList(items []string) string {
+	if items == nil {
+		items = []string{}
+	}
+	data, _ := json.Marshal(items)
+	return string(data)
+}
 
 func scanAgent(row interface{ Scan(...any) error }) (Agent, error) {
 	var agent Agent
-	err := row.Scan(&agent.Code, &agent.Name, &agent.GlobalPath, &agent.ProjectPath, &agent.Custom, &agent.DetectPath)
-	return agent, err
+	var global, project, detect string
+	if err := row.Scan(&agent.Code, &agent.Name, &global, &project, &detect, &agent.SameName, &agent.Enabled); err != nil {
+		return Agent{}, err
+	}
+	for _, list := range []struct {
+		raw  string
+		into *[]string
+	}{{global, &agent.GlobalPaths}, {project, &agent.ProjectPaths}, {detect, &agent.DetectPaths}} {
+		if err := json.Unmarshal([]byte(list.raw), list.into); err != nil {
+			return Agent{}, fmt.Errorf("agent %s: %w", agent.Code, err)
+		}
+	}
+	return agent, nil
 }
 
 func (q queries) ListAgents(ctx context.Context) ([]Agent, error) {
@@ -55,39 +83,34 @@ func (q queries) GetAgent(ctx context.Context, code string) (Agent, error) {
 	return agent, nil
 }
 
-func (q queries) FolderSharers(ctx context.Context, scope Scope) ([]string, error) {
-	rows, err := q.q.QueryContext(ctx, `SELECT a.code FROM agents a JOIN agents t ON t.code = ?
-		WHERE CASE WHEN ? IS NULL THEN a.global_path = t.global_path ELSE a.project_path = t.project_path END
-		ORDER BY a.code`, scope.Agent, scope.ProjectID)
-	if err != nil {
-		return nil, fmt.Errorf("list folder sharers: %w", wrap(err))
-	}
-	defer rows.Close()
-	var codes []string
-	for rows.Next() {
-		var code string
-		if err := rows.Scan(&code); err != nil {
-			return nil, fmt.Errorf("read folder sharer: %w", wrap(err))
-		}
-		codes = append(codes, code)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read folder sharers: %w", wrap(err))
-	}
-	return codes, nil
-}
-
 func (q queries) AddAgent(ctx context.Context, agent Agent) error {
-	if _, err := q.q.ExecContext(ctx, `INSERT INTO agents(code, name, global_path, project_path, custom) VALUES (?, ?, ?, ?, 1)`,
-		agent.Code, agent.Name, agent.GlobalPath, agent.ProjectPath); err != nil {
+	if _, err := q.q.ExecContext(ctx, `INSERT INTO agents(code, name, global_paths, project_paths, detect_paths, enabled) VALUES (?, ?, ?, ?, ?, 1)`,
+		agent.Code, agent.Name, jsonList(agent.GlobalPaths), jsonList(agent.ProjectPaths), jsonList(agent.DetectPaths)); err != nil {
 		return fmt.Errorf("add agent: %w", wrap(err))
 	}
 	return nil
 }
 
+func (q queries) SetAgentsEnabled(ctx context.Context, codes []string, enabled bool) error {
+	for _, code := range codes {
+		if _, err := q.q.ExecContext(ctx, `UPDATE agents SET enabled = ? WHERE code = ?`, enabled, code); err != nil {
+			return fmt.Errorf("set agent enabled: %w", wrap(err))
+		}
+	}
+	return nil
+}
+
+func (q queries) AgentHasInstalls(ctx context.Context, code string) (bool, error) {
+	var has bool
+	if err := q.q.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM skill_scopes WHERE agent = ?) OR EXISTS (SELECT 1 FROM group_installs WHERE agent = ?)`, code, code).Scan(&has); err != nil {
+		return false, fmt.Errorf("inspect agent installs: %w", wrap(err))
+	}
+	return has, nil
+}
+
 func (t *Tx) EditAgent(ctx context.Context, agent Agent) error {
-	result, err := t.q.ExecContext(ctx, `UPDATE agents SET name = ?, global_path = ?, project_path = ? WHERE code = ? AND custom = 1`,
-		agent.Name, agent.GlobalPath, agent.ProjectPath, agent.Code)
+	result, err := t.q.ExecContext(ctx, `UPDATE agents SET name = ?, global_paths = ?, project_paths = ?, detect_paths = ? WHERE code = ?`,
+		agent.Name, jsonList(agent.GlobalPaths), jsonList(agent.ProjectPaths), jsonList(agent.DetectPaths), agent.Code)
 	if err != nil {
 		return fmt.Errorf("edit agent: %w", wrap(err))
 	}
@@ -112,12 +135,22 @@ func (t *Tx) RemoveAgentInstalls(ctx context.Context, code string, global, proje
 	return nil
 }
 
-func (t *Tx) DeleteAgent(ctx context.Context, code string) error {
+func (t *Tx) RemoveAgentGroupInstalls(ctx context.Context, code string, project bool) error {
+	if _, err := t.q.ExecContext(ctx, `UPDATE skill_scopes SET direct = 1 WHERE agent = ? AND (project_id IS NOT NULL) = ? AND direct = 0`, code, project); err != nil {
+		return fmt.Errorf("keep agent skill scopes as direct installs: %w", wrap(err))
+	}
+	if _, err := t.q.ExecContext(ctx, `DELETE FROM group_installs WHERE agent = ? AND (project_id IS NOT NULL) = ?`, code, project); err != nil {
+		return fmt.Errorf("remove agent group installs: %w", wrap(err))
+	}
+	return nil
+}
+
+func (t *Tx) DisableAgent(ctx context.Context, code string) error {
 	if err := t.RemoveAgentInstalls(ctx, code, true, true); err != nil {
 		return err
 	}
-	if _, err := t.q.ExecContext(ctx, `DELETE FROM agents WHERE code = ? AND custom = 1`, code); err != nil {
-		return fmt.Errorf("delete agent: %w", wrap(err))
+	if _, err := t.q.ExecContext(ctx, `UPDATE agents SET enabled = 0 WHERE code = ?`, code); err != nil {
+		return fmt.Errorf("remove agent: %w", wrap(err))
 	}
 	return nil
 }

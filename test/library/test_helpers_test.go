@@ -117,8 +117,16 @@ func requireErrorDetails(t *testing.T, err error, code library.ErrorCode, want l
 // seededAgents 是应用内置的 Agent;home 是测试隔离的主目录,里面没有各 Agent 的配置目录,所以都未检测到。
 func seededAgents(home string) []library.Agent {
 	return []library.Agent{
-		{Code: library.AgentClaudeCode, Name: "Claude Code", GlobalDirectory: filepath.Join(home, ".claude", "skills"), ProjectDirectory: ".claude/skills", SameName: library.SameNameGlobalWins},
-		{Code: library.AgentCodex, Name: "Codex", GlobalDirectory: filepath.Join(home, ".agents", "skills"), ProjectDirectory: ".agents/skills", SameName: library.SameNameBothShown},
+		{
+			Code: library.AgentClaudeCode, Name: "Claude Code", SameName: library.SameNameGlobalWins,
+			GlobalDirectories: []string{filepath.Join(home, ".claude", "skills")}, ProjectDirectories: []string{".claude/skills"},
+			DetectDirectories: []string{filepath.Join(home, ".claude")},
+		},
+		{
+			Code: library.AgentCodex, Name: "Codex", SameName: library.SameNameBothShown,
+			GlobalDirectories: []string{filepath.Join(home, ".agents", "skills")}, ProjectDirectories: []string{".agents/skills"},
+			DetectDirectories: []string{filepath.Join(home, ".codex")},
+		},
 	}
 }
 
@@ -154,11 +162,11 @@ func skillNames(skills []library.Skill) []string {
 	return names
 }
 
-// withoutCreatedAt 去掉首次安装时间,供不关心时间戳的既有 DeepEqual 断言使用。
+// withoutCreatedAt 去掉首次安装时间与技能目录,供不关心时间戳的既有 DeepEqual 断言使用;技能目录由 Folder 已能看出,由多技能目录的用例专门核对。
 func withoutCreatedAt(skillScopes []library.SkillScope) []library.SkillScope {
 	out := append([]library.SkillScope(nil), skillScopes...)
 	for i := range out {
-		out[i].CreatedAt = time.Time{}
+		out[i].CreatedAt, out[i].Directory = time.Time{}, ""
 	}
 	return out
 }

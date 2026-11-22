@@ -16,7 +16,7 @@ const collection = (id: number, label: string, skills: number[] = []) => ({ id, 
 const snapshot = (s: Partial<Snapshot>) =>
   ({ collections: [], groups: [], skills: [], skillScopes: [], unmanaged: [], agents: [], projects: [], info: { home_dir: "/home" }, ...s }) as unknown as Snapshot;
 const skill = (id: number, name: string, label: string) => ({ id, name, source: { type: SourceType.SourceGitHub, label } }) as Skill;
-const agent = (code: string, project_directory: string) => ({ code, name: code, project_directory, detected: true }) as Agent;
+const agent = (code: string, projectDir: string) => ({ code, name: code, project_directories: [projectDir], detected: true }) as Agent;
 const where = (agent: string, project_id?: number) =>
   project_id ? { kind: ScopeKind.ScopeProject, agent, project_id } : { kind: ScopeKind.ScopeGlobal, agent };
 const installed = (skill_id: number, agent: string, project_id?: number) => ({ skill_id, scope: where(agent, project_id) }) as SkillScopeInspection;

@@ -8,7 +8,7 @@ import type { PlannedUnmanagedSkill, Scope, UnmanagedSkill } from "@bindings/int
 import { queryClient, snapshotQuery } from "./library";
 import { scopeKey } from "./scope";
 
-// found 按作用域与文件夹名记下这次打开 app 以来找过的：值是找到的来源，找过没找到的为 ""，不再重复找;
+// found 按作用域、技能目录与文件夹名记下这次打开 app 以来找过的：值是找到的来源，找过没找到的为 ""，不再重复找;
 // 找的过程中出错(取消、技能库报错)的不记，下次读到快照时再找。
 let found: ReadonlyMap<string, string> = new Map();
 const searching = new Set<string>();
@@ -16,8 +16,9 @@ const searching = new Set<string>();
 let round = 0;
 const listeners = new Set<() => void>();
 
-function folderKey(scope: Scope, name: string): string {
-  return `${scopeKey(scope)}/${name}`;
+// 同一个作用域的几个技能目录里可以有同名的文件夹，按目录分开记。
+function folderKey(scope: Scope, directory: string | undefined, name: string): string {
+  return `${scopeKey(scope)}/${directory ?? ""}/${name}`;
 }
 
 function notify() {
@@ -26,19 +27,19 @@ function notify() {
 
 function findSources(unmanaged: UnmanagedSkill[]) {
   const pending = unmanaged.filter((u) => {
-    const key = folderKey(u.scope, u.name);
+    const key = folderKey(u.scope, u.directory, u.name);
     return !u.source_input && !u.skill_id && !u.source_latest_of && !found.has(key) && !searching.has(key);
   });
   if (pending.length === 0) return;
-  const keys = pending.map((u) => folderKey(u.scope, u.name));
+  const keys = pending.map((u) => folderKey(u.scope, u.directory, u.name));
   for (const key of keys) searching.add(key);
   const started = round;
-  LibraryService.FindUnmanagedSources({ folders: pending.map((u) => ({ scope: u.scope, name: u.name })) }).then(
+  LibraryService.FindUnmanagedSources({ folders: pending.map((u) => ({ scope: u.scope, directory: u.directory, name: u.name })) }).then(
     (results) => {
       if (started !== round) return;
       const next = new Map(found);
       for (const key of keys) next.set(key, "");
-      for (const r of results ?? []) next.set(folderKey(r.scope, r.name), r.source_input);
+      for (const r of results ?? []) next.set(folderKey(r.scope, r.directory, r.name), r.source_input);
       for (const key of keys) searching.delete(key);
       found = next;
       notify();
@@ -84,7 +85,7 @@ export function useFoundSources(): FoundSources {
 // 认出是库里哪个技能的(和它一样，或是它在来源里的新版)跟着那个技能的来源，之前找到的来源不再用。
 export function foundSource(sources: FoundSources, skill: UnmanagedSkill): string | undefined {
   if (skill.source_input || skill.skill_id || skill.source_latest_of) return undefined;
-  return sources.get(folderKey(skill.scope, skill.name)) || undefined;
+  return sources.get(folderKey(skill.scope, skill.directory, skill.name)) || undefined;
 }
 
 // withFoundSource 给来源记录认不出来源的那一条补上在 skills.sh 上找到的来源(取第一处找到的),

@@ -16,11 +16,16 @@ export type AgentList = Pick<Snapshot, "agents" | "agentsShown">;
 
 // ---------- 一处是谁、叫什么 ----------
 
+// sameDirectories 是两个 Agent 在一个层级的目录列表是否完全相同。
+function sameDirectories(a: readonly string[] | null, b: readonly string[] | null): boolean {
+  return (a ?? []).length === (b ?? []).length && (a ?? []).every((dir, i) => dir === b?.[i]);
+}
+
 // projectSharers 是项目里和这个 Agent 读同一个目录的全部 Agent(含它自己),按 Agent 列表顺序;不和别的 Agent 共用时为空。
 function projectSharers(s: AgentList, code: AgentCode): Agent[] {
   const self = s.agents.find((a) => a.code === code);
   if (!self) return [];
-  const all = s.agents.filter((a) => a.project_directory === self.project_directory);
+  const all = s.agents.filter((a) => sameDirectories(a.project_directories, self.project_directories));
   return all.length > 1 ? all : [];
 }
 
@@ -58,8 +63,9 @@ function sameProjectFolder(s: AgentList, a: AgentCode, b: AgentCode): boolean {
 // sameFolderAt 是两个 Agent 在某一处是否读同一个目录。
 export function sameFolderAt(s: AgentList, a: AgentCode, b: AgentCode, place: Place): boolean {
   if (place) return sameProjectFolder(s, a, b);
-  const dir = (code: AgentCode) => s.agents.find((x) => x.code === code)?.global_directory;
-  return a === b || (!!dir(a) && dir(a) === dir(b));
+  const dirs = (code: AgentCode) => s.agents.find((x) => x.code === code)?.global_directories;
+  const first = dirs(a), second = dirs(b);
+  return a === b || (!!first && !!second && sameDirectories(first, second));
 }
 
 // scopeReaders 是读这个作用域里技能文件夹的 Agent:全局是它自己，项目里是共用这个目录的几个(含这台机器上不显示的)。
@@ -92,7 +98,7 @@ export function scopeLabel(s: AgentList & Pick<Snapshot, "projects">, scope: Sco
 export function projectFolderNote(s: AgentList, code: AgentCode, place: Place): string | undefined {
   const all = place ? projectSharers(s, code) : [];
   if (!all.length) return undefined;
-  return messages().model.projectFolderNote(nativePath(all[0].project_directory), all.map((a) => a.name));
+  return messages().model.projectFolderNote(nativePath(all[0].project_directories?.[0] ?? ""), all.map((a) => a.name));
 }
 
 // sharedWithNote 是一处安装要另外说明的共用 Agent:全局照旧是共用这个文件夹的其他 Agent;
@@ -144,10 +150,10 @@ export function placeNames(s: AgentList & Pick<Snapshot, "projects">, items: rea
 
 // ---------- 一个地方列哪些 Agent ----------
 
-// agentShown 是 Agent 的显示勾选：用户勾选过的按勾选，没勾选过的检测到的和自定义的显示。
+// agentShown 是 Agent 的显示勾选：用户勾选过的按勾选，没勾选过的都显示(已添加就是用户选的)。
 // 显示只影响选择安装位置的地方(右栏的"其他 Agent"、"安装到…");已经装了技能的 Agent 照常列出。
 export function agentShown(shown: Partial<Record<string, boolean>> | null | undefined, agent: Agent): boolean {
-  return shown?.[agent.code] ?? (agent.detected || agent.custom);
+  return shown?.[agent.code] ?? true;
 }
 
 // mergeProjectAgents 把项目里的一串 Agent 合成一处一个(换成代表的 Agent),保持第一次出现的顺序。

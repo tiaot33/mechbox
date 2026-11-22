@@ -1,7 +1,7 @@
-// 设置页的 Agent 分区：每个 Agent 的显示勾选(应用设置，存在数据库的 config 表里，随推送、拉回走),以及自定义 Agent 的添加、编辑、删除。显示勾选的说明在设置页分区标题的提示里。
-// 内置 Agent 的名称和目录由应用维护，只能勾选显示。
+// 设置页的 Agent 分区：每个已添加的 Agent 的显示勾选(应用设置，存在数据库的 config 表里，随推送、拉回走),以及手填添加、编辑、移除 Agent。
+// 显示勾选的说明在设置页分区标题的提示里。表单只编辑第 1 个技能目录(装新技能的地方),附加目录与检测目录原样保留。
 import { useRef, useState } from "react";
-import { ErrorCode, type Agent, type CustomAgent } from "@bindings/internal/library";
+import { ErrorCode, type Agent, type AgentInput } from "@bindings/internal/library";
 import { addAgent, deleteAgent, editAgent } from "./agents";
 import { describeError } from "@/lib/errors";
 import { useT } from "@/lib/i18n";
@@ -38,23 +38,19 @@ export function AgentSection({
             <AgentMark name={a.name} />
             {/* 一行：名字、检测到没有，后面是它的两个目录(放不下就截断，悬停看全)。 */}
             <span className="shrink-0">{a.name}</span>
-            {a.custom ? <Badge>{t.custom}</Badge> : <Badge>{a.detected ? t.detected : t.notDetected}</Badge>}
+            <Badge>{a.detected ? t.detected : t.notDetected}</Badge>
             <span
               className="min-w-0 grow truncate font-mono text-caption text-muted-foreground select-text"
-              title={t.directories(shortPath(s, a.global_directory), nativePath(a.project_directory))}
+              title={t.directories(shortPath(s, a.global_directories?.[0] ?? ""), nativePath(a.project_directories?.[0] ?? ""))}
             >
-              {t.directories(shortPath(s, a.global_directory), nativePath(a.project_directory))}
+              {t.directories(shortPath(s, a.global_directories?.[0] ?? ""), nativePath(a.project_directories?.[0] ?? ""))}
             </span>
-            {a.custom && (
-              <>
-                <Button variant="ghost" onClick={() => void edit(a)}>
-                  {t.edit}
-                </Button>
-                <Button variant="ghost" danger onClick={() => void deleteAgent(a)}>
-                  {t.delete}
-                </Button>
-              </>
-            )}
+            <Button variant="ghost" onClick={() => void edit(a)}>
+              {t.edit}
+            </Button>
+            <Button variant="ghost" danger onClick={() => void deleteAgent(a)}>
+              {t.delete}
+            </Button>
             {shown !== undefined && (
               <Switch checked={on} aria-label={t.show(a.name)} title={on ? t.shown : t.hidden} onCheckedChange={(v) => onShown(a, v)} />
             )}
@@ -65,17 +61,17 @@ export function AgentSection({
   );
 }
 
-type AgentField = keyof CustomAgent;
+type AgentField = keyof AgentInput;
 
-// AgentDialog 添加一个自定义 Agent,或给出 agent 时编辑它。全局技能目录必须在用户主目录里面。
+// AgentDialog 手填添加一个 Agent,或给出 agent 时编辑它的名称和第 1 个技能目录。全局技能目录必须在用户主目录里面。
 export function AgentDialog({ agent, onClose }: { agent?: Agent; onClose: () => void }) {
   const s = useSnapshot();
   const t = useT().agents;
   const home = s.info.home_dir;
   const wsl = useHasWSL();
   const [name, setName] = useState(agent?.name ?? "");
-  const [global, setGlobal] = useState(agent ? shortPath(s, agent.global_directory) : "");
-  const [project, setProject] = useState(agent ? nativePath(agent.project_directory) : "");
+  const [global, setGlobal] = useState(agent ? shortPath(s, agent.global_directories?.[0] ?? "") : "");
+  const [project, setProject] = useState(agent ? nativePath(agent.project_directories?.[0] ?? "") : "");
   const [errors, setErrors] = useState<Partial<Record<AgentField, string>>>({});
   const [working, setWorking] = useState(false);
   // 提交进行中(含等迁移确认)时不再提交：按钮禁用挡不住输入框里的 Enter。
@@ -87,15 +83,15 @@ export function AgentDialog({ agent, onClose }: { agent?: Agent; onClose: () => 
     const resolved = resolveLocalPath(global, home, wsl);
     // 全局目录在 Windows 本机时填了发行版里的路径：只能先去设置里把全局目录换到那个发行版。
     const wantsWSL = wsl && !isWSLPath(home) && (global.trim().startsWith("/") || (!!resolved?.path && isWSLPath(resolved.path)));
-    if (!resolved) found.global_directory = t.globalRequired;
-    else if (wantsWSL) found.global_directory = t.globalInWSL;
-    else if (resolved.path === undefined) found.global_directory = resolved.error;
-    else if (!insideHome(resolved.path, home)) found.global_directory = t.globalInHome;
+    if (!resolved) found.global_directories = t.globalRequired;
+    else if (wantsWSL) found.global_directories = t.globalInWSL;
+    else if (resolved.path === undefined) found.global_directories = resolved.error;
+    else if (!insideHome(resolved.path, home)) found.global_directories = t.globalInHome;
     const rel = slashPath(project.trim());
-    if (!rel) found.project_directory = t.projectRequired;
-    else if (rel.startsWith("/") || rel.startsWith("~")) found.project_directory = t.projectRelative(nativePath(".agents/skills"));
+    if (!rel) found.project_directories = t.projectRequired;
+    else if (rel.startsWith("/") || rel.startsWith("~")) found.project_directories = t.projectRelative(nativePath(".agents/skills"));
     else if (rel.split("/").some((part) => part === "..") || rel.replace(/^\.\/?|\/+$/g, "") === "") {
-      found.project_directory = t.projectInside;
+      found.project_directories = t.projectInside;
     }
     return { found, global: resolved?.path ?? "", project: rel };
   };
@@ -105,7 +101,12 @@ export function AgentDialog({ agent, onClose }: { agent?: Agent; onClose: () => 
     const { found, global: globalPath, project: projectPath } = validate();
     setErrors(found);
     if (Object.keys(found).length) return;
-    const input: CustomAgent = { name: name.trim(), global_directory: globalPath, project_directory: projectPath };
+    const input: AgentInput = {
+      name: name.trim(),
+      global_directories: [globalPath, ...(agent?.global_directories?.slice(1) ?? [])],
+      project_directories: [projectPath, ...(agent?.project_directories?.slice(1) ?? [])],
+      detect_directories: agent?.detect_directories ?? [],
+    };
     // 技能库按字段报的不合法，显示在对应输入框下面。
     const onInvalid = (err: LibraryError) => {
       const field = err.details?.field as AgentField | undefined;
@@ -158,7 +159,7 @@ export function AgentDialog({ agent, onClose }: { agent?: Agent; onClose: () => 
             {t.choose}
           </Button>
         </div>
-        {error("global_directory")}
+        {error("global_directories")}
         <PathWhere path={resolveLocalPath(global, home, wsl)?.path} />
       </Field>
       <Field label={t.project}>
@@ -168,7 +169,7 @@ export function AgentDialog({ agent, onClose }: { agent?: Agent; onClose: () => 
           onChange={(e) => setProject(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && submit()}
         />
-        {error("project_directory")}
+        {error("project_directories")}
       </Field>
     </Modal>
   );

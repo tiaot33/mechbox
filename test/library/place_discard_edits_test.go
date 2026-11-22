@@ -34,7 +34,7 @@ func newDiscardEditsFixture(t *testing.T, scopeOf func(f *discardEditsFixture) l
 		t.Fatal(err)
 	}
 	f.project = project
-	f.agent, err = lib.AddAgent(ctx, library.CustomAgent{Name: "Mine", GlobalDirectory: "~/.mine/skills", ProjectDirectory: ".mine/skills"})
+	f.agent, err = lib.AddAgent(ctx, library.AgentInput{Name: "Mine", GlobalDirectories: []string{"~/.mine/skills"}, ProjectDirectories: []string{".mine/skills"}})
 	if err != nil {
 		t.Fatal(err)
 	}

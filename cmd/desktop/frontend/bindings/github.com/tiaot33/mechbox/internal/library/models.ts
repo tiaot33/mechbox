@@ -61,46 +61,46 @@ export interface AISettings {
 }
 
 /**
- * Agent 是一个 Agent:内置的,或用户添加的自定义 Agent。名称可能变化,身份以代码为准。
- * 几个 Agent 的 GlobalDirectory 相同时共用全局的技能文件夹,ProjectDirectory 相同时共用各项目里的技能文件夹:
- * 装在其中一个,共用的 Agent 也算已装(见 [SkillScope].SharedWith)。
+ * Agent 是一个 Agent:应用收录的,或用户手填添加的,两者地位相同,名称、技能目录、检测目录都能改。名称可能变化,身份以代码为准。
+ * 已添加的 Agent 组成全局与各已登记项目的作用域,可以安装;候选池里的([Library.ListAgentPool])不参与任何作用域。
+ * 一个层级可以有几个技能目录:第 1 个装新技能,其余是附加目录,里面已有的技能可以原地入库。
+ * 几个已添加的 Agent 的目录列表里有同一个目录时,装在那里的技能它们都读得到(见 [SkillScope].SharedWith)。
  */
 export interface Agent {
     "code": AgentCode;
     "name": string;
 
     /**
-     * Custom 表示用户添加的自定义 Agent,可以用 [Library.EditAgent] 修改、[Library.DeleteAgent] 删除。
-     * 内置 Agent 的名称和目录随应用版本维护,用户不能改。
-     */
-    "custom": boolean;
-
-    /**
-     * Detected 表示在这台机器上检测到了这个 Agent,列出时现查:内置 Agent 看用户主目录下它的配置目录
-     * (Claude Code 是 ~/.claude,Codex 是 ~/.codex)是否存在。自定义 Agent 不检测,始终为 false。
+     * Detected 表示在这台机器上检测到了这个 Agent:DetectDirectories 里任一目录存在。列出时现查;DetectDirectories 为空时始终为 false。
      */
     "detected": boolean;
 
     /**
-     * GlobalDirectory 是全局作用域读取技能的目录,在用户主目录下(以 Open 时为准),与 ScopeDirectory(GlobalScope(Code)) 相同。
+     * GlobalDirectories 是全局作用域读取技能的目录,在用户主目录下(以 Open 时为准),绝对路径,至少 1 个;
+     * 第 1 个装新技能,与 ScopeDirectory(GlobalScope(Code)) 相同。
      */
-    "global_directory": string;
+    "global_directories": string[] | null;
 
     /**
-     * ProjectDirectory 是项目作用域读取技能的目录相对已登记项目根的路径,斜杠分隔,如 .agents/skills。
+     * ProjectDirectories 是项目作用域读取技能的目录相对已登记项目根的路径,斜杠分隔,如 .agents/skills,至少 1 个;第 1 个装新技能。
      */
-    "project_directory": string;
+    "project_directories": string[] | null;
 
     /**
-     * SameName 是全局和项目里有同名技能时这个 Agent 会怎样(见 [Library.ListSameNameSkills]):内置 Agent 随应用版本维护,
-     * 自定义 Agent 与本版应用不认识的 Agent 为 SameNameUnknown。
+     * DetectDirectories 是检测这台机器上有没有装这个 Agent 时看的目录,在用户主目录下,绝对路径;任一存在即算检测到。可以为空。
+     */
+    "detect_directories": string[] | null;
+
+    /**
+     * SameName 是全局和项目里有同名技能时这个 Agent 会怎样(见 [Library.ListSameNameSkills]):存在数据库里,
+     * Claude Code 为 SameNameGlobalWins,Codex 为 SameNameBothShown,其余为 SameNameUnknown。
      */
     "same_name"?: SameNameRule;
 }
 
 /**
  * AgentCode 是 Agent 的稳定代码:跨应用版本、跨同步都不变。界面上区分 Agent(例如按代码取色)应该用它,不用名称。
- * 自定义 Agent 的代码在添加时生成,修改名称和目录都不变。
+ * 应用收录的 Agent 的代码随应用固定(如 claude-code、cursor),用户手填添加的在添加时生成;改名称和目录都不变。
  */
 export enum AgentCode {
     /**
@@ -109,14 +109,42 @@ export enum AgentCode {
     $zero = "",
 
     /**
-     * 应用内置的两个 Agent。调用方不应假定只有这两个,可选的 Agent 以 [Library.ListAgents] 为准。
+     * 新数据库里先添加的两个 Agent。调用方不应假定只有这两个,已添加的 Agent 以 [Library.ListAgents] 为准。
      */
     AgentClaudeCode = "claude-code",
     AgentCodex = "codex",
 };
 
 /**
- * AgentMigration 是改目录并迁移时一处安装的结果:这个 Agent 的某个作用域里的一个技能,含因共用目录而算已装的。
+ * AgentInput 是手填添加或编辑 Agent 时用户填写的内容。不合法时返回 InvalidArgument,Details.Field 为对应的 JSON 字段名。
+ */
+export interface AgentInput {
+    /**
+     * Name 是展示名称,去掉首尾空白后不能为空。
+     */
+    "name": string;
+
+    /**
+     * GlobalDirectories 是全局技能目录,至少 1 个,第 1 个装新技能:每项是绝对路径,或以 ~/ 开头表示用户主目录下。
+     * 必须在用户主目录里面(不能是主目录本身),按相对主目录的路径记录,同步到别的机器后对应到那台机器的主目录。
+     * 规范化后不能重复,也不能一项在另一项里面。目录不必已经存在,安装时创建。
+     */
+    "global_directories": string[] | null;
+
+    /**
+     * ProjectDirectories 是项目里的技能目录,至少 1 个,第 1 个装新技能:每项是相对已登记项目根的路径,不能是绝对路径,
+     * 也不能是项目根本身或在项目外面。规范化后不能重复,也不能一项在另一项里面。
+     */
+    "project_directories": string[] | null;
+
+    /**
+     * DetectDirectories 是检测这个 Agent 有没有装时看的目录,写法与 GlobalDirectories 相同;可以为空,为空时不检测。重复的只算一次。
+     */
+    "detect_directories": string[] | null;
+}
+
+/**
+ * AgentMigration 是改目录并迁移时一处安装的结果:这个 Agent 的某个作用域里的一个技能,含只因共用目录而算已装的。
  */
 export interface AgentMigration {
     "skill_id": SkillID;
@@ -135,11 +163,11 @@ export interface AgentMigration {
 }
 
 /**
- * AgentSettings 是技能对内置 Agent 声明的设置:只有那个 Agent 才读的字段,决定它怎样用这个技能。
+ * AgentSettings 是技能对 Claude Code、Codex 声明的设置:只有那个 Agent 才读的字段,决定它怎样用这个技能。
  * Claude Code 的取自 SKILL.md 开头的 frontmatter,Codex 的取自技能文件夹里的 agents/openai.yaml。
  * 只给出和默认不同的;写错了、解析不出来的按 Agent 自己的做法当作没写,不报错。
  * 库只读出来给界面看,不据此改变安装、同名判断或其他任何行为;Agent 实际怎样做还取决于它自己的设置和版本。
- * 自定义 Agent 读哪些字段不知道,这里不给。
+ * 其他 Agent 读哪些字段不知道,这里不给。
  */
 export interface AgentSettings {
     /**
@@ -543,32 +571,11 @@ export interface Commit {
 }
 
 /**
- * CustomAgent 是添加或修改自定义 Agent 时用户填写的内容。不合法时返回 InvalidArgument,Details.Field 为对应的 JSON 字段名。
- */
-export interface CustomAgent {
-    /**
-     * Name 是展示名称,去掉首尾空白后不能为空。
-     */
-    "name": string;
-
-    /**
-     * GlobalDirectory 是全局技能目录:绝对路径,或以 ~/ 开头表示用户主目录下。必须在用户主目录里面(不能是主目录本身),
-     * 按相对主目录的路径记录,同步到别的机器后对应到那台机器的主目录。目录不必已经存在,安装时创建。
-     */
-    "global_directory": string;
-
-    /**
-     * ProjectDirectory 是项目里的技能目录:相对已登记项目根的路径,不能是绝对路径,也不能是项目根本身或在项目外面。
-     */
-    "project_directory": string;
-}
-
-/**
  * DeleteAgentOptions 是 DeleteAgent 的选项。
  */
 export interface DeleteAgentOptions {
     /**
-     * Folders 默认删除技能文件夹,只有显式 Keep 保留。还有别的 Agent 在读的文件夹不受它影响,总是保留(见 DeleteAgent)。
+     * Folders 默认删除技能文件夹,只有显式 Keep 保留。还有别的已添加 Agent 在读的文件夹不受它影响,总是保留(见 DeleteAgent)。
      */
     "folders": FolderPolicy;
 
@@ -585,8 +592,8 @@ export interface DeleteAgentOptions {
  */
 export interface DeleteAgentResult {
     /**
-     * Kept 列出因为还有别的 Agent 在读而保留的技能文件夹,按技能 ID、作用域排序:Scope 是被删除的 Agent 的作用域,
-     * SharedWith 是还在读这个文件夹的 Agent,它们照常算已装。没有这样的文件夹时为空。
+     * Kept 列出因为还有别的已添加 Agent 在读而保留的技能文件夹,按技能 ID、作用域排序:Scope 是被移除的 Agent 的作用域,
+     * SharedWith 是目录列表里还有这个目录的 Agent:认这一处的照常算已装,自己在别的目录装着这个技能的仍认那一处。没有这样的文件夹时为空。
      */
     "kept": SkillScope[] | null;
 }
@@ -613,7 +620,7 @@ export interface DeleteGroupOptions {
  */
 export interface EditAgentOptions {
     /**
-     * Migrate 选择把已装的技能文件夹原样迁移到新目录;默认不迁移。只对目录有变化的层级(全局或项目)起作用。
+     * Migrate 选择把实际目录不在新目录列表里的安装原样迁移到新的第 1 个目录;默认不迁移。
      */
     "migrate": boolean;
 }
@@ -625,8 +632,8 @@ export interface EditAgentResult {
     "agent": Agent;
 
     /**
-     * Migrations 逐处列出迁移结果,按技能 ID、作用域排序;不迁移、或目录没变时为空。旧文件夹本来就不在的
-     * (含项目不在这台机器上)没有可搬的东西,不出现在这里:这个 Agent 自己的安装记录照常保留,巡检会按新目录报出它的状态;
+     * Migrations 逐处列出迁移结果,按技能 ID、作用域排序;不迁移、或没有安装的实际目录被去掉时为空。旧文件夹本来就不在的
+     * (含项目不在这台机器上)没有可搬的东西,不出现在这里:这个 Agent 自己的安装记录照常改到新的第 1 个目录,巡检会按那里报出它的状态;
      * 只因共用目录而算已装的,改目录后不再算已装。
      */
     "migrations": AgentMigration[] | null;
@@ -687,7 +694,7 @@ export enum ErrorCode {
 
     /**
      * FailedPrecondition 请求形状合法、引用的对象都存在,但 Library 当前状态不允许该操作
-     * (安装目标被另一个技能占用;作用域根目录不存在;对只由组安装留着的技能单独卸载;修改或删除内置 Agent;同一入库预览句柄的入库正在进行;
+     * (安装目标被另一个技能占用;作用域根目录不存在;对只由组安装留着的技能单独卸载;Agent 已经在作用域的另一个技能目录装着要入库的技能;同一入库预览句柄的入库正在进行;
      * Open 的文件不是 SQLite 文件、应用标识不符、是 v0.0.1 建的或比本版应用新的 schema 版本、表结构不符,或旧库的升级失败;
      * 同步拉回时选中的备份不能拉回;
      * 要用的 WSL 发行版打不开:没有这个发行版、WSL 没有响应或发行版里的命令进程中途退出)。
@@ -805,12 +812,17 @@ export interface FetchPreview {
 export type FetchPreviewID = string;
 
 /**
- * FetchUnmanagedRequest 是对作用域里一个不是库装的技能入库:ListUnmanagedSkills 列出的一条,按作用域与文件夹名指定。
+ * FetchUnmanagedRequest 是对作用域里一个不是库装的技能入库:ListUnmanagedSkills 列出的一条,按作用域、技能目录与文件夹名指定。
  * 内容和库里某个版本完全一致时只给那个技能补记安装,SourceInput 不起作用;否则 SourceInput 为空时作为没有来源的技能入库,
  * 给出时按这个来源入库,进它的集合,照常检查更新、更新与回滚。
  */
 export interface FetchUnmanagedRequest {
     "scope": Scope;
+
+    /**
+     * Directory 是 UnmanagedSkill.Directory,即文件夹所在的技能目录;为空时是这个 Agent 这一层级的第 1 个目录。
+     */
+    "directory"?: string;
 
     /**
      * UnmanagedSkill.Name,即技能文件夹名
@@ -948,7 +960,7 @@ export enum FileMode {
  */
 export interface FindUnmanagedSourcesRequest {
     /**
-     * Folders 是 ListUnmanagedSkills 列出的条目,按作用域与文件夹名指定,重复的只算一次。
+     * Folders 是 ListUnmanagedSkills 列出的条目,按作用域、技能目录与文件夹名指定,重复的只算一次。
      * 来源记录已经认出来源(UnmanagedSkill.SourceInput 不为空)的、按内容认出是库里哪个技能的(SkillID 或 SourceLatestOf 不为 0),
      * 和已经不是未纳管技能、不在了的一样,不找也不报错。
      */
@@ -956,10 +968,15 @@ export interface FindUnmanagedSourcesRequest {
 }
 
 /**
- * FolderInScope 是作用域里的一个技能文件夹,按作用域与文件夹名(UnmanagedSkill.Name)指定。
+ * FolderInScope 是作用域里的一个技能文件夹,按作用域、技能目录(UnmanagedSkill.Directory)与文件夹名(UnmanagedSkill.Name)指定。
  */
 export interface FolderInScope {
     "scope": Scope;
+
+    /**
+     * Directory 是文件夹所在的技能目录,写法同 UnmanagedSkill.Directory;为空时是这个 Agent 这一层级的第 1 个目录。
+     */
+    "directory"?: string;
     "name": string;
 }
 
@@ -988,6 +1005,11 @@ export enum FolderPolicy {
  */
 export interface FoundUnmanagedSource {
     "scope": Scope;
+
+    /**
+     * UnmanagedSkill.Directory,即文件夹所在的技能目录
+     */
+    "directory": string;
 
     /**
      * UnmanagedSkill.Name,即技能文件夹名
@@ -1063,7 +1085,7 @@ export enum GroupMemberOutcome {
     MemberInstalled = "installed",
 
     /**
-     * 已经装在这里(含装在共用这个目录的另一个 Agent),只补记组安装,文件夹不动
+     * 这个 Agent 已经认得到它(含只因和别的 Agent 读同一个目录),只补记组安装,文件夹不动
      */
     MemberAlreadyInstalled = "already_installed",
 
@@ -1115,6 +1137,13 @@ export interface InstallPlan {
      * 同一目录里同名才算占用,所以占用者与本技能同名。本技能的另一个作用域恰好算出同一目录时,它等于 SkillID。
      */
     "occupier_skill_id"?: SkillID;
+
+    /**
+     * ReadsTwice 是装上之后会读到两份的作用域,按 Agent 排序:这几个已添加的 Agent 也读 Folder 所在的技能目录,
+     * 又已经在自己的另一个目录装着这个技能。照样能装,装完它们仍只认原来那一处;界面据此在安装前提示。
+     * 只在 ready、untracked 时可能不为空。
+     */
+    "reads_twice"?: Scope[] | null;
 }
 
 /**
@@ -1132,7 +1161,7 @@ export enum InstallPlanStatus {
     InstallReady = "ready",
 
     /**
-     * 已经装在这里(含装在共用这个目录的另一个 Agent),安装只会补记这次选择
+     * 这个 Agent 已经认得到这个技能(含只因和别的 Agent 读同一个目录),安装只会补记这次选择
      */
     InstallAlreadyInstalled = "already_installed",
 
@@ -1265,7 +1294,7 @@ export enum MigrationOutcome {
     MigrationMoved = "moved",
 
     /**
-     * 旧目录还有别的 Agent 在读:文件夹原样复制到新目录,旧文件夹留给它们,它们照常算已装
+     * 旧目录还有别的 Agent 在读:文件夹原样复制到新目录,旧文件夹留给它们,认这一处的照常算已装
      */
     MigrationCopied = "copied",
 
@@ -1785,19 +1814,46 @@ export interface RollbackResult {
 }
 
 /**
- * SameNameFolder 是同名技能在一个作用域里的技能文件夹。
+ * SameNameFolder 是同名技能中的一个技能文件夹。
  */
 export interface SameNameFolder {
+    "scope": Scope;
+
+    /**
+     * Directory 是文件夹所在的技能目录,写法同 [SkillScope].Directory。
+     */
+    "directory": string;
+
     /**
      * Folder 是技能文件夹的路径,与 [SkillScope].Folder、[UnmanagedSkill].Folder 相同,界面按它对上列表里的那一项。
      */
     "folder": string;
 
     /**
-     * SkillID 在这个作用域里有安装记录用它(库装的)时是那个技能的 ID;未纳管技能为 0。
+     * SkillID 在这个文件夹上有安装记录(库装的)时是那个技能的 ID;未纳管技能为 0。
      */
     "skill_id"?: SkillID;
 }
+
+/**
+ * SameNamePairKind 是两个技能文件夹同名的情形。值以后可能增加,调用方遇到不认识的值按「只标出同名」处理。
+ */
+export enum SameNamePairKind {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * SameNameGlobalAndProject 是同一个 Agent 的全局和一个已登记项目里同名:后果按 Agent 的 [Agent].SameName 说明。
+     */
+    SameNameGlobalAndProject = "global_and_project",
+
+    /**
+     * SameNameTwoDirectories 是同一个作用域的两个技能目录里同名、又不是同一个技能:不知道哪个生效,只标出同名。
+     */
+    SameNameTwoDirectories = "two_directories",
+};
 
 /**
  * SameNameRule 是一个 Agent 在全局和项目里都有同名技能时会怎样,按生态里已知的规则;只看全局与项目这两层,
@@ -1810,7 +1866,7 @@ export enum SameNameRule {
     $zero = "",
 
     /**
-     * 没有已知规则(自定义 Agent、本版应用不认识的 Agent):只标出同名
+     * 没有已知规则:只标出同名
      */
     SameNameUnknown = "",
 
@@ -1826,19 +1882,22 @@ export enum SameNameRule {
 };
 
 /**
- * SameNameSkill 是同一个 Agent 的全局和一个已登记项目里同名的两个技能文件夹,两处都要标出来。
- * 后果按 Agent 的 [Agent].SameName 说明。
+ * SameNameSkill 是一对同名的技能文件夹,两处都要标出来。
  */
 export interface SameNameSkill {
-    "agent": AgentCode;
-    "project_id": ProjectID;
+    "kind": SameNamePairKind;
 
     /**
      * Name 是两处共同的技能名:SKILL.md 里的 name,读不出时用文件夹名。两处的文件夹名可以不同。
      */
     "name": string;
-    "global": SameNameFolder;
-    "project": SameNameFolder;
+
+    /**
+     * First 在 SameNameGlobalAndProject 时是全局的那个,在 SameNameTwoDirectories 时是技能目录在 Agent 目录列表里靠前的那个;
+     * Second 是另一个。
+     */
+    "first": SameNameFolder;
+    "second": SameNameFolder;
 }
 
 /**
@@ -2097,15 +2156,22 @@ export interface SkillMentions {
 
 /**
  * SkillScope 是某个技能装在某个 Scope:只要还有直接安装或组安装留着它就存在,最后一个撤掉时移除。
- * 对照磁盘的状态由 InspectSkillScopes 给出。几个 Agent 共用一个目录时,装在其中一个,共用的每个 Agent 各列一条,
- * 它们的 Folder、Direct、Groups、CreatedAt 相同,按共用的这几处合起来算。
+ * 对照磁盘的状态由 InspectSkillScopes 给出。一处安装是「全局或哪个项目 + 技能目录 + 文件夹」,已添加的 Agent 里
+ * 目录列表有这个目录的都读得到它;一个 Agent 在一个作用域里对一个技能只认一处:自己有直接安装或组安装的认那一处,
+ * 没有的按它的目录顺序认第一个装着这个技能的目录。认同一处的几个 Agent 各列一条(见 SharedWith),
+ * 它们的 Directory、Folder、Direct、Groups、CreatedAt 相同,按这一处合起来算。
  */
 export interface SkillScope {
     "skill_id": SkillID;
     "scope": Scope;
 
     /**
-     * 这个技能在该作用域的文件夹路径,与 InstallPlan.Folder 同义;按当前的 Agent 目录与项目路径算出。确认改名后没跟着重新安装的地方仍是旧名字的文件夹
+     * Directory 是这一处所在的技能目录,写法同 Agent 的 GlobalDirectories(全局,绝对路径)或 ProjectDirectories(项目,相对项目根)里的那一项。
+     */
+    "directory": string;
+
+    /**
+     * 这个技能在该作用域的文件夹路径,与 InstallPlan.Folder 同义;按这一处的技能目录与项目路径算出。确认改名后没跟着重新安装的地方仍是旧名字的文件夹
      */
     "folder": string;
 
@@ -2115,7 +2181,7 @@ export interface SkillScope {
     "direct": boolean;
 
     /**
-     * 组安装留着它的 Group:该技能是成员且组已安装到此 Scope,按 ID 升序
+     * 组安装留着它的 Group:该技能是成员且组已安装到认这一处的某个 Agent 的这一层级,按 ID 升序
      */
     "groups"?: GroupID[] | null;
 
@@ -2125,11 +2191,16 @@ export interface SkillScope {
     "created_at"?: string;
 
     /**
-     * SharedWith 是同一层级与这个 Agent 共用这个文件夹的其他 Agent,按代码排序;没有共用时为空。
+     * SharedWith 是同一层级认这一处的其他 Agent,按代码排序;没有共用时为空。
      * 从其中任何一个卸载都撤销各处的直接安装;没有组安装还留着其中某一处时文件夹随之删除,它们都不再算已装。
      * 卸载前界面据此提示。
      */
     "shared_with"?: AgentCode[] | null;
+
+    /**
+     * SharedOnly 表示这个 Agent 自己在这里没有直接安装和组安装,只因和 SharedWith 里的 Agent 读同一个目录才算已装。
+     */
+    "shared_only"?: boolean;
 }
 
 /**
@@ -2151,7 +2222,12 @@ export interface SkillScopeInspection {
     "scope": Scope;
 
     /**
-     * 这个技能在该作用域的文件夹路径,与 InstallPlan.Folder 同义;按当前的 Agent 目录与项目路径算出。确认改名后没跟着重新安装的地方仍是旧名字的文件夹
+     * Directory 是这一处所在的技能目录,写法同 Agent 的 GlobalDirectories(全局,绝对路径)或 ProjectDirectories(项目,相对项目根)里的那一项。
+     */
+    "directory": string;
+
+    /**
+     * 这个技能在该作用域的文件夹路径,与 InstallPlan.Folder 同义;按这一处的技能目录与项目路径算出。确认改名后没跟着重新安装的地方仍是旧名字的文件夹
      */
     "folder": string;
 
@@ -2161,7 +2237,7 @@ export interface SkillScopeInspection {
     "direct": boolean;
 
     /**
-     * 组安装留着它的 Group:该技能是成员且组已安装到此 Scope,按 ID 升序
+     * 组安装留着它的 Group:该技能是成员且组已安装到认这一处的某个 Agent 的这一层级,按 ID 升序
      */
     "groups"?: GroupID[] | null;
 
@@ -2171,11 +2247,16 @@ export interface SkillScopeInspection {
     "created_at"?: string;
 
     /**
-     * SharedWith 是同一层级与这个 Agent 共用这个文件夹的其他 Agent,按代码排序;没有共用时为空。
+     * SharedWith 是同一层级认这一处的其他 Agent,按代码排序;没有共用时为空。
      * 从其中任何一个卸载都撤销各处的直接安装;没有组安装还留着其中某一处时文件夹随之删除,它们都不再算已装。
      * 卸载前界面据此提示。
      */
     "shared_with"?: AgentCode[] | null;
+
+    /**
+     * SharedOnly 表示这个 Agent 自己在这里没有直接安装和组安装,只因和 SharedWith 里的 Agent 读同一个目录才算已装。
+     */
+    "shared_only"?: boolean;
     "status": SkillScopeStatus;
 
     /**
@@ -2203,7 +2284,7 @@ export interface SkillScopeInspection {
     /**
      * LinkedBy 是这个技能装出去的其他地方里,符号链接(包括一级级经过别的链接)指到这一处的那几处,按 Agent、作用域排序;
      * 不受 SkillScopeFilter 限制。这一处本身是链接时也算:删掉它,链着它的那几处就断了。库要覆盖或删除这一处时
-     * (更新、重新安装、回滚这一处,卸载、组卸载、移除技能、自定义 Agent 改目录或删除),这次没一起写、也没一起删的那几处
+     * (更新、重新安装、回滚这一处,卸载、组卸载、移除技能、Agent 改目录或移除),这次没一起写、也没一起删的那几处
      * 先换上独立的一份(当时它们读到的内容),它们照常装着,Agent 在那里用的不变;确认据此说明。没有时为空。
      */
     "linked_by"?: Scope[] | null;
@@ -2215,6 +2296,13 @@ export interface SkillScopeInspection {
      */
     "source_input"?: string;
     "source_ref"?: string;
+
+    /**
+     * StaleLinks 是删掉这一处的文件夹时(卸载、组卸载、移除技能、移除 Agent)会一并删掉的旧链接:认这一处的 Agent 在自己别的技能目录里
+     * 指向这个文件夹、又没有安装记录的同名符号链接(如旧版 npx skills 在 ~/.cursor/skills 留下的、指向 ~/.agents/skills 的链接),
+     * 按路径排序。确认框据此写明。没有时为空。
+     */
+    "stale_links"?: string[] | null;
 }
 
 /**
@@ -2642,6 +2730,11 @@ export interface UnmanagedSkill {
     "scope": Scope;
 
     /**
+     * Directory 是文件夹所在的技能目录,写法同 [SkillScope].Directory;同一个 Agent 的几个目录里可以有同名的文件夹,按它区分。
+     */
+    "directory": string;
+
+    /**
      * Name 是文件夹名。
      */
     "name": string;
@@ -2663,7 +2756,7 @@ export interface UnmanagedSkill {
     "link_target"?: string;
 
     /**
-     * LinkOutside 表示 LinkTarget 不在任何 Agent 的技能目录里(各 Agent 的全局目录与在各已登记项目里的技能目录),
+     * LinkOutside 表示 LinkTarget 不在任何 Agent 的技能目录里(表里各 Agent 的全部全局目录与在各已登记项目里的全部技能目录,候选池里的也算),
      * 例如技能作者把它链到自己的工作目录 ~/code/my-skills/foo,在那里改了 Agent 马上就能用上。入库后库第一次写这一处时
      * 会把链接换成独立的一份,在原来的目录里改就不再影响这里;所以和在项目仓库里的一样默认不入库,内容和库里一致也不自动纳入,
      * 界面写明它指向哪里。

@@ -299,17 +299,18 @@ func (l *Library) readScopeEdit(ctx context.Context, operation string, id SkillI
 	if err != nil {
 		return scopeEdit{}, err
 	}
-	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.Scope)
+	installed, err := l.installedAt(ctx, id, target)
 	if err != nil {
 		return scopeEdit{}, err
 	}
-	if len(place) == 0 {
+	if !installed.installed() {
 		return scopeEdit{}, &Error{Code: NotFound, Message: operation + ": skill is not installed in scope", Details: ErrorDetails{SkillID: id}}
 	}
+	target = installed.target
 	if err := target.requireRoot(operation); err != nil {
 		return scopeEdit{}, err
 	}
-	folder := agentdir.FolderPath(target.directory, place[0].Folder)
+	folder := installed.folder()
 	unmodified := preconditionError(operation, "the installed folder was not modified", ErrorDetails{Path: folder})
 	if exists, err := agentdir.Exists(folder); err != nil {
 		return scopeEdit{}, fmt.Errorf("inspect target folder: %w", err)

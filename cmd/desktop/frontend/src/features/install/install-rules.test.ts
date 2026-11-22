@@ -48,7 +48,7 @@ const skill = (id: number, extra: Partial<Skill> = {}) =>
 
 function place(skill_id: number, scope: Scope, extra: Partial<SkillScopeInspection> = {}): SkillScopeInspection {
   const where = scope.project_id ? `/p${scope.project_id}/.${scope.agent}` : `/home/.${scope.agent}`;
-  return { skill_id, scope, folder: `${where}/skills/s${skill_id}`, direct: true, status: SkillScopeStatus.SkillScopeCurrent, ...extra };
+  return { skill_id, scope, directory: `${where}/skills`, folder: `${where}/skills/s${skill_id}`, direct: true, status: SkillScopeStatus.SkillScopeCurrent, ...extra };
 }
 
 const snapshot = (s: Partial<Snapshot>) =>

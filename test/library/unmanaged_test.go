@@ -4,11 +4,20 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/tiaot33/mechbox/internal/library"
 )
+
+func withoutDirectories(skills []library.UnmanagedSkill) []library.UnmanagedSkill {
+	out := slices.Clone(skills)
+	for i := range out {
+		out[i].Directory = ""
+	}
+	return out
+}
 
 func listUnmanagedSkills(t *testing.T, lib *library.Library) []library.UnmanagedSkill {
 	t.Helper()
@@ -19,9 +28,10 @@ func listUnmanagedSkills(t *testing.T, lib *library.Library) []library.Unmanaged
 	return got
 }
 
+// requireUnmanagedSkills 断言未纳管技能,不比技能目录(由 Folder 已能看出,多技能目录的用例专门核对)。
 func requireUnmanagedSkills(t *testing.T, lib *library.Library, want []library.UnmanagedSkill) {
 	t.Helper()
-	got := listUnmanagedSkills(t, lib)
+	got := withoutDirectories(listUnmanagedSkills(t, lib))
 	if want == nil {
 		want = []library.UnmanagedSkill{}
 	}
@@ -67,7 +77,7 @@ func TestListUnmanagedSkillsListsFoldersTheLibraryDidNotInstall(t *testing.T) {
 		t.Fatal(err)
 	}
 	// 和 Codex 共用全局目录的自定义 Agent:Codex 装的 shared 对它也是库装的。
-	custom, err := lib.AddAgent(ctx, library.CustomAgent{Name: "Shared", GlobalDirectory: "~/.agents/skills", ProjectDirectory: ".shared/skills"})
+	custom, err := lib.AddAgent(ctx, library.AgentInput{Name: "Shared", GlobalDirectories: []string{"~/.agents/skills"}, ProjectDirectories: []string{".shared/skills"}})
 	if err != nil {
 		t.Fatal(err)
 	}

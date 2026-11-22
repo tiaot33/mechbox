@@ -92,7 +92,7 @@ function FetchUnmanagedDialog({
     setBusy(true);
     setError(undefined);
     const r = await ui.run(
-      () => LibraryService.FetchUnmanaged({ scope: skill.scope, name: skill.name, source_input: input || undefined, source_ref: ref }),
+      () => LibraryService.FetchUnmanaged({ scope: skill.scope, directory: skill.directory, name: skill.name, source_input: input || undefined, source_ref: ref }),
       { onError: (err) => (setError(err), true) },
     );
     setBusy(false);

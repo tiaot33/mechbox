@@ -241,7 +241,7 @@ func TestDeleteAgentGivesLinkedPlacesAFolderOfTheirOwnFirst(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	f := newLinkedFixture(t)
-	agent, err := f.lib.AddAgent(ctx, library.CustomAgent{Name: "Mine", GlobalDirectory: "~/.mine/skills", ProjectDirectory: ".mine/skills"})
+	agent, err := f.lib.AddAgent(ctx, library.AgentInput{Name: "Mine", GlobalDirectories: []string{"~/.mine/skills"}, ProjectDirectories: []string{".mine/skills"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +398,7 @@ func TestUninstallTheMiddleLinkGivesTheDownstreamPlaceItsOwnFolder(t *testing.T)
 	t.Parallel()
 	ctx := t.Context()
 	f := newLinkedFixture(t)
-	agent, err := f.lib.AddAgent(ctx, library.CustomAgent{Name: "Mine", GlobalDirectory: "~/.mine/skills", ProjectDirectory: ".mine/skills"})
+	agent, err := f.lib.AddAgent(ctx, library.AgentInput{Name: "Mine", GlobalDirectories: []string{"~/.mine/skills"}, ProjectDirectories: []string{".mine/skills"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -469,7 +469,7 @@ func TestEditAgentMigrationGivesLinkedPlacesAFolderOfTheirOwn(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	f := newLinkedFixture(t)
-	agent, err := f.lib.AddAgent(ctx, library.CustomAgent{Name: "Mine", GlobalDirectory: "~/.mine/skills", ProjectDirectory: ".mine/skills"})
+	agent, err := f.lib.AddAgent(ctx, library.AgentInput{Name: "Mine", GlobalDirectories: []string{"~/.mine/skills"}, ProjectDirectories: []string{".mine/skills"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -485,7 +485,7 @@ func TestEditAgentMigrationGivesLinkedPlacesAFolderOfTheirOwn(t *testing.T) {
 	if err := os.Symlink(mineFolder, f.claudeFolder); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.lib.EditAgent(ctx, agent.Code, library.CustomAgent{Name: "Mine", GlobalDirectory: "~/.mine2/skills", ProjectDirectory: ".mine/skills"}, library.EditAgentOptions{Migrate: true}); err != nil {
+	if _, err := f.lib.EditAgent(ctx, agent.Code, library.AgentInput{Name: "Mine", GlobalDirectories: []string{"~/.mine2/skills"}, ProjectDirectories: []string{".mine/skills"}}, library.EditAgentOptions{Migrate: true}); err != nil {
 		t.Fatal(err)
 	}
 	if exists, err := pathExists(mineFolder); err != nil || exists {
@@ -500,7 +500,7 @@ func TestEditAgentMigratesALinkedPlaceAsAFolderOfItsOwn(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	f := newLinkedFixture(t)
-	agent, err := f.lib.AddAgent(ctx, library.CustomAgent{Name: "Mine", GlobalDirectory: "~/.mine/skills", ProjectDirectory: ".mine/skills"})
+	agent, err := f.lib.AddAgent(ctx, library.AgentInput{Name: "Mine", GlobalDirectories: []string{"~/.mine/skills"}, ProjectDirectories: []string{".mine/skills"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -515,7 +515,7 @@ func TestEditAgentMigratesALinkedPlaceAsAFolderOfItsOwn(t *testing.T) {
 	if err := os.Symlink(f.codexFolder, mineFolder); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.lib.EditAgent(ctx, agent.Code, library.CustomAgent{Name: "Mine", GlobalDirectory: "~/.mine2/skills", ProjectDirectory: ".mine/skills"}, library.EditAgentOptions{Migrate: true}); err != nil {
+	if _, err := f.lib.EditAgent(ctx, agent.Code, library.AgentInput{Name: "Mine", GlobalDirectories: []string{"~/.mine2/skills"}, ProjectDirectories: []string{".mine/skills"}}, library.EditAgentOptions{Migrate: true}); err != nil {
 		t.Fatal(err)
 	}
 	requireOwnFolder(t, filepath.Join(f.home, ".mine2", "skills", "tdd"), "v1")

@@ -82,7 +82,7 @@ type SkillScopeInspection struct {
 	LinkTarget string `json:"link_target,omitempty"`
 	// LinkedBy 是这个技能装出去的其他地方里,符号链接(包括一级级经过别的链接)指到这一处的那几处,按 Agent、作用域排序;
 	// 不受 SkillScopeFilter 限制。这一处本身是链接时也算:删掉它,链着它的那几处就断了。库要覆盖或删除这一处时
-	// (更新、重新安装、回滚这一处,卸载、组卸载、移除技能、自定义 Agent 改目录或删除),这次没一起写、也没一起删的那几处
+	// (更新、重新安装、回滚这一处,卸载、组卸载、移除技能、Agent 改目录或移除),这次没一起写、也没一起删的那几处
 	// 先换上独立的一份(当时它们读到的内容),它们照常装着,Agent 在那里用的不变;确认据此说明。没有时为空。
 	LinkedBy []Scope `json:"linked_by,omitempty"`
 	// SourceInput、SourceRef 只在技能没有来源、这一处的文件夹还在时可能不为空:npx skills 的来源记录里记着这一处来自哪个来源,
@@ -90,6 +90,10 @@ type SkillScopeInspection struct {
 	// 只有 InspectSkillScopes 给出,更新计划里的各处(UpdatePlan.Installs)不带。
 	SourceInput string `json:"source_input,omitempty"`
 	SourceRef   string `json:"source_ref,omitempty"`
+	// StaleLinks 是删掉这一处的文件夹时(卸载、组卸载、移除技能、移除 Agent)会一并删掉的旧链接:认这一处的 Agent 在自己别的技能目录里
+	// 指向这个文件夹、又没有安装记录的同名符号链接(如旧版 npx skills 在 ~/.cursor/skills 留下的、指向 ~/.agents/skills 的链接),
+	// 按路径排序。确认框据此写明。没有时为空。
+	StaleLinks []string `json:"stale_links,omitempty"`
 }
 
 func (l *Library) filteredSkillScopes(ctx context.Context, operation string, filter SkillScopeFilter) ([]SkillScope, error) {
@@ -133,6 +137,7 @@ func (l *Library) InspectSkillScopes(ctx context.Context, filter SkillScopeFilte
 func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skillScopes []SkillScope) ([]SkillScopeInspection, error) {
 	inspections := make([]SkillScopeInspection, len(skillScopes))
 	heads := make([]int64, len(skillScopes))
+	places := make([]installedPlace, len(skillScopes))
 	rootsMissing := map[string]bool{}
 	var present, absent folderGroups
 	skills := map[SkillID]bool{}
@@ -143,10 +148,15 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 		if err != nil {
 			return nil, err
 		}
-		folder, head, err := l.installedFolder(ctx, skillScope.SkillID, target)
+		place, err := l.installedAt(ctx, skillScope.SkillID, target)
 		if err != nil {
 			return nil, err
 		}
+		folder, head, err := l.installedFolder(ctx, skillScope.SkillID, place)
+		if err != nil {
+			return nil, err
+		}
+		places[i] = place
 		missing, ok := rootsMissing[target.root]
 		if !ok {
 			failure, err := target.rootMissing(operation)
@@ -163,6 +173,13 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 			continue
 		}
 		present.add(folder, i)
+	}
+	links, err := l.staleLinksOf(ctx, places)
+	if err != nil {
+		return nil, err
+	}
+	for i := range inspections {
+		inspections[i].StaleLinks = links[i]
 	}
 	latest, err := sourceLatestContents(ctx, l.store)
 	if err != nil {
@@ -261,27 +278,23 @@ func (g *folderGroups) add(folder string, index int) {
 	g.indexes[at] = append(g.indexes[at], index)
 }
 
-func (l *Library) installedFolder(ctx context.Context, id SkillID, target resolvedScope) (string, int64, error) {
+func (l *Library) installedFolder(ctx context.Context, id SkillID, place installedPlace) (string, int64, error) {
 	name, head, err := l.store.SkillHead(ctx, int64(id))
 	if err != nil {
 		return "", 0, err
 	}
-	place, err := l.store.PlaceSkillScopes(ctx, int64(id), target.Scope)
-	if err != nil {
-		return "", 0, err
+	if place.installed() {
+		return place.folder(), head, nil
 	}
-	if len(place) > 0 {
-		name = place[0].Folder
-	}
-	return agentdir.FolderPath(target.directory, name), head, nil
+	return agentdir.FolderPath(place.target.directory, name), head, nil
 }
 
-func (l *Library) inspectSkillScope(ctx context.Context, id SkillID, target resolvedScope) (SkillScopeStatus, VersionID, error) {
-	folder, head, err := l.installedFolder(ctx, id, target)
+func (l *Library) inspectSkillScope(ctx context.Context, id SkillID, place installedPlace) (SkillScopeStatus, VersionID, error) {
+	folder, head, err := l.installedFolder(ctx, id, place)
 	if err != nil {
 		return "", 0, err
 	}
-	if missing, err := target.rootMissing("inspect skill scope"); err != nil {
+	if missing, err := place.target.rootMissing("inspect skill scope"); err != nil {
 		return "", 0, err
 	} else if missing != nil {
 		return SkillScopeRootMissing, 0, nil
@@ -483,13 +496,14 @@ func (l *Library) reinstallLocked(ctx context.Context, operation string, request
 	if err != nil {
 		return "", false, err
 	}
-	place, err := l.store.PlaceSkillScopes(ctx, int64(request.SkillID), target.Scope)
+	installed, err := l.installedAt(ctx, request.SkillID, target)
 	if err != nil {
 		return "", false, err
 	}
-	if len(place) == 0 {
+	if !installed.installed() {
 		return "", false, &Error{Code: NotFound, Message: operation + ": skill is not installed in scope"}
 	}
+	target, place := installed.target, installed.rows
 	skill, current, err := l.getCurrent(ctx, request.SkillID)
 	if err != nil {
 		return "", false, err
@@ -500,7 +514,7 @@ func (l *Library) reinstallLocked(ctx context.Context, operation string, request
 	if err := target.requireRoot(operation); err != nil {
 		return "", false, err
 	}
-	status, _, err := l.inspectSkillScope(ctx, skill.ID, target)
+	status, _, err := l.inspectSkillScope(ctx, skill.ID, installed)
 	if err != nil {
 		return "", false, err
 	}
