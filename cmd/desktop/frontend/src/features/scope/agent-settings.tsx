@@ -1,7 +1,7 @@
 // 设置页的 Agent 分区：列出已添加的 Agent,每行有显示勾选(应用设置，存在数据库的 config 表里，随推送、拉回走)、编辑与移除;
 // 「添加 Agent」默认列出候选池(可以搜索、勾选几个一次添加),也能切到手填表单。显示勾选的说明在设置页分区标题的提示里。
 // 编辑表单改名称、技能目录(第 1 个装新技能，其余是附加目录)和检测目录。
-import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AppService, LibraryService } from "@bindings/cmd/desktop";
 import { ErrorCode, type Agent, type AgentInput } from "@bindings/internal/library";
@@ -10,6 +10,8 @@ import {
   alreadyRead,
   asksWhere,
   detectedPicks,
+  directoryKey,
+  enterSubmits,
   directoryOptions,
   filterDirectoryOptions,
   opensWhileTyping,
@@ -249,6 +251,10 @@ function AgentPoolDialog({
 
 type AgentField = keyof AgentInput;
 
+// keystroke 取出一次按键与输入法是否还在选词:WebKit 里确定候选词的那次 Enter 有时 isComposing 已经是 false,
+// 但 keyCode 仍是 229,也算选词中。
+const keystroke = (e: KeyboardEvent<HTMLInputElement>) => ({ key: e.key, composing: e.nativeEvent.isComposing || e.keyCode === 229 });
+
 // AgentDialog 手填添加一个 Agent,或给出 agent 时编辑它:名称、全局与项目里的技能目录(第 1 个装新技能，其余是附加目录)、检测目录。
 // 全局技能目录与检测目录必须在用户主目录里面;项目里的技能目录相对项目根目录。onBack 给出时(从候选池切过来)底部能回到候选池。
 export function AgentDialog({ agent, onClose, onBack }: { agent?: Agent; onClose: () => void; onBack?: () => void }) {
@@ -377,7 +383,7 @@ export function AgentDialog({ agent, onClose, onBack }: { agent?: Agent; onClose
         {/* 图标按名字认，边输入边预览。 */}
         <div className="flex min-w-0 items-center gap-2">
           <AgentMark name={name} className="size-6 rounded-control" />
-          <Input className="grow" autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+          <Input className="grow" autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => enterSubmits(keystroke(e)) && submit()} />
         </div>
         {error("name")}
       </label>
@@ -512,22 +518,24 @@ function DirectoryInput({
     onChange(dir);
     show(false);
   };
+  const listId = useId();
+  const optionId = (i: number) => `${listId}-${i}`;
+  // 用键盘移到的那一项滚进看得见的地方。
+  useEffect(() => {
+    if (open && active >= 0) document.getElementById(optionId(active))?.scrollIntoView({ block: "nearest" });
+  }, [open, active]);
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      if (!open) return show(true);
-      if (items.length) setActive((i) => (e.key === "ArrowDown" ? (i + 1) % items.length : (i <= 0 ? items.length : i) - 1));
-    } else if (e.key === "Enter") {
-      if (open && active >= 0 && items[active]) {
-        e.preventDefault();
-        pick(items[active]);
-      } else {
-        show(false);
-        onEnter();
-      }
-    } else if (e.key === "Escape" && open) {
+    const action = directoryKey(keystroke(e), { open, active, count: items.length });
+    if (action.type === "none") return;
+    e.preventDefault();
+    if (action.type === "open") show(true);
+    else if (action.type === "move") setActive(action.active);
+    else if (action.type === "pick") pick(items[active]);
+    else if (action.type === "submit") {
+      show(false);
+      onEnter();
+    } else {
       // 只收起下拉，不关掉整个弹窗。
-      e.preventDefault();
       e.stopPropagation();
       show(false);
     }
@@ -539,6 +547,7 @@ function DirectoryInput({
         {dirs.map((dir, i) => (
           <div
             key={dir}
+            id={optionId(offset + i)}
             role="option"
             aria-selected={active === offset + i}
             className={cn(
@@ -566,6 +575,8 @@ function DirectoryInput({
             role="combobox"
             aria-expanded={open}
             aria-autocomplete="list"
+            aria-controls={open ? listId : undefined}
+            aria-activedescendant={open && active >= 0 ? optionId(active) : undefined}
             placeholder={placeholder}
             value={value}
             onChange={(e) => {
@@ -596,6 +607,7 @@ function DirectoryInput({
       <PopoverContent
         align="start"
         sideOffset={4}
+        id={listId}
         className="directory-menu z-[60] max-h-64 w-[var(--radix-popover-trigger-width)] overflow-y-auto"
         role="listbox"
         onOpenAutoFocus={(e) => e.preventDefault()}

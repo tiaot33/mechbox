@@ -13,7 +13,7 @@ import {
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import type { Snapshot } from "@/lib/library";
-import { agentDelete, agentEdit, agentReset, alreadyRead, asksWhere, switchedToDistro, detectedPicks, directoryOptions, filterDirectoryOptions, migrationReport, opensWhileTyping, poolMatches, sortPool, undetected } from "./agents-rules";
+import { agentDelete, agentEdit, agentReset, alreadyRead, asksWhere, directoryKey, enterSubmits, switchedToDistro, detectedPicks, directoryOptions, filterDirectoryOptions, migrationReport, opensWhileTyping, poolMatches, sortPool, undetected } from "./agents-rules";
 
 const mine = "my-agent" as AgentCode;
 const claude = AgentCode.AgentClaudeCode;
@@ -288,5 +288,24 @@ describe("Agent 装在 Windows 本机还是 WSL 发行版", () => {
     expect(switchedToDistro("Ubuntu", "Debian")).toBe(true);
     expect(switchedToDistro("Ubuntu", "")).toBe(false);
     expect(switchedToDistro("Ubuntu", "Ubuntu")).toBe(false);
+  });
+});
+
+describe("表单的按键", () => {
+  const key = (k: string, composing = false) => ({ key: k, composing });
+  it("中文输入法选词时按 Enter 是确定候选词：不提交表单，也不选下拉项", () => {
+    expect(enterSubmits(key("Enter", true))).toBe(false);
+    expect(enterSubmits(key("Enter"))).toBe(true);
+    expect(directoryKey(key("Enter", true), { open: true, active: 0, count: 3 })).toEqual({ type: "none" });
+    expect(directoryKey(key("ArrowDown", true), { open: true, active: 0, count: 3 })).toEqual({ type: "none" });
+  });
+  it("下拉开着时 ↑↓ 在候选间移动、首尾相接,Enter 填进高亮的那一项，没高亮时提交;收着时 ↑↓ 展开;Esc 只收起", () => {
+    expect(directoryKey(key("ArrowDown"), { open: false, active: -1, count: 3 })).toEqual({ type: "open" });
+    expect(directoryKey(key("ArrowDown"), { open: true, active: 2, count: 3 })).toEqual({ type: "move", active: 0 });
+    expect(directoryKey(key("ArrowUp"), { open: true, active: -1, count: 3 })).toEqual({ type: "move", active: 2 });
+    expect(directoryKey(key("Enter"), { open: true, active: 1, count: 3 })).toEqual({ type: "pick" });
+    expect(directoryKey(key("Enter"), { open: true, active: -1, count: 3 })).toEqual({ type: "submit" });
+    expect(directoryKey(key("Escape"), { open: true, active: 1, count: 3 })).toEqual({ type: "close" });
+    expect(directoryKey(key("Escape"), { open: false, active: -1, count: 3 })).toEqual({ type: "none" });
   });
 });

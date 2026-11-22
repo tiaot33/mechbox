@@ -68,6 +68,37 @@ export function migrationReport(s: Snapshot, migrations: AgentMigration[]) {
   return { rows, listed: rows.length > 0, migrated: migrations.length - skipped.length, skipped: skipped.length };
 }
 
+// ---------- 按键 ----------
+
+// Keystroke 是表单里一次按键:composing 是输入法还在选词(中文输入法选词时按 Enter 是确定候选词，不是提交或选下拉项)。
+export type Keystroke = { key: string; composing: boolean };
+
+// enterSubmits 是这次按键要不要提交表单：按 Enter、又不在输入法选词中。
+export const enterSubmits = (k: Keystroke) => k.key === "Enter" && !k.composing;
+
+// DirectoryKey 是目录输入框一次按键要做的事:open 展开下拉,move 把高亮移到 active,pick 填进高亮的那一项,
+// submit 收起下拉并提交表单,close 只收起下拉(不关掉弹窗),none 什么都不做(交给输入框自己)。
+export type DirectoryKey = { type: "none" | "open" | "pick" | "submit" | "close" } | { type: "move"; active: number };
+
+// directoryKey 是目录输入框的按键：下拉开着时 ↑↓ 在候选间移动(首尾相接)、Enter 填进高亮的那一项，没高亮时 Enter 照常提交;
+// 收着时 ↑↓ 展开;Esc 只收起下拉。输入法选词中的按键一概不管。
+export function directoryKey(k: Keystroke, state: { open: boolean; active: number; count: number }): DirectoryKey {
+  if (k.composing) return { type: "none" };
+  const { open, active, count } = state;
+  switch (k.key) {
+    case "ArrowDown":
+    case "ArrowUp":
+      if (!open) return { type: "open" };
+      if (!count) return { type: "none" };
+      return { type: "move", active: k.key === "ArrowDown" ? (active + 1) % count : (active <= 0 ? count : active) - 1 };
+    case "Enter":
+      return open && active >= 0 && active < count ? { type: "pick" } : { type: "submit" };
+    case "Escape":
+      return open ? { type: "close" } : { type: "none" };
+  }
+  return { type: "none" };
+}
+
 // ---------- 恢复默认 ----------
 
 // AgentChange 是恢复默认时一个已添加的收录 Agent 要换回的内置值:fields 是和内置值不一样的几项(只用来写出改了什么)。
