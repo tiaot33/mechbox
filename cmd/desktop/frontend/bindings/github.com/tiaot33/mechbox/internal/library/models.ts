@@ -2629,8 +2629,7 @@ export interface UnmanagedSkill {
      * SkillID 不为 0 时,文件夹的内容(文件路径、内容与可执行位都相同,Windows 本机的目录只比路径与内容)和库里这个技能的某个版本完全一致,VersionID 是那个版本:
      * 和当前版本一致的优先,其次是最新的旧版本。这样的文件夹列出时(ListUnmanagedSkills、PlanFetchUnmanaged)自动记为这个技能装在这里,
      * 不再出现在结果里;留下的只有不自动纳入的几种:提交在项目仓库里的(InRepository)、记在 skills-lock.json 里的(InProjectLock)、
-     * 指向 Agent 目录以外的符号链接(LinkOutside),以及经目录的符号链接和别的作用域是同一个文件夹的(如 Claude Code 的整个技能目录
-     * 链到 Codex 的,记成两处安装后从一处卸载会删掉另一处)。它们就是库里的这个技能,只是这一处不是库装的,界面把它显示在这个技能下;
+     * 指向 Agent 目录以外的符号链接(LinkOutside)。它们就是库里的这个技能,只是这一处不是库装的,界面把它显示在这个技能下;
      * 入库(FetchUnmanaged、FetchUnmanagedSkills)只给这个技能补记这一处安装,不论带不带来源、带的是哪个来源。
      * 已经装在这个作用域的技能不算:一个技能在一个作用域只记一处安装。
      */

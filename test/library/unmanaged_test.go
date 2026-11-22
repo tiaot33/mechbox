@@ -294,8 +294,7 @@ func TestListUnmanagedSkillsDoesNotFollowSymlinkedAgentDirectories(t *testing.T)
 		t.Fatal(err)
 	}
 	// Claude Code 的全局目录整个是指向 Codex 全局目录的符号链接:共用只按目录设置判断,不跟随符号链接,
-	// 所以只装到 Codex 的技能在 Claude Code 里没有安装记录,是未纳管技能。
-	// 它和 Codex 那处是同一个文件夹,不自动纳入:记成两处安装,从一处卸载就会删掉另一处。
+	// 所以只装到 Codex 的技能在 Claude Code 里没有安装记录;内容和库里的一样,列出时照常自动记为装在 Claude Code。
 	claudeDirectory := scopeDirectory(t, lib, claude)
 	if err := os.MkdirAll(filepath.Dir(claudeDirectory), 0o755); err != nil {
 		t.Fatal(err)
@@ -307,13 +306,12 @@ func TestListUnmanagedSkillsDoesNotFollowSymlinkedAgentDirectories(t *testing.T)
 	if err := lib.Install(ctx, skill.ID, codex, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	requireUnmanagedSkills(t, lib, []library.UnmanagedSkill{
-		{Scope: claude, Name: "pdf", Folder: filepath.Join(claudeDirectory, "pdf"), SkillID: skill.ID, VersionID: skill.VersionID},
-	})
-	if plan := planFetchUnmanaged(t, lib, claude); len(plan) != 1 || plan[0].SkillID != skill.ID {
-		t.Fatalf("plan = %#v, want the folder still listed as pdf", plan)
+	requireUnmanagedSkills(t, lib, nil)
+	requireScopeStatus(t, lib, skill.ID, claude, library.SkillScopeCurrent)
+	requireScopeStatus(t, lib, skill.ID, codex, library.SkillScopeCurrent)
+	if info, err := os.Lstat(claudeDirectory); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("claude directory = %v, %v, want it still a link", info, err)
 	}
-	requireInspection(t, lib, library.SkillScopeCurrent, skill.VersionID)
 }
 
 func TestListUnmanagedSkillsReadsSourceRecordsOfNpxSkills(t *testing.T) {
