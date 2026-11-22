@@ -155,18 +155,14 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 		}
 		present.add(folder, i)
 	}
-	latests, err := l.store.SourceLatests(ctx)
+	latest, err := sourceLatestContents(ctx, l.store)
 	if err != nil {
 		return nil, err
-	}
-	latest := make(map[SkillID]string, len(latests))
-	for _, each := range latests {
-		latest[SkillID(each.SkillID)] = each.Content
 	}
 	states := make([]agentdir.FolderState, len(skillScopes))
 	err = agentdir.ReadFolders(ctx, present.folders, maxFetchFiles, maxFetchSize, func(index int, state agentdir.FolderState) error {
 		for _, i := range present.indexes[index] {
-			status, versionID, err := l.folderStatus(ctx, skillScopes[i].SkillID, heads[i], state)
+			status, versionID, err := folderStatus(ctx, l.store, skillScopes[i].SkillID, heads[i], state)
 			if err != nil {
 				return err
 			}
@@ -261,13 +257,34 @@ func (l *Library) inspectSkillScope(ctx context.Context, id SkillID, target reso
 	var status SkillScopeStatus
 	var versionID VersionID
 	err = agentdir.ReadFolders(ctx, []string{folder}, maxFetchFiles, maxFetchSize, func(_ int, state agentdir.FolderState) error {
-		status, versionID, err = l.folderStatus(ctx, id, head, state)
+		status, versionID, err = folderStatus(ctx, l.store, id, head, state)
 		return err
 	})
 	return status, versionID, err
 }
 
-func (l *Library) folderStatus(ctx context.Context, id SkillID, head int64, state agentdir.FolderState) (SkillScopeStatus, VersionID, error) {
+type sourceLatestReader interface {
+	SourceLatests(ctx context.Context) ([]store.SourceLatest, error)
+}
+
+func sourceLatestContents(ctx context.Context, reader sourceLatestReader) (map[SkillID]string, error) {
+	rows, err := reader.SourceLatests(ctx)
+	if err != nil {
+		return nil, err
+	}
+	latest := make(map[SkillID]string, len(rows))
+	for _, row := range rows {
+		latest[SkillID(row.SkillID)] = row.Content
+	}
+	return latest, nil
+}
+
+type versionHistory interface {
+	VersionDigests(ctx context.Context, versionID int64) (map[string]skillfile.Digest, error)
+	OlderVersionIDs(ctx context.Context, skillID, currentVersionID int64) ([]int64, error)
+}
+
+func folderStatus(ctx context.Context, versions versionHistory, id SkillID, head int64, state agentdir.FolderState) (SkillScopeStatus, VersionID, error) {
 	switch {
 	case !state.Exists:
 		return SkillScopeMissing, 0, nil
@@ -276,7 +293,7 @@ func (l *Library) folderStatus(ctx context.Context, id SkillID, head int64, stat
 	case state.Err != nil:
 		return "", 0, state.Err
 	}
-	return l.matchVersion(ctx, id, head, diskOf(state))
+	return matchVersion(ctx, versions, id, head, diskOf(state))
 }
 
 type diskFiles struct {
@@ -307,8 +324,8 @@ func (d diskFiles) or(other diskFiles) diskFiles {
 	return d
 }
 
-func (l *Library) matchVersion(ctx context.Context, id SkillID, currentVersionID int64, disk diskFiles) (SkillScopeStatus, VersionID, error) {
-	current, err := l.store.VersionDigests(ctx, currentVersionID)
+func matchVersion(ctx context.Context, versions versionHistory, id SkillID, currentVersionID int64, disk diskFiles) (SkillScopeStatus, VersionID, error) {
+	current, err := versions.VersionDigests(ctx, currentVersionID)
 	if err != nil {
 		return "", 0, err
 	}
@@ -316,12 +333,12 @@ func (l *Library) matchVersion(ctx context.Context, id SkillID, currentVersionID
 		return SkillScopeCurrent, VersionID(currentVersionID), nil
 	}
 
-	versionIDs, err := l.store.OlderVersionIDs(ctx, int64(id), currentVersionID)
+	versionIDs, err := versions.OlderVersionIDs(ctx, int64(id), currentVersionID)
 	if err != nil {
 		return "", 0, err
 	}
 	for _, versionID := range versionIDs {
-		files, err := l.store.VersionDigests(ctx, versionID)
+		files, err := versions.VersionDigests(ctx, versionID)
 		if err != nil {
 			return "", 0, err
 		}

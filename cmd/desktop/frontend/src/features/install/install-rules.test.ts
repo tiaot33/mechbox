@@ -30,7 +30,7 @@ import {
   notDirectIn,
   occupied,
   readInstallPlans,
-  uninstalledPicked,
+  skippedPicked,
   uninstallGroupPlaces,
   uninstallPicked,
   uninstallPlace,
@@ -267,16 +267,9 @@ describe("从这里卸载勾选的技能", () => {
     expect(r.skills).toBe(2);
   });
 
-  it("全局共用一个文件夹的几处已被一起撤了(NotFound)不算失败;跳过的在前，失败的写明原因", () => {
+  it("只随组安装的几处跳过并写明原因", () => {
     const picked = uninstallPicked(s, [1, 2, 3], [global(claude)]);
-    const r = uninstalledPicked(s, picked, [{ error: err(ErrorCode.NotFound) }, { error: err(ErrorCode.Permission) }]);
-    expect(r.rows.map((x) => [x.label, x.outcome])).toEqual([
-      ["s3 · Claude Code · 全局", t.memberSkipped],
-      ["s2 · Claude Code · 全局", t.failed],
-    ]);
-    expect(r.done).toBe(0);
-    expect(r.failed).toBe(true);
-    expect(uninstalledPicked(s, picked, [{ value: undefined }, { error: err(ErrorCode.NotFound) }])).toMatchObject({ done: 1, failed: false });
+    expect(skippedPicked(s, picked).map((x) => [x.label, x.outcome, x.reason])).toEqual([["s3 · Claude Code · 全局", t.memberSkipped, t.onlyViaGroup]]);
   });
 });
 

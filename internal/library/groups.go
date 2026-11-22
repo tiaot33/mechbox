@@ -3,6 +3,7 @@ package library
 import (
 	"context"
 	"errors"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -35,11 +36,19 @@ const (
 // RemoveFromGroupOptions 是 RemoveSkillFromGroup 的选项。
 type RemoveFromGroupOptions struct {
 	IfNoOtherInstall MemberRemovalPolicy `json:"if_no_other_install"` // 只管移出后没有直接安装或组安装留着的技能;默认 KeepAsDirectInstall
+	// DiscardEdits 是确认时告诉用户被改过、修改会丢掉的技能文件夹(SkillScope.Folder)。动磁盘之前核对这次要删的每个文件夹:
+	// 有被改过的(SkillScopeModified,不算 SkillScopeInspection.SourceLatest,也不算是符号链接的那一处,删的只是链接)却不在这里,
+	// 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
+	DiscardEdits []string `json:"discard_edits,omitempty"`
 }
 
 // DeleteGroupOptions 是 DeleteGroup 的选项。
 type DeleteGroupOptions struct {
 	IfNoOtherInstall MemberRemovalPolicy `json:"if_no_other_install"` // 只管删组后没有直接安装或组安装留着的技能;默认 KeepAsDirectInstall
+	// DiscardEdits 是确认时告诉用户被改过、修改会丢掉的技能文件夹(SkillScope.Folder)。动磁盘之前核对这次要删的每个文件夹:
+	// 有被改过的(SkillScopeModified,不算 SkillScopeInspection.SourceLatest,也不算是符号链接的那一处,删的只是链接)却不在这里,
+	// 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
+	DiscardEdits []string `json:"discard_edits,omitempty"`
 }
 
 func groupOf(row store.Group) Group {
@@ -172,7 +181,7 @@ func uniqueGroupName(name string, taken map[string]int64) string {
 
 // DeleteGroup 删除组,连同它在各作用域的组安装。只因为这个组才装上的技能按 opts 处理:保留(改为直接安装、
 // 磁盘不动,默认)或一并卸载;在同一作用域里有直接安装或别的组安装的照常保留。组不存在返回 NotFound。
-// 一并卸载时某个文件夹移不走则整次复原。
+// 一并卸载时某个文件夹移不走则整次复原;删之前核对文件夹有没有被改过,确认之后才被改过的返回 Conflict,不删组(见 DeleteGroupOptions)。
 func (l *Library) DeleteGroup(ctx context.Context, id GroupID, opts DeleteGroupOptions) (err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
@@ -193,7 +202,11 @@ func (l *Library) DeleteGroup(ctx context.Context, id GroupID, opts DeleteGroupO
 		if err := tx.DeleteGroup(ctx, int64(id)); err != nil {
 			return err
 		}
-		return releaseMemberScopes(ctx, tx, &change, released, opts.IfNoOtherInstall)
+		removals, err := releaseMemberScopes(ctx, tx, released, opts.IfNoOtherInstall)
+		if err != nil {
+			return err
+		}
+		return l.removeFolders(ctx, tx, &change, "delete group", removals, opts.DiscardEdits)
 	})
 }
 
@@ -243,33 +256,57 @@ func (l *Library) AddSkillToGroup(ctx context.Context, groupID GroupID, skillID 
 }
 
 // RemoveSkillFromGroup 把技能移出组;它在这个组装到的各作用域里失去这个组的组安装。
-// 没有直接安装或别的组安装留着的,按 opts 处理:保留(改为直接安装、磁盘不动,默认)或一并卸载。
+// 没有直接安装或别的组安装留着的,按 opts 处理:保留(改为直接安装、磁盘不动,默认)或一并卸载;
+// 一并卸载时删之前核对文件夹有没有被改过,确认之后才被改过的返回 Conflict,不移出(见 RemoveFromGroupOptions)。
 // 不是成员返回 NotFound。
 func (l *Library) RemoveSkillFromGroup(ctx context.Context, groupID GroupID, skillID SkillID, opts RemoveFromGroupOptions) (err error) {
+	defer func() { err = typedError(err) }()
+	return l.removeSkillsFromGroup(ctx, "remove skill from group", groupID, []SkillID{skillID}, opts)
+}
+
+// RemoveSkillsFromGroup 是一次把几个技能移出组(勾选几个后操作栏上的「移出组」):每个技能的规则与 RemoveSkillFromGroup 相同,
+// 整批一次提交,全成或全不成。有一个不是成员,或要删的文件夹里有确认之后才被改过的,整次返回与 RemoveSkillFromGroup 相同的错误,
+// 一个都不移出。同一个技能列了几次只移出一次。空列表什么都不做。
+func (l *Library) RemoveSkillsFromGroup(ctx context.Context, groupID GroupID, skillIDs []SkillID, opts RemoveFromGroupOptions) (err error) {
+	defer func() { err = typedError(err) }()
+	return l.removeSkillsFromGroup(ctx, "remove skills from group", groupID, skillIDs, opts)
+}
+
+func (l *Library) removeSkillsFromGroup(ctx context.Context, operation string, groupID GroupID, skillIDs []SkillID, opts RemoveFromGroupOptions) (err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
-	defer func() { err = typedError(err) }()
-	if err := validateMemberRemoval("remove skill from group", opts.IfNoOtherInstall); err != nil {
+	if err := validateMemberRemoval(operation, opts.IfNoOtherInstall); err != nil {
 		return err
 	}
-	member, err := l.store.IsMember(ctx, int64(groupID), int64(skillID))
-	if err != nil {
-		return err
-	}
-	if !member {
-		return &Error{Code: NotFound, Message: "remove skill from group: skill is not a member"}
-	}
-	released, err := l.releasedMemberScopes(ctx, int64(groupID), int64(skillID))
-	if err != nil {
-		return err
+	skillIDs = slices.Compact(slices.Sorted(slices.Values(skillIDs)))
+	var released []releasedMemberScope
+	for _, skillID := range skillIDs {
+		member, err := l.store.IsMember(ctx, int64(groupID), int64(skillID))
+		if err != nil {
+			return err
+		}
+		if !member {
+			return &Error{Code: NotFound, Message: operation + ": skill is not a member"}
+		}
+		scopes, err := l.releasedMemberScopes(ctx, int64(groupID), int64(skillID))
+		if err != nil {
+			return err
+		}
+		released = append(released, scopes...)
 	}
 	var change agentdir.Change
 	defer func() { err = errors.Join(err, change.Rollback()) }()
 	return l.applyChange(ctx, &change, func(tx *store.Tx) error {
-		if err := tx.RemoveMember(ctx, int64(groupID), int64(skillID)); err != nil {
+		for _, skillID := range skillIDs {
+			if err := tx.RemoveMember(ctx, int64(groupID), int64(skillID)); err != nil {
+				return err
+			}
+		}
+		removals, err := releaseMemberScopes(ctx, tx, released, opts.IfNoOtherInstall)
+		if err != nil {
 			return err
 		}
-		return releaseMemberScopes(ctx, tx, &change, released, opts.IfNoOtherInstall)
+		return l.removeFolders(ctx, tx, &change, operation, removals, opts.DiscardEdits)
 	})
 }
 
@@ -294,30 +331,31 @@ func (l *Library) releasedMemberScopes(ctx context.Context, groupID, skillID int
 	return released, nil
 }
 
-func releaseMemberScopes(ctx context.Context, tx *store.Tx, change *agentdir.Change, released []releasedMemberScope, policy MemberRemovalPolicy) error {
+func releaseMemberScopes(ctx context.Context, tx *store.Tx, released []releasedMemberScope, policy MemberRemovalPolicy) ([]removal, error) {
+	var removals []removal
 	for _, skillScope := range released {
 		if policy != UninstallMember {
 			if err := tx.KeepAsDirectInstall(ctx, skillScope.ID); err != nil {
-				return err
+				return nil, err
 			}
 			continue
 		}
 		removed, err := tx.UninstallMember(ctx, skillScope.ID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !removed {
 			continue
 		}
 		place, err := tx.PlaceSkillScopes(ctx, skillScope.SkillID, skillScope.Scope)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if len(place) == 0 {
-			change.Remove(agentdir.FolderPath(skillScope.directory, skillScope.Name))
+			removals = append(removals, removal{skillID: SkillID(skillScope.SkillID), folder: agentdir.FolderPath(skillScope.directory, skillScope.Name)})
 		}
 	}
-	return nil
+	return removals, nil
 }
 
 func (l *Library) requireGroup(ctx context.Context, id GroupID) error {

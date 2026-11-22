@@ -52,7 +52,8 @@
 //     [Library.GetVersionFile] 读出的 File.Translations 按语言给出,技能更新后没改的文件、内容相同的文件都直接用它。
 //   - [Library.ListVersions]、[Library.GetVersion] 列出和读取版本;[Library.ListVersionFiles]、[Library.GetVersionFile] 按版本 ID
 //     列出和读取文件(当前版本传 Skill.VersionID,历史版本传 SkillVersion.ID);[Library.DiffVersions] 比较两个版本。
-//   - [Library.RemoveSkill] 从库中移除技能,默认连同各作用域里已安装的文件夹;只撤掉一个作用域用 [Library.Uninstall]。
+//   - [Library.RemoveSkill] 从库中移除技能,默认连同各作用域里已安装的文件夹;[Library.RemoveSkills] 一次移除勾选的几个。
+//     只撤掉一个作用域用 [Library.Uninstall]。
 //   - 技能对 Claude Code、Codex 声明的设置(agent_settings.go):[Skill]、未纳管技能([UnmanagedSkill])与入库预览的候选([Candidate])
 //     都带 [AgentSettings],从 SKILL.md 的 frontmatter 与 agents/openai.yaml 现读现解析,不存进数据库,只给界面看,不改变任何行为。
 //     更新计划的风险里另有它们放宽了的几种(新增不用确认就能用的工具、hooks、要接入的工具)。
@@ -94,7 +95,8 @@
 // 分组(groups.go):
 //   - [Library.CreateGroup]、[Library.RenameGroup]、[Library.DeleteGroup] 管理分组。
 //   - [Library.ListGroups] 列出全部组及成员的技能 ID;[Library.ReorderGroups] 调整组的先后,ListGroups 按它列出。
-//   - [Library.AddSkillToGroup]、[Library.RemoveSkillFromGroup] 增删成员,并同步到该组已安装到的 Scope。
+//   - [Library.AddSkillToGroup]、[Library.RemoveSkillFromGroup] 增删成员,并同步到该组已安装到的 Scope;
+//     [Library.RemoveSkillsFromGroup] 一次移出勾选的几个。
 //
 // 设置 Agent(agents.go):
 //   - [Library.ListAgents] 列出 Agent,带是否在这台机器上检测到、是否自定义,以及它读取技能的目录。
@@ -113,10 +115,14 @@
 //
 // 安装(install.go):
 //   - [Library.PlanInstall] 再 [Library.Install]:先看会装到哪个文件夹、那里现在是什么情况,再直接安装;
-//     目标处有不是从库里装的同名文件夹时,用户同意后才覆盖。[Library.Uninstall] 撤销。
+//     目标处有不是从库里装的同名文件夹时,用户同意后才覆盖。[Library.Uninstall] 撤销,[Library.UninstallSkills] 一次撤销勾选的几处。
 //   - [Library.PlanGroupInstall] 再 [Library.InstallGroup]:组安装;[Library.UninstallGroup] 撤销。
 //   - [Library.ListSkillScopes]、[Library.ListGroupInstalls] 列出安装记录。看一个技能装在哪些地方,用
-//     [Library.ListSkillScopes] 或 [Library.InspectSkillScopes] 按技能筛选;移除技能的确认框用后者说明哪几处用户改过。
+//     [Library.ListSkillScopes] 或 [Library.InspectSkillScopes] 按技能筛选。
+//   - 会删技能文件夹的操作(卸载、组卸载、移除技能、移出组或删除组时一并卸载、注销项目、删除自定义 Agent)的确认框,
+//     按界面上已有的巡检结果说明哪几处用户改过、修改会丢掉,不必先现查磁盘;这几处放进选项的 DiscardEdits。
+//     库在动磁盘之前只读这次要删的文件夹:确认之后才被改过的,整次返回 Conflict(Details.Paths),一个都不删,
+//     界面再问一次用户,同意后把它们加进 DiscardEdits 重新调用。
 //
 // 安装与安装计划方法都只接受 Scope 身份:Agent 目录与 [Library.ScopeDirectory] 给出的相同,记录按身份落库,
 // 未知 Agent 或未登记项目返回 NotFound。Agent 目录变了之后只认新目录,旧目录里的文件夹不管。

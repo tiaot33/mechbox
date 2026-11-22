@@ -553,6 +553,13 @@ export interface DeleteAgentOptions {
      * Folders 默认删除技能文件夹,只有显式 Keep 保留。还有别的 Agent 在读的文件夹不受它影响,总是保留(见 DeleteAgent)。
      */
     "folders": FolderPolicy;
+
+    /**
+     * DiscardEdits 是确认时告诉用户被改过、修改会丢掉的技能文件夹(SkillScope.Folder)。动磁盘之前核对这次要删的每个文件夹:
+     * 有被改过的(SkillScopeModified,不算 SkillScopeInspection.SourceLatest,也不算是符号链接的那一处,删的只是链接)却不在这里,
+     * 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
+     */
+    "discard_edits"?: string[] | null;
 }
 
 /**
@@ -574,6 +581,13 @@ export interface DeleteGroupOptions {
      * 只管删组后没有直接安装或组安装留着的技能;默认 KeepAsDirectInstall
      */
     "if_no_other_install": MemberRemovalPolicy;
+
+    /**
+     * DiscardEdits 是确认时告诉用户被改过、修改会丢掉的技能文件夹(SkillScope.Folder)。动磁盘之前核对这次要删的每个文件夹:
+     * 有被改过的(SkillScopeModified,不算 SkillScopeInspection.SourceLatest,也不算是符号链接的那一处,删的只是链接)却不在这里,
+     * 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
+     */
+    "discard_edits"?: string[] | null;
 }
 
 /**
@@ -647,8 +661,9 @@ export enum ErrorCode {
 
     /**
      * Conflict 计划到执行之间状态已变(拉回时选中的备份在列出之后被删掉或改写;更新计划生成后勾选的技能在来源里又变了、或在库里被改过;
-     * 检查更新、跳过、更新期间整个库被同步拉回替换;单独重试时技能在那次更新之后又换了版本)。
-     * 可重新列出备份、生成同步计划 / 重新发起后再执行。
+     * 检查更新、跳过、更新期间整个库被同步拉回替换;单独重试时技能在那次更新之后又换了版本;
+     * 卸载、移除技能这类会删技能文件夹的操作里,要删的文件夹被改过、却不在选项的 DiscardEdits 里,即确认时没告诉用户,一个都不删)。
+     * 可重新列出备份、生成同步计划 / 重新发起后再执行;删文件夹时按 Details.Paths 告诉用户这几处的修改会丢掉,同意后把它们加进 DiscardEdits 再调用。
      */
     Conflict = "conflict",
 
@@ -738,6 +753,11 @@ export interface ErrorDetails {
      * AlreadyExists:已登记该路径的项目(登记项目、改项目位置时);FailedPrecondition:根目录不存在的项目
      */
     "project_id"?: ProjectID;
+
+    /**
+     * Conflict:要删的技能文件夹里被改过、却不在 DiscardEdits 里的那几个(SkillScope.Folder)
+     */
+    "paths"?: string[] | null;
 }
 
 /**
@@ -1626,6 +1646,13 @@ export interface RemoveFromGroupOptions {
      * 只管移出后没有直接安装或组安装留着的技能;默认 KeepAsDirectInstall
      */
     "if_no_other_install": MemberRemovalPolicy;
+
+    /**
+     * DiscardEdits 是确认时告诉用户被改过、修改会丢掉的技能文件夹(SkillScope.Folder)。动磁盘之前核对这次要删的每个文件夹:
+     * 有被改过的(SkillScopeModified,不算 SkillScopeInspection.SourceLatest,也不算是符号链接的那一处,删的只是链接)却不在这里,
+     * 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
+     */
+    "discard_edits"?: string[] | null;
 }
 
 /**
@@ -1636,6 +1663,13 @@ export interface RemoveSkillOptions {
      * 默认删除技能文件夹,只有显式 Keep 保留
      */
     "folders": FolderPolicy;
+
+    /**
+     * DiscardEdits 是确认时告诉用户被改过、修改会丢掉的技能文件夹(SkillScope.Folder)。动磁盘之前核对这次要删的每个文件夹:
+     * 有被改过的(SkillScopeModified,不算 SkillScopeInspection.SourceLatest,也不算是符号链接的那一处,删的只是链接)却不在这里,
+     * 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
+     */
+    "discard_edits"?: string[] | null;
 }
 
 /**
@@ -2552,6 +2586,18 @@ export interface TranslationFailure {
 }
 
 /**
+ * UninstallOptions 是 Uninstall、UninstallSkills 与 UninstallGroup 的选项。
+ */
+export interface UninstallOptions {
+    /**
+     * DiscardEdits 是确认时告诉用户被改过、修改会丢掉的技能文件夹(SkillScope.Folder)。动磁盘之前核对这次要删的每个文件夹:
+     * 有被改过的(SkillScopeModified,不算 SkillScopeInspection.SourceLatest,也不算是符号链接的那一处,删的只是链接)却不在这里,
+     * 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
+     */
+    "discard_edits"?: string[] | null;
+}
+
+/**
  * UnmanagedFetchItem 是整批入库里的一个技能:内容完全一致的几处文件夹(通常取自 PlannedUnmanagedSkill.Folders)和它的来源。
  * SourceInput、SourceRef 的规则同 FetchUnmanagedRequest:预填 PlannedUnmanagedSkill 认出的来源,用户可以改链接或清空。
  */
@@ -2672,6 +2718,13 @@ export interface UnregisterProjectOptions {
      * 默认删除技能文件夹,只有显式 Keep 保留
      */
     "folders": FolderPolicy;
+
+    /**
+     * DiscardEdits 是确认时告诉用户被改过、修改会丢掉的技能文件夹(SkillScope.Folder)。动磁盘之前核对这次要删的每个文件夹:
+     * 有被改过的(SkillScopeModified,不算 SkillScopeInspection.SourceLatest,也不算是符号链接的那一处,删的只是链接)却不在这里,
+     * 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
+     */
+    "discard_edits"?: string[] | null;
 }
 
 /**

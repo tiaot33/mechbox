@@ -268,7 +268,7 @@ func TestUpdateRejectsInvalidRequests(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := lib.Update(ctx, tc.req)
 			typed := requireLibraryError(t, err, tc.code)
-			if tc.code != library.NotFound && typed.Details != tc.want {
+			if tc.code != library.NotFound && !reflect.DeepEqual(typed.Details, tc.want) {
 				t.Fatalf("details = %#v; want %#v", typed.Details, tc.want)
 			}
 		})

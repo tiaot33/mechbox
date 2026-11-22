@@ -55,9 +55,11 @@ func run(path string) error {
 	app := application.New(application.Options{
 		Name:        "Mechbox",
 		Description: "管理 coding agent 的 Agent Skills",
+		// 绑定方法返回的错误只经服务自己的 MarshalError 编码(下面应用级的那个管不到方法调用);
+		// 不挂上时 Wails 直接编码 error 值，errors.Join 包着的 *library.Error 会编成 {},前端拿不到 code 与 details。
 		Services: []application.Service{
-			application.NewService(libraryService),
-			application.NewService(appService),
+			application.NewServiceWithOptions(libraryService, application.ServiceOptions{MarshalError: marshalError}),
+			application.NewServiceWithOptions(appService, application.ServiceOptions{MarshalError: marshalError}),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

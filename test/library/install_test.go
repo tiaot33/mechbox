@@ -95,7 +95,7 @@ func TestPlanInstallOccupancyAndUntracked(t *testing.T) {
 		t.Fatalf("cross scope = %#v, %v", plan, err)
 	}
 	requireErrorDetails(t, lib.Install(ctx, a.ID, other, library.InstallOptions{}), library.FailedPrecondition, library.ErrorDetails{Path: filepath.Dir(plan.Folder)})
-	if err := lib.Uninstall(ctx, a.ID, scope); err != nil {
+	if err := lib.Uninstall(ctx, a.ID, scope, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, content := range []string{"# Same", "user edited"} {
@@ -310,7 +310,7 @@ func TestInstallAndUninstallGlobalSkill(t *testing.T) {
 				t.Fatalf("ListSkillScopes() = %#v, want %#v", skillScopes, want)
 			}
 
-			if err := lib.Uninstall(ctx, skill.ID, scope); err != nil {
+			if err := lib.Uninstall(ctx, skill.ID, scope, library.UninstallOptions{}); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
@@ -324,7 +324,7 @@ func TestInstallAndUninstallGlobalSkill(t *testing.T) {
 				t.Fatalf("ListSkillScopes() after uninstall = %#v, %v", skillScopes, err)
 			}
 			writeFile(t, filepath.Join(target, "manual.txt"), []byte("manual"), 0o644)
-			if err := lib.Uninstall(ctx, skill.ID, scope); !library.IsCode(err, library.NotFound) {
+			if err := lib.Uninstall(ctx, skill.ID, scope, library.UninstallOptions{}); !library.IsCode(err, library.NotFound) {
 				t.Fatalf("Uninstall() not-installed skill error = %v", err)
 			}
 			if _, err := os.Stat(filepath.Join(target, "manual.txt")); err != nil {
@@ -398,7 +398,7 @@ func TestUninstallKeepsLibraryAndDiskTogether(t *testing.T) {
 	}
 
 	makeScopeReadOnly(t, directory)
-	err = lib.Uninstall(ctx, present.ID, scope)
+	err = lib.Uninstall(ctx, present.ID, scope, library.UninstallOptions{})
 	requireLibraryError(t, err, library.Permission)
 	if err := os.Chmod(directory, 0o755); err != nil {
 		t.Fatal(err)
@@ -416,10 +416,10 @@ func TestUninstallKeepsLibraryAndDiskTogether(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(directory, missing.Name)); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.Uninstall(ctx, missing.ID, scope); err != nil {
+	if err := lib.Uninstall(ctx, missing.ID, scope, library.UninstallOptions{}); err != nil {
 		t.Fatalf("Uninstall with manually deleted skill scope = %v", err)
 	}
-	if err := lib.Uninstall(ctx, present.ID, scope); err != nil {
+	if err := lib.Uninstall(ctx, present.ID, scope, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, present.Name)); !errors.Is(err, os.ErrNotExist) {
@@ -448,7 +448,7 @@ func TestUninstallGroupBackedSkillNamesTheGroup(t *testing.T) {
 	if _, err := lib.InstallGroup(t.Context(), group.ID, scope, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	requireErrorDetails(t, lib.Uninstall(t.Context(), skill.ID, scope), library.FailedPrecondition, library.ErrorDetails{Name: "only"})
+	requireErrorDetails(t, lib.Uninstall(t.Context(), skill.ID, scope, library.UninstallOptions{}), library.FailedPrecondition, library.ErrorDetails{Name: "only"})
 }
 
 // 直接安装与组安装叠加;重复安装不增加安装,撤销组只卸载只由该组安装留着的技能。
@@ -475,7 +475,7 @@ func TestInstallAndUninstallGroupPreservesDirectInstall(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			requireLibraryError(t, lib.UninstallGroup(ctx, group.ID, scope), library.NotFound)
+			requireLibraryError(t, lib.UninstallGroup(ctx, group.ID, scope, library.UninstallOptions{}), library.NotFound)
 
 			if err := lib.Install(ctx, first.ID, scope, library.InstallOptions{}); err != nil {
 				t.Fatal(err)
@@ -499,8 +499,8 @@ func TestInstallAndUninstallGroupPreservesDirectInstall(t *testing.T) {
 				}
 			}
 
-			requireErrorDetails(t, lib.Uninstall(ctx, second.ID, scope), library.FailedPrecondition, library.ErrorDetails{Name: group.Name})
-			if err := lib.UninstallGroup(ctx, group.ID, scope); err != nil {
+			requireErrorDetails(t, lib.Uninstall(ctx, second.ID, scope, library.UninstallOptions{}), library.FailedPrecondition, library.ErrorDetails{Name: group.Name})
+			if err := lib.UninstallGroup(ctx, group.ID, scope, library.UninstallOptions{}); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := os.Stat(filepath.Join(directory, first.Name, "SKILL.md")); err != nil {
@@ -786,7 +786,7 @@ func TestInstallAndUninstallProjectScope(t *testing.T) {
 		t.Fatalf("ListSkillScopes() = %#v, want %#v", skillScopes, want)
 	}
 
-	if err := lib.Uninstall(ctx, skill.ID, scope); err != nil {
+	if err := lib.Uninstall(ctx, skill.ID, scope, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(target); !errors.Is(err, os.ErrNotExist) {
@@ -798,7 +798,7 @@ func TestInstallAndUninstallProjectScope(t *testing.T) {
 	if skillScopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{}); err != nil || len(skillScopes) != 0 {
 		t.Fatalf("ListSkillScopes() after uninstall = %#v, %v", skillScopes, err)
 	}
-	if err := lib.Uninstall(ctx, skill.ID, scope); !library.IsCode(err, library.NotFound) {
+	if err := lib.Uninstall(ctx, skill.ID, scope, library.UninstallOptions{}); !library.IsCode(err, library.NotFound) {
 		t.Fatalf("Uninstall() not-installed skill error = %v, want NotFound", err)
 	}
 }
@@ -890,7 +890,7 @@ func TestIdentityScopesOfOneSkillAreIndependentSkillScopes(t *testing.T) {
 		}
 	}
 	// 撤销其中一条不影响其余两条。
-	if err := lib.Uninstall(ctx, skill.ID, scopes[0]); err != nil {
+	if err := lib.Uninstall(ctx, skill.ID, scopes[0], library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	skillScopes, err = lib.ListSkillScopes(ctx, library.SkillScopeFilter{})
@@ -1039,7 +1039,7 @@ func TestInstallRejectsNameClaimedByAnotherSkill(t *testing.T) {
 	requireInstalledFolder(t, directory, "commit", "# A\n")
 
 	// 换用 B 的正确路径:先撤 A,再安装 B。
-	if err := lib.Uninstall(ctx, first.ID, scope); err != nil {
+	if err := lib.Uninstall(ctx, first.ID, scope, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := lib.Install(ctx, second.ID, scope, library.InstallOptions{}); err != nil {
@@ -1108,7 +1108,7 @@ func TestInstallGroupSkipsMemberWhoseNameIsClaimedByAnotherSkill(t *testing.T) {
 		t.Fatalf("ListSkillScopes() = %#v, %v; want %#v", skillScopes, err, want)
 	}
 
-	if err := lib.UninstallGroup(ctx, firstGroup.ID, scope); err != nil {
+	if err := lib.UninstallGroup(ctx, firstGroup.ID, scope, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	results, err = lib.InstallGroup(ctx, secondGroup.ID, scope, library.InstallOptions{})
@@ -1197,5 +1197,32 @@ func TestInstallUnknownAgentOrProjectIsNotFound(t *testing.T) {
 	entries, err := os.ReadDir(home)
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("failed Install wrote into HOME: %v, %v", entries, err)
+	}
+}
+
+func TestUninstallSkillsIsAllOrNothing(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	f := newDiscardEditsFixture(t, func(*discardEditsFixture) library.Scope { return library.GlobalScope(library.AgentClaudeCode) }, false)
+	notInstalled := library.SkillInScope{SkillID: f.other.ID, Scope: library.GlobalScope(library.AgentCodex)}
+	places := []library.SkillInScope{{SkillID: f.skill.ID, Scope: f.scope}, {SkillID: f.other.ID, Scope: f.scope}}
+
+	// 有一处没装在那里:整批不做,装着的两处都还在。
+	err := f.lib.UninstallSkills(ctx, append(places, notInstalled), library.UninstallOptions{})
+	requireLibraryError(t, err, library.NotFound)
+	f.requireFolders(t, true)
+
+	if err := f.lib.UninstallSkills(ctx, nil, library.UninstallOptions{}); err != nil {
+		t.Fatalf("UninstallSkills(nil) = %v; want nothing done", err)
+	}
+	f.requireFolders(t, true)
+
+	// 同一处列了两次只卸载一次。
+	if err := f.lib.UninstallSkills(ctx, append(places, places[0]), library.UninstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	f.requireFolders(t, false)
+	if got := listSkillScopes(t, f.lib); len(got) != 0 {
+		t.Fatalf("skill scopes = %#v; want none", got)
 	}
 }

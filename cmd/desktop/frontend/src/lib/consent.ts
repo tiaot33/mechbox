@@ -207,6 +207,10 @@ export function lostEdits(deleted: SkillScopeInspection[]): SkillScopeInspection
   });
 }
 
+// discardedEdits 是确认里说过修改会丢掉的那几个文件夹(和 lostEdits 列出的是同一份),交给技能库的 DiscardEdits:
+// 技能库删之前只放过这几个，其余确认之后才被改过的一个都不删，再问一次。选了保留文件夹时技能库不删、也不核对。
+export const discardedEdits = (deleted: SkillScopeInspection[]): string[] => lostEdits(deleted).map((p) => p.folder);
+
 // ---------- 入库预览 ----------
 
 // defaultCandidates 是入库预览里默认勾上的候选(按名字):还没入库的都勾(从新技能提示进来时只勾新技能);

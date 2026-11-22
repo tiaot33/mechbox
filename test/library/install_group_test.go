@@ -110,7 +110,7 @@ func TestGroupMidBatchCancellationRestoresSkillScopesAndOrigins(t *testing.T) {
 				return err == nil && string(content) == skillDocument("second", "second")
 			}}
 			if uninstall {
-				err = lib.UninstallGroup(fault, group.ID, scope)
+				err = lib.UninstallGroup(fault, group.ID, scope, library.UninstallOptions{})
 			} else {
 				_, err = lib.InstallGroup(fault, group.ID, scope, library.InstallOptions{Overwrite: true})
 			}
@@ -192,7 +192,7 @@ func TestGroupConflictPoliciesHandleDanglingSymlinks(t *testing.T) {
 	if err := os.Symlink(missing, target); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.UninstallGroup(ctx, group.ID, scope); err != nil {
+	if err := lib.UninstallGroup(ctx, group.ID, scope, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(target); !errors.Is(err, os.ErrNotExist) {

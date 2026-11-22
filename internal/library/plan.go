@@ -329,7 +329,7 @@ func (l *Library) readScopeEdit(ctx context.Context, operation string, id SkillI
 		return scopeEdit{}, err
 	}
 	disk := diskOf(state)
-	if status, _, err := l.matchVersion(ctx, id, current.versionID, disk); err != nil {
+	if status, _, err := matchVersion(ctx, l.store, id, current.versionID, disk); err != nil {
 		return scopeEdit{}, err
 	} else if status != SkillScopeModified {
 		return scopeEdit{}, unmodified

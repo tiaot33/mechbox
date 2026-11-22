@@ -69,7 +69,7 @@ func TestSkillScopeRoundTripsThroughJSONIntoUninstall(t *testing.T) {
 	if err := json.Unmarshal(encoded, &decoded); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.Uninstall(ctx, decoded.SkillID, decoded.Scope); err != nil {
+	if err := lib.Uninstall(ctx, decoded.SkillID, decoded.Scope, library.UninstallOptions{}); err != nil {
 		t.Fatalf("Uninstall(decoded scope %#v) = %v", decoded.Scope, err)
 	}
 	if skillScopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{}); err != nil || len(skillScopes) != 0 {
@@ -107,7 +107,7 @@ func TestInvalidScopeIsInvalidArgumentOnEveryScopeMethod(t *testing.T) {
 			return lib.Install(ctx, 1, scope, library.InstallOptions{})
 		},
 		"Uninstall": func(scope library.Scope) error {
-			return lib.Uninstall(ctx, 1, scope)
+			return lib.Uninstall(ctx, 1, scope, library.UninstallOptions{})
 		},
 		"PlanGroupInstall": func(scope library.Scope) error {
 			_, err := lib.PlanGroupInstall(ctx, 1, scope)
@@ -118,7 +118,7 @@ func TestInvalidScopeIsInvalidArgumentOnEveryScopeMethod(t *testing.T) {
 			return err
 		},
 		"UninstallGroup": func(scope library.Scope) error {
-			return lib.UninstallGroup(ctx, 1, scope)
+			return lib.UninstallGroup(ctx, 1, scope, library.UninstallOptions{})
 		},
 	}
 	for method, call := range methods {
@@ -171,7 +171,7 @@ func TestScopeDirectoryAndUninstallUseHomeBoundAtOpen(t *testing.T) {
 	if err != nil || got != want {
 		t.Fatalf("ScopeDirectory after HOME change = %q, %v; want Open-time %q", got, err, want)
 	}
-	if err := lib.Uninstall(ctx, skill.ID, scope); err != nil {
+	if err := lib.Uninstall(ctx, skill.ID, scope, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(original); !errors.Is(err, os.ErrNotExist) {

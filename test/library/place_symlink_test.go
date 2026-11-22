@@ -196,7 +196,7 @@ func TestUninstallGivesLinkedPlacesAFolderOfTheirOwnFirst(t *testing.T) {
 	ctx := t.Context()
 	f := newLinkedFixture(t)
 	writeFile(t, filepath.Join(f.codexFolder, "SKILL.md"), []byte(skillDocument("tdd", "edited in codex")), 0o644)
-	if err := f.lib.Uninstall(ctx, f.skill.ID, f.codex); err != nil {
+	if err := f.lib.Uninstall(ctx, f.skill.ID, f.codex, library.UninstallOptions{DiscardEdits: []string{f.codexFolder}}); err != nil {
 		t.Fatal(err)
 	}
 	if exists, err := pathExists(f.codexFolder); err != nil || exists {
@@ -214,7 +214,7 @@ func TestUninstallTheLinkLeavesTheLinkedFolder(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	f := newLinkedFixture(t)
-	if err := f.lib.Uninstall(ctx, f.skill.ID, f.claude); err != nil {
+	if err := f.lib.Uninstall(ctx, f.skill.ID, f.claude, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if exists, err := pathExists(f.claudeFolder); err != nil || exists {
@@ -257,7 +257,7 @@ func TestDeleteAgentGivesLinkedPlacesAFolderOfTheirOwnFirst(t *testing.T) {
 	if err := os.Symlink(mineFolder, f.claudeFolder); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := f.lib.DeleteAgent(ctx, agent.Code, library.DeleteAgentOptions{}); err != nil {
+	if _, err := f.lib.DeleteAgent(ctx, agent.Code, library.DeleteAgentOptions{DiscardEdits: []string{mineFolder}}); err != nil {
 		t.Fatal(err)
 	}
 	if exists, err := pathExists(mineFolder); err != nil || exists {
@@ -428,7 +428,7 @@ func TestUninstallTheMiddleLinkGivesTheDownstreamPlaceItsOwnFolder(t *testing.T)
 	}
 	writeFile(t, filepath.Join(f.codexFolder, "SKILL.md"), []byte(skillDocument("tdd", "edited in codex")), 0o644)
 
-	if err := f.lib.Uninstall(ctx, f.skill.ID, mine); err != nil {
+	if err := f.lib.Uninstall(ctx, f.skill.ID, mine, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if exists, err := pathExists(mineFolder); err != nil || exists {
@@ -452,11 +452,11 @@ func TestUninstallGroupGivesLinkedPlacesAFolderOfTheirOwnFirst(t *testing.T) {
 	if _, err := f.lib.InstallGroup(ctx, group.ID, f.codex, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.lib.Uninstall(ctx, f.skill.ID, f.codex); err != nil {
+	if err := f.lib.Uninstall(ctx, f.skill.ID, f.codex, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	requireOwnFolder(t, f.codexFolder, "v1")
-	if err := f.lib.UninstallGroup(ctx, group.ID, f.codex); err != nil {
+	if err := f.lib.UninstallGroup(ctx, group.ID, f.codex, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if exists, err := pathExists(f.codexFolder); err != nil || exists {
@@ -531,7 +531,7 @@ func TestUninstallFailureKeepsTheLinkAndTheLinkedFolder(t *testing.T) {
 	ctx := t.Context()
 	f := newLinkedFixture(t)
 	makeScopeReadOnly(t, filepath.Dir(f.codexFolder))
-	if err := f.lib.Uninstall(ctx, f.skill.ID, f.codex); err == nil {
+	if err := f.lib.Uninstall(ctx, f.skill.ID, f.codex, library.UninstallOptions{}); err == nil {
 		t.Fatal("Uninstall() succeeded; want the removal to fail")
 	}
 	if target, err := os.Readlink(f.claudeFolder); err != nil || target != filepath.Join("..", "..", ".agents", "skills", "tdd") {

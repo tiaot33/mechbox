@@ -176,7 +176,7 @@ func TestInspectSkillScopesCurrentStaleModifiedAndInstallAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireInspection(t, lib, library.SkillScopeStale, v1)
-	if err := lib.Uninstall(ctx, skill.ID, scope); err != nil {
+	if err := lib.Uninstall(ctx, skill.ID, scope, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
@@ -601,7 +601,7 @@ func TestReinstallKeepsInstalls(t *testing.T) {
 	requireNoStagedEntries(t, directory)
 
 	// 卸载组安装的效果与重新安装前一致:只由组安装留着的技能被卸载,有直接安装的保留。
-	if err := lib.UninstallGroup(ctx, group.ID, scope); err != nil {
+	if err := lib.UninstallGroup(ctx, group.ID, scope, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	want := []library.SkillScope{before[1], before[2]}
@@ -904,7 +904,7 @@ func TestReinstallReportsPlacesNoLongerInstalled(t *testing.T) {
 	}
 	updateLocalSkill(t, lib, installed.ID, installedSource, "# installed v2\n")
 	requests := inspectedRequests(t, lib, scopeFilter(scope))
-	if err := lib.Uninstall(ctx, uninstalled.ID, scope); err != nil {
+	if err := lib.Uninstall(ctx, uninstalled.ID, scope, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	unregistered := library.ProjectScope(library.AgentCodex, 999)

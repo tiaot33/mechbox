@@ -31,6 +31,75 @@ func (l *Library) applyChange(ctx context.Context, change *agentdir.Change, reco
 	return nil
 }
 
+type removal struct {
+	skillID SkillID
+	folder  string
+}
+
+func (l *Library) removeFolders(ctx context.Context, tx *store.Tx, change *agentdir.Change, operation string, removals []removal, discard []string) error {
+	var unique []removal
+	for _, item := range removals {
+		if !slices.ContainsFunc(unique, func(other removal) bool { return other.folder == item.folder }) {
+			unique = append(unique, item)
+		}
+	}
+	edited, err := editedFolders(ctx, tx, unique)
+	if err != nil {
+		return err
+	}
+	unconfirmed := slices.DeleteFunc(edited, func(folder string) bool { return slices.Contains(discard, folder) })
+	if len(unconfirmed) > 0 {
+		return &Error{Code: Conflict, Message: operation + ": skill folders to delete were edited and not confirmed", Details: ErrorDetails{Paths: unconfirmed}}
+	}
+	for _, item := range unique {
+		change.Remove(item.folder)
+	}
+	return nil
+}
+
+func editedFolders(ctx context.Context, tx *store.Tx, removals []removal) ([]string, error) {
+	folders := make([]string, len(removals))
+	for i, item := range removals {
+		folders[i] = item.folder
+	}
+	marked := make([]bool, len(removals))
+	var latest map[SkillID]string
+	err := agentdir.ReadFolders(ctx, folders, maxFetchFiles, maxFetchSize, func(i int, state agentdir.FolderState) error {
+		if !state.Exists || state.LinkTarget != "" {
+			return nil
+		}
+		id := removals[i].skillID
+		_, head, err := tx.SkillHead(ctx, int64(id))
+		if err != nil {
+			return err
+		}
+		status, _, err := folderStatus(ctx, tx, id, head, state)
+		if err != nil || status != SkillScopeModified {
+			return err
+		}
+		if latest == nil && state.Err == nil {
+			if latest, err = sourceLatestContents(ctx, tx); err != nil {
+				return err
+			}
+		}
+		if content, ok := latest[id]; ok && state.Err == nil && skillfile.Sum(state.Files) == content {
+			return nil
+		}
+		marked[i] = true
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	var edited []string
+	for i, folder := range folders {
+		if marked[i] {
+			edited = append(edited, folder)
+		}
+	}
+	return edited, nil
+}
+
 type claimant struct {
 	skillID SkillID
 	name    string

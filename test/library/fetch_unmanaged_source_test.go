@@ -428,7 +428,7 @@ func TestFetchUnmanagedSourceErrorsLeaveEverythingUnchanged(t *testing.T) {
 			tc.req.Scope = f.claude
 			_, err := f.lib.FetchUnmanaged(ctx, tc.req)
 			got := requireLibraryError(t, err, tc.code)
-			if tc.want != (library.ErrorDetails{}) && got.Details != tc.want {
+			if !reflect.DeepEqual(tc.want, library.ErrorDetails{}) && !reflect.DeepEqual(got.Details, tc.want) {
 				t.Fatalf("details = %#v, want %#v", got.Details, tc.want)
 			}
 		})

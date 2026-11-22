@@ -396,7 +396,7 @@ func TestSharedDirectoryCountsAsInstalledForEveryAgent(t *testing.T) {
 	}
 	requireSkillScopes(t, lib, want)
 
-	if err := lib.Uninstall(ctx, skill.ID, shared); err != nil {
+	if err := lib.Uninstall(ctx, skill.ID, shared, library.UninstallOptions{DiscardEdits: []string{folder}}); err != nil {
 		t.Fatal(err)
 	}
 	requireNoInstalledFolder(t, directory, "example")
@@ -409,7 +409,7 @@ func TestSharedDirectoryCountsAsInstalledForEveryAgent(t *testing.T) {
 	if err := lib.Install(ctx, skill.ID, shared, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.Uninstall(ctx, skill.ID, codex); err != nil {
+	if err := lib.Uninstall(ctx, skill.ID, codex, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	requireNoInstalledFolder(t, directory, "example")
@@ -482,7 +482,7 @@ func TestGroupInstallsAcrossAgentsSharingADirectory(t *testing.T) {
 
 	results, err = lib.InstallGroup(ctx, group.ID, shared, library.InstallOptions{})
 	requireMemberResults(t, results, err, []library.GroupMemberResult{{SkillID: skill.ID, Scope: shared, Outcome: library.MemberAlreadyInstalled}})
-	if err := lib.UninstallGroup(ctx, group.ID, codex); err != nil {
+	if err := lib.UninstallGroup(ctx, group.ID, codex, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	requireInstalledFolder(t, directory, "member", "# member\n")
@@ -490,7 +490,7 @@ func TestGroupInstallsAcrossAgentsSharingADirectory(t *testing.T) {
 	if err != nil || len(got) != 1 || !reflect.DeepEqual(got[0].Groups, []library.GroupID{group.ID}) {
 		t.Fatalf("ListSkillScopes(codex) = %#v, %v; want still installed through the shared group install", got, err)
 	}
-	if err := lib.UninstallGroup(ctx, group.ID, shared); err != nil {
+	if err := lib.UninstallGroup(ctx, group.ID, shared, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	requireNoInstalledFolder(t, directory, "member")
@@ -524,7 +524,7 @@ func TestGroupInstallCountsSkillInstalledByASharingAgent(t *testing.T) {
 	}
 	results, err := lib.InstallGroup(ctx, group.ID, shared, library.InstallOptions{})
 	requireMemberResults(t, results, err, []library.GroupMemberResult{{SkillID: skill.ID, Scope: shared, Outcome: library.MemberAlreadyInstalled}})
-	if err := lib.Uninstall(ctx, skill.ID, codex); err != nil {
+	if err := lib.Uninstall(ctx, skill.ID, codex, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	directory := filepath.Join(home, ".agents", "skills")
@@ -533,7 +533,7 @@ func TestGroupInstallCountsSkillInstalledByASharingAgent(t *testing.T) {
 	if err != nil || len(got) != 1 || got[0].Direct || !reflect.DeepEqual(got[0].Groups, []library.GroupID{group.ID}) {
 		t.Fatalf("ListSkillScopes(codex) = %#v, %v; want kept by the group install on the sharing agent", got, err)
 	}
-	err = lib.Uninstall(ctx, skill.ID, codex)
+	err = lib.Uninstall(ctx, skill.ID, codex, library.UninstallOptions{})
 	requireErrorDetails(t, err, library.FailedPrecondition, library.ErrorDetails{Name: "g"})
 }
 
@@ -741,7 +741,7 @@ func TestEditAgentMigrationRespectsAnotherSkillsInstall(t *testing.T) {
 	if scopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{SkillID: second.ID}); err != nil || len(scopes) != 0 {
 		t.Fatalf("ListSkillScopes(second) = %#v, %v; want none", scopes, err)
 	}
-	if err := lib.Uninstall(ctx, first.ID, codex); err != nil {
+	if err := lib.Uninstall(ctx, first.ID, codex, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	requireInstalledFolder(t, oldDir, "example", "# second\n")

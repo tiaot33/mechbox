@@ -285,6 +285,14 @@ export function RemoveSkillFromGroup(groupID: library$0.GroupID, skillID: librar
     return $Call.ByID(3667916670, groupID, skillID, opts);
 }
 
+export function RemoveSkills(ids: library$0.SkillID[] | null, opts: library$0.RemoveSkillOptions): $CancellablePromise<void> {
+    return $Call.ByID(1246286424, ids, opts);
+}
+
+export function RemoveSkillsFromGroup(groupID: library$0.GroupID, skillIDs: library$0.SkillID[] | null, opts: library$0.RemoveFromGroupOptions): $CancellablePromise<void> {
+    return $Call.ByID(3119619947, groupID, skillIDs, opts);
+}
+
 export function RenameGroup(id: library$0.GroupID, name: string): $CancellablePromise<library$0.Group> {
     return $Call.ByID(1994858443, id, name);
 }
@@ -394,12 +402,16 @@ export function TranslateVersionFile(id: library$0.VersionID, path: string, lang
     return $Call.ByID(4054996262, id, path, language);
 }
 
-export function Uninstall(id: library$0.SkillID, scope: library$0.Scope): $CancellablePromise<void> {
-    return $Call.ByID(3701070568, id, scope);
+export function Uninstall(id: library$0.SkillID, scope: library$0.Scope, opts: library$0.UninstallOptions): $CancellablePromise<void> {
+    return $Call.ByID(3701070568, id, scope, opts);
 }
 
-export function UninstallGroup(groupID: library$0.GroupID, scope: library$0.Scope): $CancellablePromise<void> {
-    return $Call.ByID(2742724331, groupID, scope);
+export function UninstallGroup(groupID: library$0.GroupID, scope: library$0.Scope, opts: library$0.UninstallOptions): $CancellablePromise<void> {
+    return $Call.ByID(2742724331, groupID, scope, opts);
+}
+
+export function UninstallSkills(places: library$0.SkillInScope[] | null, opts: library$0.UninstallOptions): $CancellablePromise<void> {
+    return $Call.ByID(3875458066, places, opts);
 }
 
 export function UnregisterProject(id: library$0.ProjectID, opts: library$0.UnregisterProjectOptions): $CancellablePromise<void> {

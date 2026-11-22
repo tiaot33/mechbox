@@ -87,7 +87,7 @@ func TestGroupOperationsReturnNotFoundForUnknownIDs(t *testing.T) {
 			_, err := lib.InstallGroup(ctx, unknownGroup, scope, library.InstallOptions{})
 			return err
 		}()},
-		{"uninstall group", lib.UninstallGroup(ctx, unknownGroup, scope)},
+		{"uninstall group", lib.UninstallGroup(ctx, unknownGroup, scope, library.UninstallOptions{})},
 		{"plan group install", func() error {
 			_, err := lib.PlanGroupInstall(ctx, unknownGroup, scope)
 			return err
@@ -544,14 +544,14 @@ func TestGroupMembershipFollowsGroupInstallInEveryScope(t *testing.T) {
 		{SkillID: c.ID, Scope: global, Folder: filepath.Join(globalDir, c.Name), Groups: via},
 	})
 	requireInstalledFolder(t, globalDir, "a", "# a\n")
-	if err := lib.Uninstall(ctx, a.ID, global); err != nil {
+	if err := lib.Uninstall(ctx, a.ID, global, library.UninstallOptions{}); err != nil {
 		t.Fatalf("Uninstall removed member = %v, want success", err)
 	}
 	requireNoInstalledFolder(t, globalDir, "a")
 
 	// 卸载整组只撤走只由本组留着的技能;移出后转为直接安装的 a 仍在项目 Scope。
 	for _, scope := range []library.Scope{projectScope, global} {
-		if err := lib.UninstallGroup(ctx, g.ID, scope); err != nil {
+		if err := lib.UninstallGroup(ctx, g.ID, scope, library.UninstallOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -1086,5 +1086,35 @@ func requireGroupOrder(t *testing.T, lib *library.Library, want ...library.Group
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("group order = %v, want %v", got, want)
+	}
+}
+
+func TestRemoveSkillsFromGroupIsAllOrNothing(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	f := newDiscardEditsFixture(t, func(*discardEditsFixture) library.Scope { return library.GlobalScope(library.AgentClaudeCode) }, true)
+	outsider := fetchNamedSkill(t, f.lib, "gamma")
+	ids := []library.SkillID{f.skill.ID, f.other.ID}
+	uninstall := library.RemoveFromGroupOptions{IfNoOtherInstall: library.UninstallMember}
+
+	// 有一个不是成员:整批不做,成员与组安装装上的文件夹都还在。
+	err := f.lib.RemoveSkillsFromGroup(ctx, f.group.ID, append(ids, outsider.ID), uninstall)
+	requireLibraryError(t, err, library.NotFound)
+	f.requireFolders(t, true)
+	if got := groupMembers(t, f.lib, f.group.ID); !reflect.DeepEqual(got, ids) {
+		t.Fatalf("members = %v; want %v", got, ids)
+	}
+
+	if err := f.lib.RemoveSkillsFromGroup(ctx, f.group.ID, nil, uninstall); err != nil {
+		t.Fatalf("RemoveSkillsFromGroup(nil) = %v; want nothing done", err)
+	}
+
+	// 同一个技能列了两次只移出一次。
+	if err := f.lib.RemoveSkillsFromGroup(ctx, f.group.ID, append(ids, f.skill.ID), uninstall); err != nil {
+		t.Fatal(err)
+	}
+	f.requireFolders(t, false)
+	if got := groupMembers(t, f.lib, f.group.ID); len(got) != 0 {
+		t.Fatalf("members = %v; want none", got)
 	}
 }

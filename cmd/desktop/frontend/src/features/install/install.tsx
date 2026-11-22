@@ -3,7 +3,8 @@
 // - 安装前先看安装计划：不是从库里装的同名文件夹可选覆盖;被另一个技能占用或作用域根目录不存在时只能说明原因。
 // - 组安装逐条返回结果，被跳过的成员列出原因。
 // - 卸载会删掉别处链接指着的文件夹时，库先给那几处换上独立的一份，确认前说出来。
-// - 卸载会删掉被手动改过的文件夹时，确认前列出是哪几处，修改会跟着丢掉;是否改过先现查磁盘，不按快照。
+// - 卸载会删掉被手动改过的文件夹时，确认前列出是哪几处，修改会跟着丢掉;按界面上已经读到的状态写，不先现查磁盘，
+//   确认之后才被改过的由技能库删之前核对出来，再问一次(runDiscardingEdits)。
 // - 提到关系：装好后，装上的技能提到的技能在那里找不到时，提示里写出来，库里有的能一起装上(直接安装，组安装时也不加进组);
 //   卸载、卸载整组会删掉文件夹、让别的技能因此找不到它时，确认里写出是哪几个(平时不弹确认的卸载这时也弹)。
 //   都只用规则和已存下的 AI 判断结论，不等 AI;读不出提到关系时照常安装、卸载，不拦着。
@@ -17,8 +18,8 @@ import {
   type SkillInScope,
   type Scope,
   type SkillID,
-  type SkillScopeFilter,
 } from "@bindings/internal/library";
+import { discardedEdits } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, toLibraryError, useSnapshot, type Snapshot } from "@/lib/library";
 import { mergeMissing, missingAt } from "@/lib/mentions";
@@ -32,6 +33,7 @@ import { openDrawer } from "@/lib/view";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { DeleteNotes, SharedFolders } from "@/components/app/link-notes";
+import { runDiscardingEdits } from "@/components/app/discard-edits";
 import { runEach, showResults } from "@/components/app/results";
 import { memberRows, summarizeMembers } from "@/components/app/result-rows";
 import {
@@ -44,7 +46,7 @@ import {
   notDirectIn,
   occupied,
   readInstallPlans,
-  uninstalledPicked,
+  skippedPicked,
   uninstallGroupPlaces,
   uninstallPicked,
   uninstallPlace,
@@ -283,17 +285,8 @@ async function installEach(items: InstallItem[], title: string, done: string): P
   return installed > 0;
 }
 
-// inspectedSnapshot 是现查过磁盘的快照：卸载前要知道哪几处被手动改过，快照里上一次巡检的结果可能已落后于磁盘
-// (切回前台的巡检还没跑完，或 Agent 在后台改了文件)。只换掉 filter 范围内的安装状态;读取失败时为 undefined,run 已提示原因。
-export async function inspectedSnapshot(filter: SkillScopeFilter): Promise<Snapshot | undefined> {
-  const s = currentSnapshot();
-  const inspected = await ui.read(() => LibraryService.InspectSkillScopes(filter));
-  return inspected === undefined ? undefined : { ...s, skillScopes: inspected ?? [] };
-}
-
 export async function uninstallSkill(id: SkillID, scope: Scope) {
-  const s = await inspectedSnapshot({ skill_id: id });
-  if (!s) return;
+  const s = currentSnapshot();
   const t = messages().actions;
   // 全局共用目录：从其中一个卸载会撤销共用的各个 Agent 的直接安装，文件夹随之删除，先说明还有哪些 Agent 在用。
   // 项目里共用目录的几个 Agent 在界面上本来就是一处、名字里写着它们，不再另说。
@@ -325,7 +318,7 @@ export async function uninstallSkill(id: SkillID, scope: Scope) {
     });
     if (!ok) return;
   }
-  await ui.run(() => LibraryService.Uninstall(id, scope), {
+  await runDiscardingEdits(discardedEdits(deleted), (discard) => LibraryService.Uninstall(id, scope, { discard_edits: discard }), {
     success: t.uninstalled(skillName(s, id), scopeLabel(s, scope)),
     onError: (err) => {
       if (err.code !== ErrorCode.FailedPrecondition) return false;
@@ -340,8 +333,7 @@ export async function uninstallSkill(id: SkillID, scope: Scope) {
 // 一批卸载先确认一次：会删掉几个文件夹、其中被手动改过的是哪几处，全局共用的文件夹还有哪些 Agent 在用，别处链接指着的先换上独立的一份。
 // 只随组安装的跳过并说明;有跳过或失败的才列出结果。返回是否至少卸载了一处：没有可卸载的、取消了、都失败了时是 false。
 export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: string): Promise<boolean> {
-  const s = await inspectedSnapshot({});
-  if (!s) return false;
+  const s = currentSnapshot();
   const t = messages().actions;
   const picked = uninstallPicked(s, ids, scopes);
   const { direct, viaGroup, deleted, shared } = picked;
@@ -370,16 +362,15 @@ export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: st
     danger: true,
   });
   if (!ok) return false;
-  const results = await runEach(
-    direct,
-    (p) => LibraryService.Uninstall(p.skill_id, p.scope),
-    (results) => uninstalledPicked(s, picked, results).failed,
+  const places = direct.map((p): SkillInScope => ({ skill_id: p.skill_id, scope: p.scope }));
+  const done = await runDiscardingEdits(discardedEdits(deleted), (discard) =>
+    LibraryService.UninstallSkills(places, { discard_edits: discard }).then(() => true),
   );
-  if (!results) return false;
-  const { rows, done } = uninstalledPicked(s, picked, results);
-  if (rows.length) await showResults(title, rows, t.uninstallPickedSummary(done, rows.length));
-  else ui.toast(t.uninstalledPicked(done, where));
-  return done > 0;
+  if (!done) return false;
+  const rows = skippedPicked(s, picked);
+  if (rows.length) await showResults(title, rows, t.uninstallPickedSummary(direct.length, rows.length));
+  else ui.toast(t.uninstalledPicked(direct.length, where));
+  return true;
 }
 
 export async function installGroup(groupID: GroupID, scope: Scope) {
@@ -422,8 +413,7 @@ export async function installGroup(groupID: GroupID, scope: Scope) {
 
 // 卸载整组的组安装总是先确认，写出会从这里卸载几个技能(组的节标题上的 ×、作用域页摘要里的组开关都是一点就卸载整组，容易误点)。
 export async function uninstallGroup(groupID: GroupID, scope: Scope) {
-  const s = await inspectedSnapshot({});
-  if (!s) return;
+  const s = currentSnapshot();
   const t = messages().actions;
   // 共用目录：只靠这个组安装留着的成员，卸载后文件夹删除，共用的几个 Agent 都不再算已装，先说明还有哪些 Agent 在用。
   // 别处的符号链接指着要删的文件夹时，删之前库先给那几处换上独立的一份，也先说明。
@@ -450,7 +440,7 @@ export async function uninstallGroup(groupID: GroupID, scope: Scope) {
     danger: true,
   });
   if (!ok) return;
-  await ui.run(() => LibraryService.UninstallGroup(groupID, scope), {
+  await runDiscardingEdits(discardedEdits(deleted), (discard) => LibraryService.UninstallGroup(groupID, scope, { discard_edits: discard }), {
     success: t.groupUninstalled(groupName(s, groupID), scopeLabel(s, scope)),
   });
 }

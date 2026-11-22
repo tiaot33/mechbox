@@ -232,7 +232,8 @@ func TestRemoveSkillKeepsOrRemovesFolders(t *testing.T) {
 		t.Fatalf("explicit Keep removed installed folder: %v", err)
 	}
 	writeFile(t, filepath.Join(removeDirectory, removeSkill.Name, "SKILL.md"), []byte("edited"), 0o644)
-	if err := lib.RemoveSkill(ctx, removeSkill.ID, library.RemoveSkillOptions{}); err != nil {
+	edited := []string{filepath.Join(removeDirectory, removeSkill.Name)}
+	if err := lib.RemoveSkill(ctx, removeSkill.ID, library.RemoveSkillOptions{DiscardEdits: edited}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(removeDirectory, removeSkill.Name)); !errors.Is(err, os.ErrNotExist) {
@@ -345,5 +346,33 @@ func TestFetchDuplicateLocalSkillCarriesIdentity(t *testing.T) {
 	skills, err := lib.ListSkills(t.Context())
 	if err != nil || len(skills) != 1 || skills[0].ID != skill.ID {
 		t.Fatalf("duplicate fetch changed library: %#v, %v", skills, err)
+	}
+}
+
+func TestRemoveSkillsIsAllOrNothing(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	f := newDiscardEditsFixture(t, func(*discardEditsFixture) library.Scope { return library.GlobalScope(library.AgentClaudeCode) }, false)
+	ids := []library.SkillID{f.skill.ID, f.other.ID}
+
+	// 有一个技能不存在:整批不做。
+	err := f.lib.RemoveSkills(ctx, append(ids, 9999), library.RemoveSkillOptions{})
+	requireLibraryError(t, err, library.NotFound)
+	f.requireFolders(t, true)
+	if skills, err := f.lib.ListSkills(ctx); err != nil || len(skills) != 2 {
+		t.Fatalf("ListSkills() = %d skills, %v; want both kept", len(skills), err)
+	}
+
+	if err := f.lib.RemoveSkills(ctx, nil, library.RemoveSkillOptions{}); err != nil {
+		t.Fatalf("RemoveSkills(nil) = %v; want nothing done", err)
+	}
+
+	// 同一个技能列了两次只移除一次。
+	if err := f.lib.RemoveSkills(ctx, append(ids, f.skill.ID), library.RemoveSkillOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	f.requireFolders(t, false)
+	if skills, err := f.lib.ListSkills(ctx); err != nil || len(skills) != 0 {
+		t.Fatalf("ListSkills() = %d skills, %v; want none", len(skills), err)
 	}
 }

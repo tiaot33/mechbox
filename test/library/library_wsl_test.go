@@ -105,7 +105,7 @@ func TestWSLDistroInstallKeepsExecutableScripts(t *testing.T) {
 	}
 	requireWSLStatus(t, lib, skill.ID, library.SkillScopeCurrent)
 
-	if err := lib.Uninstall(ctx, skill.ID, scope); err != nil {
+	if err := lib.Uninstall(ctx, skill.ID, scope, library.UninstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(filepath.Join(home, ".claude/skills/runner")); !os.IsNotExist(err) {

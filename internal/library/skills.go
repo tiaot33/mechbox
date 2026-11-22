@@ -3,6 +3,7 @@ package library
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -83,6 +84,10 @@ const (
 // RemoveSkillOptions 是 RemoveSkill 的选项。
 type RemoveSkillOptions struct {
 	Folders FolderPolicy `json:"folders"` // 默认删除技能文件夹,只有显式 Keep 保留
+	// DiscardEdits 是确认时告诉用户被改过、修改会丢掉的技能文件夹(SkillScope.Folder)。动磁盘之前核对这次要删的每个文件夹:
+	// 有被改过的(SkillScopeModified,不算 SkillScopeInspection.SourceLatest,也不算是符号链接的那一处,删的只是链接)却不在这里,
+	// 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
+	DiscardEdits []string `json:"discard_edits,omitempty"`
 }
 
 func (l *Library) sourceOf(row store.Source) (Source, error) {
@@ -253,33 +258,57 @@ func (l *Library) SetSkillNote(ctx context.Context, id SkillID, note string) (er
 }
 
 // RemoveSkill 从库里移除技能及其全部版本、组成员关系与安装记录。默认同时删除它在各作用域里已安装的文件夹,
-// opts.Folders 为 Keep 时保留这些文件夹;只从一个作用域撤掉而保留在库里用 Uninstall。不检查文件夹是否被改过:
-// 确认框用 InspectSkillScopes(SkillScopeFilter{SkillID: id}) 列出会一并删除的地方,并说明其中哪几处用户改过。
+// opts.Folders 为 Keep 时保留这些文件夹;只从一个作用域撤掉而保留在库里用 Uninstall。
+// 删之前核对文件夹有没有被改过:确认框按界面上已有的巡检结果说明哪几处的修改会丢掉,把它们放进 opts.DiscardEdits;
+// 确认之后才被改过的,返回 Conflict,不移除(见 RemoveSkillOptions)。
 // 符号链接指向的真实文件夹和链接本身一起删;链接那一处选了保留时,和别处一样留在磁盘上不动。
 func (l *Library) RemoveSkill(ctx context.Context, id SkillID, opts RemoveSkillOptions) (err error) {
+	defer func() { err = typedError(err) }()
+	return l.removeSkills(ctx, "remove skill", []SkillID{id}, opts)
+}
+
+// RemoveSkills 是一次移除几个技能(勾选几个后操作栏上的「移除技能」):每个技能的规则与 RemoveSkill 相同,整批一次提交,
+// 全成或全不成。有一个技能不存在,或要删的文件夹里有确认之后才被改过的,整次返回与 RemoveSkill 相同的错误,一个都不移除。
+// 同一个技能列了几次只移除一次。空列表什么都不做。
+func (l *Library) RemoveSkills(ctx context.Context, ids []SkillID, opts RemoveSkillOptions) (err error) {
+	defer func() { err = typedError(err) }()
+	return l.removeSkills(ctx, "remove skills", ids, opts)
+}
+
+func (l *Library) removeSkills(ctx context.Context, operation string, ids []SkillID, opts RemoveSkillOptions) (err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
-	defer func() { err = typedError(err) }()
-	if err := validateFolderPolicy("remove skill", opts.Folders); err != nil {
+	if err := validateFolderPolicy(operation, opts.Folders); err != nil {
 		return err
 	}
-	skill, err := l.GetSkill(ctx, id)
-	if err != nil {
-		return err
-	}
-	var change agentdir.Change
-	defer func() { err = errors.Join(err, change.Rollback()) }()
-	if opts.Folders != Keep {
-		skillScopes, err := l.listSkillScopes(ctx, skill.ID, nil)
+	ids = slices.Compact(slices.Sorted(slices.Values(ids)))
+	var removals []removal
+	for _, id := range ids {
+		if _, err := l.GetSkill(ctx, id); err != nil {
+			return err
+		}
+		if opts.Folders == Keep {
+			continue
+		}
+		skillScopes, err := l.listSkillScopes(ctx, id, nil)
 		if err != nil {
 			return err
 		}
 		for _, skillScope := range skillScopes {
-			change.Remove(skillScope.Folder)
+			removals = append(removals, removal{skillID: id, folder: skillScope.Folder})
 		}
 	}
-
+	var change agentdir.Change
+	defer func() { err = errors.Join(err, change.Rollback()) }()
 	return l.applyChange(ctx, &change, func(tx *store.Tx) error {
-		return tx.RemoveSkill(ctx, int64(id))
+		if err := l.removeFolders(ctx, tx, &change, operation, removals, opts.DiscardEdits); err != nil {
+			return err
+		}
+		for _, id := range ids {
+			if err := tx.RemoveSkill(ctx, int64(id)); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 }
