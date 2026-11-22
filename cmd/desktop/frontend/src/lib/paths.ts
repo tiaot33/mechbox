@@ -1,7 +1,10 @@
 // 本地路径输入：技能库要求绝对路径(相对路径会按进程当前目录解析，从 Finder 启动时是 /)。
 // 界面支持 ~ 展开，相对路径直接拦下。绝对路径包括 Windows 的盘符路径与 \\wsl.localhost\... 这类网络路径。
 // 装了 WSL 发行版的 Windows 上，/ 开头的是发行版里的 Linux 路径：全局目录选了发行版时当作那个发行版里的路径，否则拦下(不猜是哪个发行版)。
+// 也管路径在界面上怎么写：主目录缩写成 ~,WSL 发行版里的写成 Linux 路径，斜杠按平台换。
 import { messages } from "./i18n";
+import type { Snapshot } from "./library";
+import { platform } from "./platform";
 
 const absolute = /^(\/|[A-Za-z]:[\\/]|\\\\)/;
 const wslPrefix = /^(?:\\\\|\/\/)wsl(?:\.localhost|\$)[\\/]([^\\/]+)/i;
@@ -92,4 +95,39 @@ export function pathParts(path: string): string[] {
   }
   if (start < path.length) parts.push(path.slice(start));
   return parts;
+}
+
+// ---------- 路径在界面上怎么写 ----------
+
+// shortPath 把用户主目录缩写成 ~(Windows 上的主目录不缩写，见 homePath)。
+export function shortPath(s: Snapshot, path: string): string {
+  return homePath(s.info.home_dir, path);
+}
+
+// homePath 把主目录下的路径缩写成 ~;Windows 上的主目录(C:\Users\...)不认 ~,照原样显示完整路径。
+// Windows 上 WSL 发行版(\\wsl.localhost\...)里的路径按 Linux 的写法显示：在全局目录所选发行版的主目录下的写成 ~/...,
+// 其他写成 / 开头的绝对路径;在哪个发行版里由 WSLBadge 标出。其他平台上(如拉回的库里带着发行版里的来源)照原样显示。
+export function homePath(home: string | undefined, path: string): string {
+  if (!home) return path;
+  if (windowsHome(home)) {
+    const at = wslLocation(path);
+    if (!at) return path;
+    const rest = wslRest(path, home);
+    return rest === null ? at.path : "~" + rest;
+  }
+  return path === home || path.startsWith(home + "/") || path.startsWith(home + "\\") ? "~" + path.slice(home.length) : path;
+}
+
+// wslTitle 是路径的悬停提示：WSL 发行版里的路径界面上写成 Linux 路径，悬停给出完整的 \\wsl.localhost\...,方便在资源管理器里打开。
+export const wslTitle = (path: string | undefined) => (path && isWSLPath(path) ? path : undefined);
+
+// nativePath 把斜杠分隔的路径(如技能库记录的 Agent 在项目里的技能目录)换成这个平台的写法:Windows 上用反斜杠。
+export const nativePath = (path: string) => (platform() === "windows" ? path.replaceAll("/", "\\") : path);
+
+// slashPath 把输入框里的相对路径换回技能库的斜杠写法:Windows 上反斜杠也是分隔符。
+export const slashPath = (input: string) => (platform() === "windows" ? input.replaceAll("\\", "/") : input);
+
+// lastSegment 是路径的最后一段(文件名或文件夹名)。
+export function lastSegment(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 }

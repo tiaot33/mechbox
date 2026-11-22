@@ -4,24 +4,11 @@ import { SkillScopeStatus, type Skill } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { ui } from "@/lib/ui";
-import {
-  identicalsOf,
-  folderPresent,
-  identicalState,
-  mergeProjectPlaces,
-  editedHere,
-  needsReinstall,
-  needsRepair,
-  notTakenOver,
-  placeOf,
-  projectName,
-  scopeKey,
-  scopeLabel,
-  shortPath,
-  skillScopeIn,
-  skillScopeStatus,
-  skillScopesOf,
-} from "@/lib/model";
+import { identicalsOf, identicalState, notTakenOver } from "@/lib/unmanaged";
+import { folderPresent, editedHere, needsReinstall, needsRepair, skillScopeIn, skillScopeStatus, skillScopesOf } from "@/lib/installs";
+import { eachPlace, scopeLabel } from "@/lib/places";
+import { placeOf, projectName, scopeKey } from "@/lib/scope";
+import { shortPath } from "@/lib/paths";
 import { installSkill, installSkillTo, uninstallSkill } from "@/features/install/install";
 import { AgentPicker, PlaceSelect, useInstallTarget } from "@/features/install/install-to";
 import { reinstall } from "@/features/install/reinstall";
@@ -42,7 +29,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
   const s = useSnapshot();
   const { drawer: d, common } = useT();
   const id = skill.id;
-  const installed = mergeProjectPlaces(s, skillScopesOf(s, id));
+  const installed = eachPlace(s, skillScopesOf(s, id));
   const stale = installed.filter(needsRepair).length;
   const copies = identicalsOf(s, id);
   return (

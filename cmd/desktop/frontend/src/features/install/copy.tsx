@@ -2,7 +2,7 @@
 // - 照着另一个 Agent(作用域页):把它在全局和各已登记项目里装的装到这个 Agent 的同一处，按地方分开列出;
 //   从项目的作用域页打开时默认只勾这个项目(见 consent.ts 的 copyPlaceByDefault)。
 // - 照着另一个项目(项目页):把各 Agent 在那个项目里装的装到这个项目里的同一个 Agent,按 Agent 分开列出;全局不在范围内。
-// 只装一次、只加不减，装哪些见 model.ts 的 copyFromAgent / copyFromProject;默认勾选与覆盖见 consent.ts。
+// 只装一次、只加不减，装哪些见 copy-rules.ts 的 copyFromAgent / copyFromProject;默认勾选与覆盖见 consent.ts。
 // - 先逐个看安装计划：被占用的不能勾并写出原因;有不是库装的同名文件夹的默认不勾，勾上才覆盖。
 //   组安装默认勾上，组员里有这种文件夹的默认跳过，勾上"覆盖"才覆盖。
 // - 项目不在这台机器上的那一处跳过并说明;原来那里改过的技能、未纳管技能，确认时说出来。
@@ -14,26 +14,21 @@ import { copyable, copyDefaults, copyOverwriteCount, copyOverwrites, copyPlaceBy
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, toLibraryError, type Snapshot } from "@/lib/library";
+import { agentName, placeOf, projectName, scopeKey, type Place } from "@/lib/scope";
+import { agentNameIn, scopeLabel } from "@/lib/places";
 import {
-  agentName,
-  agentNameIn,
   copyFromAgent,
   copyFromProject,
   copyItems,
   copyProjectSources,
   copySources,
-  placeOf,
-  projectName,
-  scopeKey,
-  scopeLabel,
-  shortPath,
-  sourceLabel,
   uncopiedProjectUnmanaged,
   uncopiedUnmanaged,
   type CopyPlace,
-  type Place,
   type UncopiedUnmanaged,
-} from "@/lib/model";
+} from "@/features/install/copy-rules";
+import { shortPath } from "@/lib/paths";
+import { sourceLabel } from "@/lib/source";
 import { Modal, ui } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

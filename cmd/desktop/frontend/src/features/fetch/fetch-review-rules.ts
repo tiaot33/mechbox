@@ -2,7 +2,7 @@
 // 不碰界面、不调技能库，单元测试见 fetch-review-rules.test.ts。
 import type { Candidate, Skill } from "@bindings/internal/library";
 import type { Snapshot } from "@/lib/library";
-import { sameNameInLibrary } from "@/lib/model";
+import { sameNameInLibrary } from "@/lib/same-name";
 
 // toggleCandidates 是分组标题上的勾选(members 是这一组的候选):组里没入库的候选都勾上时取消全组，否则全组勾上;已入库的不能选。
 export function toggleCandidates(selected: ReadonlySet<string>, members: Candidate[]): Set<string> {

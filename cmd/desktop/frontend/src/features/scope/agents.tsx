@@ -4,7 +4,9 @@ import { FolderPolicy, MigrationOutcome, type Agent, type CustomAgent } from "@b
 import { detachedBy, lostEdits } from "@/lib/consent";
 import { messages } from "@/lib/i18n";
 import { currentSnapshot, type LibraryError } from "@/lib/library";
-import { folderPlaces, projectName, shortPath, skillName } from "@/lib/model";
+import { folderPlaces } from "@/lib/installs";
+import { projectName, skillName } from "@/lib/scope";
+import { shortPath } from "@/lib/paths";
 import { ui } from "@/lib/ui";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";

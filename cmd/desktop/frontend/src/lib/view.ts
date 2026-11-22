@@ -7,13 +7,11 @@ import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import type { CollectionID, GroupID, ProjectID, Scope, Skill, SkillID } from "@bindings/internal/library";
 import { forgetLibraryCaches, queryClient, scopeDirectoryQuery, snapshotQuery, useLoadedSnapshot, type Snapshot } from "./library";
+import { agentsIn } from "./places";
 import {
-  agentsIn,
   pageListing,
   pageSkills,
   pickRange,
-  parseScope,
-  placeOf,
   resolvePage,
   samePage,
   sectionKey,
@@ -22,9 +20,8 @@ import {
   type Page,
   type PageListing,
   type PickRow,
-  type Place,
-  type ScopeKey,
-} from "./model";
+} from "./pages";
+import { parseScope, placeOf, type Place, type ScopeKey } from "./scope";
 import { toggled } from "./utils";
 
 // DragItem 是正在拖的东西：技能行、勾选的几个技能(拖的是勾选着的一行)、组(左栏组行、组的节标题)或集合(集合的节标题)。

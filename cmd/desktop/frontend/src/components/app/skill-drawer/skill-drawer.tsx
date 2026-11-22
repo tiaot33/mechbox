@@ -5,7 +5,10 @@ import { SourceType, type FileMetadata, type Skill, type SkillVersion } from "@b
 import { endEditing, startEditing, type Editing } from "@/lib/editing";
 import { useT } from "@/lib/i18n";
 import { aiSettingsQuery, useSnapshot, versionFilesQuery, versionsQuery } from "@/lib/library";
-import { deletedInSource, hasUpdate, isLocal, renamedTo, skillScopesOf, sourceLabel, translatedDescription } from "@/lib/model";
+import { sourceState } from "@/lib/source-state";
+import { isLocal, sourceLabel } from "@/lib/source";
+import { skillScopesOf } from "@/lib/installs";
+import { translatedDescription } from "@/lib/content";
 import { AuditCard } from "@/features/fetch/audit";
 import { reinstall } from "@/features/install/reinstall";
 import { saveNote } from "@/features/skill/note";
@@ -114,7 +117,7 @@ function DrawerSheet({
               <SheetTitle className="flex-1 text-title" title={skill.note || undefined}>
                 {skill.name}
               </SheetTitle>
-              {hasUpdate(skill) && (
+              {sourceState(skill).canPlan && (
                 // 「更新」到处是同一个样子：绿色的胶囊。
                 <Button variant="pill" onClick={() => openUpdate(skill.collection_id, { focus: id })}>
                   {d.update}
@@ -270,15 +273,16 @@ function Notices({ skill, onClose }: { skill: Skill; onClose: () => void }) {
   const s = useSnapshot();
   const d = useT().drawer;
   const id = skill.id;
+  const source = sourceState(skill);
   return (
     <>
-    {renamedTo(skill) && (
+    {source.kind === "renamed" && (
       <Notice className="mx-2 mb-2.5" action={<Button onClick={() => openUpdate(skill.collection_id, { focus: id })}>{d.view}</Button>}>
-        {d.maybeRenamed(skill.name, sourceLabel(s, skill.source), renamedTo(skill))}
+        {d.maybeRenamed(skill.name, sourceLabel(s, skill.source), source.renamedTo)}
       </Notice>
     )}
-    {deletedInSource(skill) &&
-      (skill.kept_deleted ? (
+    {source.kind === "deleted" &&
+      (source.kept ? (
         <Hint className="px-2">{d.keptDeleted(sourceLabel(s, skill.source))}</Hint>
       ) : (
         <Notice

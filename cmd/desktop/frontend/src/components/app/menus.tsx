@@ -3,7 +3,9 @@
 import type { Collection, Group } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import { collectionSkills, hasUpdate, isLocal, missingFromGroup, sourceLabel } from "@/lib/model";
+import { collectionSkills, isLocal, sourceLabel } from "@/lib/source";
+import { sourceState } from "@/lib/source-state";
+import { missingFromGroup } from "@/features/group/group-rules";
 import { useBusy } from "@/lib/ui";
 import { openGraph } from "@/lib/view";
 import { checkUpdates } from "@/features/update/check";
@@ -50,7 +52,7 @@ export function useCollectionMenu(c: Collection, { graph }: { graph: boolean }):
   if (graph) entries.push({ label: tt.graph.open, onSelect: () => openGraph({ kind: "collection", id: c.id }) }, "separator");
   if (!local) {
     entries.push({ label: tt.toolbar.check, disabled: busy, onSelect: () => checkUpdates([c.id], c.id) });
-    if (collectionSkills(s, c).some(hasUpdate)) entries.push({ label: t.update, onSelect: () => openUpdate(c.id) });
+    if (collectionSkills(s, c).some((x) => sourceState(x).canPlan)) entries.push({ label: t.update, onSelect: () => openUpdate(c.id) });
   } else {
     // 本地目录来源：一次把整个目录里改过的技能读进来，不用逐个点开详情。
     entries.push({ label: t.rereadDirectory, disabled: busy, onSelect: () => void rereadDirectory(c.id) });

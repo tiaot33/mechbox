@@ -7,7 +7,11 @@ import { FolderPolicy, type Scope, type SkillID } from "@bindings/internal/libra
 import { lostEdits } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, type Snapshot } from "@/lib/library";
-import { mergeProjectPlaces, scopeLabel, skillName, skillScopesOf, skillSourceLabel, twinReplaceScopes } from "@/lib/model";
+import { placeCount, placeNames } from "@/lib/places";
+import { skillName } from "@/lib/scope";
+import { skillScopesOf } from "@/lib/installs";
+import { skillSourceLabel } from "@/lib/same-name";
+import { twinReplaceScopes } from "@/features/skill/remove-rules";
 import { ChoiceList, Modal, ui } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
@@ -22,7 +26,7 @@ export async function removeSkill(id: SkillID) {
   const s = await inspectedSnapshot({ skill_id: id });
   if (!s) return false;
   const places = skillScopesOf(s, id);
-  const installed = mergeProjectPlaces(s, places).length;
+  const installed = placeCount(s, places);
   const t = messages().actions;
   const unfound = await lostMentions(places);
   const choice = await ui.confirm({
@@ -87,8 +91,8 @@ function RemoveTwinDialog({
   const skill = s.skills.find((x) => x.id === id)!;
   const kept = s.skills.find((x) => x.id === keep)!;
   const places = skillScopesOf(s, id);
-  const wheres = mergeProjectPlaces(s, places).map((p) => scopeLabel(s, p.scope));
-  const replaceWheres = mergeProjectPlaces(s, replace.map((scope) => ({ scope }))).map((p) => scopeLabel(s, p.scope));
+  const wheres = placeNames(s, places);
+  const replaceWheres = placeNames(s, replace);
   const [policy, setPolicy] = useState<string>(FolderPolicy.Remove);
   const [swap, setSwap] = useState(false);
   const removing = policy === FolderPolicy.Remove;

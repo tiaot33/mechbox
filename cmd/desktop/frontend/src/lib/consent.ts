@@ -2,6 +2,7 @@
 // 是不碰界面、不调技能库的纯函数，单元测试见 consent.test.ts。
 // - 用户改过的地方、文件夹不在了的地方默认不动，勾上(或选"装回去")才覆盖、才装回去。
 // - 用户改过的技能有变化时默认不勾，跳过的改动、来源里已删除的技能、推测出的改名都不默认勾。
+//   更新页不打开更新计划直接「更新」「全部更新」时按同一条规则，只更新到默认会勾的那些(updatedByDefault)。
 // - 库写到符号链接那一处、删掉被别处链接指着的文件夹之前，先说出来。
 // - 卸载、移除会删掉被手动改过的文件夹时，先说出是哪几处，用户确认后才删。
 // - 整批入库时，归项目仓库管的、指向 Agent 目录以外的、库里技能在来源里的新版默认不接，用户自己的照常默认勾上。
@@ -17,12 +18,16 @@ import {
   type PlannedUnmanagedSkill,
   type ReinstallRequest,
   type Scope,
+  type Skill,
   type SkillID,
   type SkillScopeInspection,
   type UnmanagedSkill,
   type UpdatePlan,
 } from "@bindings/internal/library";
-import { canInstall, editedHere, folderKey, needsReinstall, notTakenOver, scopeKey } from "./model";
+import { canInstall, editedHere, folderKey, needsReinstall } from "./installs";
+import { notTakenOver } from "./unmanaged";
+import { scopeKey } from "./scope";
+import { sourceState } from "./source-state";
 
 // placeKey 标识一处安装：哪个技能装在哪个作用域。
 export const placeKey = (p: { skill_id: SkillID; scope: Scope }) => `${p.skill_id}|${scopeKey(p.scope)}`;
@@ -39,9 +44,9 @@ export function defaultSkills(plan: UpdatePlan, select?: SkillID[]): Set<SkillID
   return new Set(skills.filter((p) => p.change === PlannedChange.PlannedChanged && !p.skipped).map((p) => p.skill.id));
 }
 
-export { canInstall } from "./model";
+export { canInstall } from "./installs";
 
-// edited 是用户在这里改过的一处，和界面上说「被手动改过」的是同一批(model 的 editedHere)。
+// edited 是用户在这里改过的一处，和界面上说「被手动改过」的是同一批(lib/installs 的 editedHere)。
 const edited = editedHere;
 
 // defaultInstallOn 是装出去的地方的默认勾选：用户改过的、文件夹不在了的(可能是用户有意删掉的)不勾，勾上才覆盖、才装回去。
@@ -55,6 +60,14 @@ export const chosenInstallOn = (choice: ReadonlyMap<string, boolean>) => (p: Ski
 
 // consented 是勾上即同意的地方：用户改过的覆盖，文件夹不在了的装回去。作者新版的那一处不用同意覆盖。
 export const consented = (p: SkillScopeInspection) => edited(p) || p.status === SkillScopeStatus.SkillScopeMissing;
+
+// updatedByDefault 是不打开更新计划、按默认勾选更新时会更新到的技能：有新版本、计入角标(没跳过),库里的当前版本没有用户的修改。
+// 和 defaultSkills 是同一条规则，这里按快照里的检查结论算：更新页的「更新」「全部更新」只在有这样的技能时才能直接做，
+// 都是会换掉用户修改的就只打开更新计划，让用户自己勾。
+export function updatedByDefault(skill: Skill): boolean {
+  const state = sourceState(skill);
+  return state.todo && state.kind === "newVersion" && !state.replacesEdits;
+}
 
 // plannedInstalls 是勾选的技能装出去的各处;更新计划只列有变化(或推测出改名)的技能。
 export function plannedInstalls(plan: UpdatePlan, checked: Set<SkillID>): SkillScopeInspection[] {
@@ -206,7 +219,7 @@ export function defaultCandidates(candidates: Candidate[], libraryNames: Readonl
 
 // ---------- 整批入库 ----------
 
-// notOwn 是默认不接的一处：提交在项目仓库里、记在项目 skills-lock.json 里，或指向 Agent 目录以外(见 model.ts 的 notTakenOver)。
+// notOwn 是默认不接的一处：提交在项目仓库里、记在项目 skills-lock.json 里，或指向 Agent 目录以外(见 lib/unmanaged 的 notTakenOver)。
 const notOwn = (f: UnmanagedSkill) => !notTakenOver(f);
 
 // fetchPlan 是整批入库确认里的各条与默认勾选。库把内容一致的几处合成一条，其中一处默认不接整条就不勾;

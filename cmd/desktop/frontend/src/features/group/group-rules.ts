@@ -1,10 +1,10 @@
 // 组(group.tsx)里的判断：勾选的技能里哪些要加入、哪些要移出，删组、移出组时选「一并卸载」会删掉哪些文件夹，
 // 逐个加入组之后是只提示一句还是逐个列出结果。不碰界面、不调技能库，单元测试见 group-rules.test.ts。
-import { GroupMemberOutcome, type GroupID, type GroupMemberResult, type SkillID, type SkillScopeInspection } from "@bindings/internal/library";
+import { GroupMemberOutcome, type CollectionID, type GroupID, type GroupMemberResult, type SkillID, type SkillScopeInspection } from "@bindings/internal/library";
 import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
-import { scopeKey, skillName } from "@/lib/model";
+import { scopeKey, skillName } from "@/lib/scope";
 import { memberRows, placedBy, type ResultRow } from "@/components/app/result-rows";
 
 // notInGroup 是勾选的技能里还不在组里的(要加入的),inGroup 是在组里的(要移出的)。
@@ -41,4 +41,10 @@ export function addedToGroup(s: Snapshot, ids: SkillID[], outcomes: AddedToGroup
     return [{ label: skillName(s, o.id), outcome: t.memberAdded, tone: "plain" }];
   });
   return { all: added.length === ids.length && !skipped, skipped, added: added.length, placed: added.flatMap((o) => placedBy(o.results)), rows };
+}
+
+// missingFromGroup 是集合里还不在组里的技能：集合拖到组上、右键"加入组"时加入的就是这些;为空时说"都已在组里"。
+export function missingFromGroup(s: Snapshot, collectionID: CollectionID, groupID: GroupID): SkillID[] {
+  const members = new Set(s.groups.find((g) => g.id === groupID)?.members ?? []);
+  return (s.collections.find((c) => c.id === collectionID)?.skills ?? []).filter((id) => !members.has(id));
 }

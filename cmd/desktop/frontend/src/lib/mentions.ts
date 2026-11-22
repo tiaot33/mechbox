@@ -1,9 +1,9 @@
 // 技能之间的提到关系在安装、卸载和作用域页上怎样用：只整理技能库给出的结果(ListMissingMentions、ListLostMentions),不碰界面。
-// 项目里共用一个目录的几个 Agent 在界面上是一处(见 model.ts 的 mergedScopeKey),各自的结果合在这一处。
+// 项目里共用一个目录的几个 Agent 在界面上是一处(见 lib/places 的 mergedScopeKey),各自的结果合在这一处。
 import type { MissingMention, SkillInScope } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
 import { placeKey } from "./consent";
-import { mergedScopeKey } from "./model";
+import { mergedScopeKey } from "./places";
 
 type AgentList = Pick<Snapshot, "agents" | "agentsShown">;
 

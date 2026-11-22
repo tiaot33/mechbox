@@ -6,6 +6,8 @@ import {
   PlannedChange,
   ScopeKind,
   SkillScopeStatus,
+  SourceType,
+  UpdateCheckStatus,
   type Candidate,
   type PlannedSkill,
   type PlannedUnmanagedSkill,
@@ -39,9 +41,11 @@ import {
   reinstallTargets,
   toggleFetchGroup,
   updateInstalls,
+  updatedByDefault,
   type ReinstallChoices,
 } from "./consent";
-import { folderKey, scopeKey } from "./model";
+import { folderKey } from "./installs";
+import { scopeKey } from "./scope";
 
 const claude = AgentCode.AgentClaudeCode;
 const codex = AgentCode.AgentCodex;
@@ -96,6 +100,32 @@ describe("更新计划默认勾哪些技能", () => {
       planned(3, PlannedChange.PlannedDeleted, { renamed_to: "s3-kit" }),
     ]);
     expect(defaultSkills(p, [1, 2, 3]).size).toBe(0);
+  });
+});
+
+describe("不打开更新计划、按默认勾选更新时会更新到哪些", () => {
+  type Check = NonNullable<Skill["last_update_check"]>;
+  const checked = (check: Partial<Check>, extra: Partial<Skill> = {}) =>
+    ({ id: 1, name: "s1", source: { type: SourceType.SourceGit, label: "git.dev.test/a/skills" }, last_update_check: check, ...extra }) as Skill;
+  const available = { status: UpdateCheckStatus.UpdateAvailable, pending: true };
+
+  it("有新版本、没跳过的会更新到", () => {
+    expect(updatedByDefault(checked(available))).toBe(true);
+  });
+
+  it("库里的当前版本带着用户的修改时不会：更新会换掉它，要用户在更新计划里自己勾", () => {
+    expect(updatedByDefault(checked(available, { edited: true }))).toBe(false);
+  });
+
+  it("跳过的改动、来源里已删除的、推测出的改名都不会", () => {
+    expect(updatedByDefault(checked({ status: UpdateCheckStatus.UpdateAvailable, skipped: true }))).toBe(false);
+    expect(updatedByDefault(checked({ status: UpdateCheckStatus.UpdateDeleted, pending: true }))).toBe(false);
+    expect(updatedByDefault(checked({ status: UpdateCheckStatus.UpdateDeleted, renamed_to: "s1-kit", pending: true }))).toBe(false);
+  });
+
+  it("本地目录来源在目录里改过的不算：它不进更新页，只有「重新读取」", () => {
+    const local = { ...checked({ status: UpdateCheckStatus.UpdateAvailable }), source: { type: SourceType.SourceLocal, label: "/home/code/x" } } as Skill;
+    expect(updatedByDefault(local)).toBe(false);
   });
 });
 

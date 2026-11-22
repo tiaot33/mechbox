@@ -1,8 +1,8 @@
-// 移除技能：一批移除涉及几个作用域，移除同名的另一个并在那几处换装后，哪些技能还会找不到它提到的技能。
+// 移除技能：一批移除涉及几个作用域，移除同名的另一个时能在哪几处换上留下的那个，换装后哪些技能还会找不到它提到的技能。
 import { describe, expect, it } from "vitest";
-import { AgentCode, ScopeKind, SkillScopeStatus, type Agent, type MissingMention, type Scope, type SkillScopeInspection } from "@bindings/internal/library";
+import { AgentCode, ScopeKind, SkillScopeStatus, SourceType, type Agent, type MissingMention, type Scope, type Skill, type SkillScopeInspection } from "@bindings/internal/library";
 import type { Snapshot } from "@/lib/library";
-import { lostAfterTwin, removedPlaces } from "./remove-rules";
+import { lostAfterTwin, removedPlaces, twinReplaceScopes } from "./remove-rules";
 
 const claude = AgentCode.AgentClaudeCode;
 const codex = AgentCode.AgentCodex;
@@ -35,5 +35,35 @@ describe("移除同名的另一个之后还会找不到的", () => {
     const unfound = [mention(project(codex, 7), "x"), mention(global(claude), "x"), mention(project(claude, 7), "y")];
     expect(lostAfterTwin(s, unfound, "x", [project(claude, 7)])).toEqual([unfound[1], unfound[2]]);
     expect(lostAfterTwin(s, unfound, "x", [])).toEqual(unfound);
+  });
+});
+
+describe("移除同名的另一个时能在哪几处换上留下的", () => {
+  const snapshot = (s: Partial<Snapshot>) =>
+    ({ collections: [], groups: [], skills: [], skillScopes: [], unmanaged: [], agents: [], projects: [], info: { home_dir: "/home" }, ...s }) as unknown as Snapshot;
+  const skill = (id: number, name: string, label: string) => ({ id, name, source: { type: SourceType.SourceGitHub, label } }) as Skill;
+  const where = (agent: string, project_id?: number) =>
+    project_id ? { kind: ScopeKind.ScopeProject, agent, project_id } : { kind: ScopeKind.ScopeGlobal, agent };
+  const installed = (skill_id: number, agent: string, project_id?: number) => ({ skill_id, scope: where(agent, project_id) }) as SkillScopeInspection;
+  // 两个 tdd:A(1) 装在 Claude Code 全局;B(2) 装在 Codex 全局、Claude Code 在项目 7、Codex 在项目 9,和 Claude Code 在项目 8(不在这台机器上)。
+  const s = snapshot({
+    skills: [skill(1, "tdd", "a/skills"), skill(2, "tdd", "b/skills")],
+    skillScopes: [
+      installed(1, "claude-code"),
+      installed(2, "codex"),
+      installed(2, "claude-code", 7),
+      installed(2, "codex", 9),
+      { ...installed(2, "claude-code", 8), status: SkillScopeStatus.SkillScopeRootMissing },
+    ],
+  });
+
+  it("移除 B 留下 A 时，能换上 A 的是 B 装着、项目在这台机器上、那个 Agent 在全局没装 A 的几处", () => {
+    // Claude Code 在项目 7 里本来就用得到全局的 A,不再装一份。
+    expect(twinReplaceScopes(s, 2, 1)).toEqual([where("codex"), where("codex", 9)]);
+    expect(twinReplaceScopes(s, 1, 2)).toEqual([where("claude-code")]);
+  });
+
+  it("没装在任何地方时没有要换的", () => {
+    expect(twinReplaceScopes(snapshot({ skills: s.skills }), 1, 2)).toEqual([]);
   });
 });

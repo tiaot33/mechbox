@@ -6,7 +6,8 @@ import { placeKey } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import { mergeProjectPlaces, scopeLabel, skillName } from "@/lib/model";
+import { eachPlace, placeCount, scopeLabel } from "@/lib/places";
+import { skillName } from "@/lib/scope";
 import { Modal, ui } from "@/lib/ui";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -55,7 +56,7 @@ function FailedPlaces({ outcomes, close }: { outcomes: UpdateOutcome[]; close: (
       void call.current?.cancel();
     };
   }, []);
-  const left = mergeProjectPlaces(s, failed.flat()).length;
+  const left = placeCount(s, failed.flat());
   const retry = async () => {
     const again = outcomes.flatMap((o, i) => retryRequests(o, failed[i]));
     if (!(await confirmLinkedRequests(again, t.retryTitle, t.retry))) return;
@@ -111,7 +112,7 @@ function FailedPlaces({ outcomes, close }: { outcomes: UpdateOutcome[]; close: (
         {t.failedNotice}
       </Notice>
       <ListBox>
-        {mergeProjectPlaces(s, failed.flat()).map((r) => (
+        {eachPlace(s, failed.flat()).map((r) => (
           <ListRow key={placeKey(r)}>
             <div className="min-w-0 grow">
               <div>

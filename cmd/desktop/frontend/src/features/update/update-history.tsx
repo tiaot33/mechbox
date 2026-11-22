@@ -19,7 +19,8 @@ import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { queryClient, toLibraryError, useSnapshot, updateHistoryQuery, versionQuery } from "@/lib/library";
-import { mergeProjectPlaces, scopeLabel, shortRevision } from "@/lib/model";
+import { eachPlace, placeCount, scopeLabel } from "@/lib/places";
+import { shortRevision } from "@/lib/source";
 import { Modal, useUI } from "@/lib/ui";
 import { openUpdate, placeAgain } from "./update";
 import { RollbackDialog, rollbackOutcome } from "./rollback";
@@ -112,7 +113,7 @@ function Record({
   const skills = record.skills ?? [];
   const installs = record.installs ?? [];
   // 项目里共用一个文件夹的几处合成一处计数，和下面列出的一致。
-  const places = mergeProjectPlaces(s, installs);
+  const places = eachPlace(s, installs);
   const update = record.kind === UpdateRecordKind.UpdateRecordUpdate;
   const rollback = record.kind === UpdateRecordKind.UpdateRecordRollback;
   const failed = update ? installs.filter((i) => i.outcome === ReinstallOutcome.ReinstallFailed) : [];
@@ -130,7 +131,7 @@ function Record({
         : t.revision(shortRevision(record.revision))),
     record.whole_revision && t.wholeRevision,
     rollback && (target ? t.rolledBackAt(formatDate(target.created_at)) : t.rolledBackOne),
-    update && places.length > 0 && t.reinstalled(places.length - mergeProjectPlaces(s, failed).length, mergeProjectPlaces(s, failed).length),
+    update && places.length > 0 && t.reinstalled(places.length - placeCount(s, failed), placeCount(s, failed)),
     rollback &&
       places.length > 0 &&
       t.putBack(places.filter(putBack).length, places.length),
@@ -231,10 +232,10 @@ function Places({ record }: { record: UpdateRecord }) {
   return (
     <details className="update-places">
       <Summary className="text-caption text-muted-foreground">
-        {t.places(record.kind === UpdateRecordKind.UpdateRecordRollback, mergeProjectPlaces(s, installs).length)}
+        {t.places(record.kind === UpdateRecordKind.UpdateRecordRollback, placeCount(s, installs))}
       </Summary>
       <div className="mt-1 flex flex-col gap-0.5">
-        {mergeProjectPlaces(s, installs).map((i) => (
+        {eachPlace(s, installs).map((i) => (
           <div key={`${i.skill_id}|${i.scope.agent}|${i.scope.project_id ?? 0}`} className="flex items-center gap-2 text-caption">
             <span className="min-w-0 truncate">
               {name(i)} · {scopeLabel(s, i.scope)}

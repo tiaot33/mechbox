@@ -4,21 +4,10 @@ import { SourceType, UpdateCheckStatus, type Skill, type SkillVersion } from "@b
 import { formatDate } from "@/lib/content";
 import { messages, useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import {
-  collectionSkills,
-  twinNote,
-  isLocal,
-  localChanged,
-  noSource,
-  changePending,
-  revisionSummary,
-  revisionText,
-  sameNameInLibrary,
-  sourceKindLabel,
-  sourceLabel,
-  updateAvailable,
-  wslTitle,
-} from "@/lib/model";
+import { collectionSkills, isLocal, noSource, revisionSummary, revisionText, sourceKindLabel, sourceLabel } from "@/lib/source";
+import { twinNote, sameNameInLibrary } from "@/lib/same-name";
+import { sourceChanges, sourceState } from "@/lib/source-state";
+import { wslTitle } from "@/lib/paths";
 import { addSkillToGroup, createGroup, removeSkillFromGroup } from "@/features/group/group";
 import { removeTwin } from "@/features/skill/remove";
 import { openDrawer } from "@/lib/view";
@@ -42,6 +31,7 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
   const c = s.collections.find((x) => x.id === skill.collection_id);
   const collection = c ? collectionSkills(s, c) : [];
   const sameName = sameNameInLibrary(s, skill);
+  const source = sourceState(skill);
   return (
     <Card>
       <CardHeader title={d.metadata} />
@@ -103,7 +93,7 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
           )}
         </dd>
         {/* 本地目录来源：目录里改过时写出来(读目录时比出来的),在上面「重新读取」。 */}
-        {localChanged(skill) && (
+        {source.kind === "localChanged" && (
           <>
             <dt>{d.updateCheck}</dt>
             <dd>
@@ -114,17 +104,17 @@ export function MetadataCard({ skill, versions }: { skill: Skill; versions: Skil
           </>
         )}
         {/* 本地目录来源不检查更新，只有"重新读取";没有来源的技能只能用目录里的修改更新。 */}
-        {!isLocal(skill.source) && !noSource(skill.source) && (
+        {!source.userAuthored && (
           <>
             <dt>{d.updateCheck}</dt>
             <dd>
               {check ? (
                 <>
-                  <Badge tone={check.renamed_to ? "rename" : checkStatus(check.status).tone}>
-                    {check.renamed_to ? d.maybeRenamedTo(check.renamed_to) : checkStatus(check.status).label}
+                  <Badge tone={source.kind === "renamed" ? "rename" : checkStatus(check.status).tone}>
+                    {source.kind === "renamed" ? d.maybeRenamedTo(source.renamedTo) : checkStatus(check.status).label}
                   </Badge>{" "}
-                  {check.skipped && <span className="text-caption text-muted-foreground">{d.skipped}</span>}
-                  {updateAvailable(skill) && skill.edited && <span className="text-caption text-muted-foreground">{d.replacesEdits}</span>}
+                  {source.skipped && <span className="text-caption text-muted-foreground">{d.skipped}</span>}
+                  {source.replacesEdits && <span className="text-caption text-muted-foreground">{d.replacesEdits}</span>}
                   <span className="text-caption text-muted-foreground">{formatDate(check.checked_at)}</span>
                 </>
               ) : (
@@ -202,8 +192,8 @@ function checkStatus(status: UpdateCheckStatus): { label: string; tone: Tone } {
 // collectionRelation 说明技能和集合里其他技能的关系：是否在同一个来源版本上，以及其他技能有没有要处理的更新。
 function collectionRelation(skill: Skill, collection: Skill[]): string {
   const others = collection.filter((x) => x.id !== skill.id);
-  // 「有变化」只算来源里有新内容、没跳过的(见 changePending),来源里已删除的不算，和集合标题、更新页一致。
-  const todo = others.filter(changePending).length;
+  // 「有变化」只算来源里有新内容、没跳过的，来源里已删除的不算，和集合标题、更新页一致(见 lib/source-state)。
+  const todo = sourceChanges(others).changed.length;
   const summary = revisionSummary(collection);
   const t = messages().drawer;
   return [

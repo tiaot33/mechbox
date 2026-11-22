@@ -2,7 +2,7 @@
 // 同名不同内容的单列，勾上的里哪些要另外提醒，确认后按来源怎么分批。默认勾哪些见 lib/consent.ts 的 fetchPlan。
 // 不碰界面、不调技能库，单元测试见 fetch-unmanaged-rules.test.ts。
 import type { PlannedUnmanagedSkill, UnmanagedFetchItem } from "@bindings/internal/library";
-import { repoOwned } from "@/lib/model";
+import { repoOwned } from "@/lib/unmanaged";
 
 export const noSource = "";
 

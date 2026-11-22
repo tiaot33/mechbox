@@ -3,20 +3,11 @@ import { useEffect, useRef, useState } from "react";
 import type { CancellablePromise } from "@wailsio/runtime";
 import { LibraryService } from "@bindings/cmd/desktop";
 import type { Collection, CollectionID, Skill } from "@bindings/internal/library";
+import { updatedByDefault } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { useSnapshot, type Snapshot } from "@/lib/library";
-import {
-  collectionSkills,
-  deletedInSource,
-  pending,
-  renamedTo,
-  revisionSummary,
-  revisionText,
-  shortRevision,
-  sourceLabel,
-  updatableCollections,
-  updateAvailable,
-} from "@/lib/model";
+import { collectionSkills, revisionSummary, revisionText, shortRevision, sourceLabel } from "@/lib/source";
+import { sourceChanges, sourceState, updatableCollections } from "@/lib/source-state";
 import { knownRisks, ReadRetries, rememberPlanRisks, snapshotRiskKey } from "@/lib/plan-risks";
 import { useBusy, useUI } from "@/lib/ui";
 import { riskSummary } from "@/features/update/risks";
@@ -40,7 +31,7 @@ export function UpdatesHead() {
   const t = useT().list;
   const collections = updatableCollections(s);
   const risks = usePlanRisks(s, collections);
-  const direct = collections.filter((c) => collectionSkills(s, c).some((x) => pending(x) && updateAvailable(x) && !x.edited));
+  const direct = collections.filter((c) => collectionSkills(s, c).some(updatedByDefault));
   return (
     <div className={cn(barClass, "px-3")}>
       <div className={cn(barRowClass, "updates-top")}>
@@ -62,11 +53,11 @@ export function UpdatesHead() {
       {collections.map((c) => {
         const skills = collectionSkills(s, c);
         const single = skills.length === 1;
-        const todo = skills.filter(pending);
-        const available = todo.filter(updateAvailable);
-        const plain = available.filter((x) => !x.edited);
-        const edited = available.filter((x) => x.edited);
-        const to = todo.map((x) => x.last_update_check?.revision).find(Boolean);
+        const found = sourceChanges(skills);
+        // plain 是点「更新」就会更新到的，edited 是更新会换掉用户修改的(更新计划里默认不勾)。
+        const plain = found.newVersion.filter(updatedByDefault);
+        const edited = found.newVersion.filter((x) => !updatedByDefault(x));
+        const to = found.todo.map((x) => x.last_update_check?.revision).find(Boolean);
         const risk = risks.get(c.id);
         const names = (list: Skill[]) => list.map((x) => x.name);
         const facts = [
@@ -74,8 +65,8 @@ export function UpdatesHead() {
           revisionMove(skills, to),
           plain.length ? (single ? t.newVersion : t.changedSkills(names(plain))) : "",
           edited.length ? (single ? t.newVersionEdited : t.changedSkillsEdited(names(edited))) : "",
-          ...todo.filter(renamedTo).map((x) => t.renamedSkill(x.name, renamedTo(x))),
-          todo.some(deletedInSource) ? t.deletedSkills(names(todo.filter(deletedInSource))) : "",
+          ...found.renamed.map((x) => t.renamedSkill(x.name, sourceState(x).renamedTo)),
+          found.deleted.length ? t.deletedSkills(names(found.deleted)) : "",
         ].filter(Boolean);
         return (
           <div key={c.id} className="update-row flex min-w-0 flex-col gap-0.5 border-t border-row-line pt-2">

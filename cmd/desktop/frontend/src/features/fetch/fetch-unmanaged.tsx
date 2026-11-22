@@ -5,7 +5,11 @@ import type { FetchUnmanagedResult, UnmanagedSkill } from "@bindings/internal/li
 import { unmanagedSourceError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, foundSource, useFoundSources, type LibraryError } from "@/lib/library";
-import { outsideLinkNote, sameNameFetchNote, sameNameInLibrary, scopeKey, scopeLabel, shortPath, skillSourceLabel, twinNote } from "@/lib/model";
+import { outsideLinkNote } from "@/lib/unmanaged";
+import { sameNameFetchNote, sameNameInLibrary, skillSourceLabel, twinNote } from "@/lib/same-name";
+import { scopeKey } from "@/lib/scope";
+import { scopeLabel } from "@/lib/places";
+import { shortPath } from "@/lib/paths";
 import { Modal, ui, useUI } from "@/lib/ui";
 import { flashSkill } from "@/lib/view";
 import { chooseAndInstall } from "@/features/install/install-to";

@@ -1,6 +1,6 @@
 // 更新计划弹窗里的几段：风险、GitHub 的提交说明、来源里的新技能。
 import { useState } from "react";
-import { type CollectionID, type PlannedSkill, type UpdatePlan, type UpdateRisk } from "@bindings/internal/library";
+import type { CollectionID, PlannedSkill, UpdatePlan, UpdateRisk } from "@bindings/internal/library";
 import { formatDate } from "@/lib/content";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
@@ -10,7 +10,7 @@ import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { isRiskNotice, riskItems, riskLabel } from "./risks";
-import { agentName } from "@/lib/model";
+import { agentName } from "@/lib/scope";
 import { Summary } from "@/components/app/parts";
 
 // Risks 是更新计划最先给的：新增或改动的脚本、新增的可执行文件、技能放宽了对 Agent 声明的权限，点一条看那个文件的差异。

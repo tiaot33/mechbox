@@ -1,7 +1,9 @@
 // 英文界面文案：结构与 zh.tsx 一一对应，satisfies Messages 让漏翻、参数不对的条目在 tsc 里报出。
 import type { ReactNode } from "react";
 import type { Messages } from ".";
-import type { InstalledWhere, RevisionSummary, SameNameKind } from "@/lib/model";
+import type { InstalledWhere } from "@/lib/installs";
+import type { RevisionSummary } from "@/lib/source";
+import type { SameNameKind } from "@/lib/same-name";
 import type { ModeChange } from "@/lib/diff";
 import { platform } from "@/lib/platform";
 

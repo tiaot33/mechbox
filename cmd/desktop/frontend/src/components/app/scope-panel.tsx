@@ -10,27 +10,11 @@ import type { Agent, RegisteredProject } from "@bindings/internal/library";
 import { pressKeys } from "@/lib/keys";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import {
-  agentNameIn,
-  agentsIn,
-  agentsUsedIn,
-  projectSkillCount,
-  scopeHereCount,
-  editedHere,
-  needsRepair,
-  reinstallLevel,
-  parseScope,
-  placeOf,
-  projectFolderNote,
-  projectName,
-  sameMergedScope,
-  scopeKey,
-  scopeOf,
-  shortPath,
-  skillScopesIn,
-  wslTitle,
-  type Place,
-} from "@/lib/model";
+import { agentNameIn, agentsIn, agentsUsedIn, projectFolderNote, sameMergedScope } from "@/lib/places";
+import { projectSkillCount, scopeHereCount } from "@/lib/pages";
+import { editedHere, needsRepair, reinstallLevel, skillScopesIn } from "@/lib/installs";
+import { parseScope, placeOf, projectName, scopeKey, scopeOf, type Place } from "@/lib/scope";
+import { shortPath, wslTitle } from "@/lib/paths";
 import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { openProject, openScope, toggleMoreAgents, toggleProject, useCurrentPage, useView } from "@/lib/view";

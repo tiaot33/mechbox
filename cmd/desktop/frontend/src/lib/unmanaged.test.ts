@@ -1,0 +1,44 @@
+// 未纳管技能：归谁管、指向哪里的标注，SKILL.md 哪里写错了，和库里一样但不是 app 装的那一份怎么说。
+import { describe, expect, it } from "vitest";
+import { ScopeKind, SkillFileProblemKind, type Skill, type UnmanagedSkill } from "@bindings/internal/library";
+import { fetchable, folderNotes, identicalState, skillFileProblemText } from "./unmanaged";
+
+const where = (agent: string, project_id?: number) =>
+  project_id ? { kind: ScopeKind.ScopeProject, agent, project_id } : { kind: ScopeKind.ScopeGlobal, agent };
+const unmanaged = (name: string, agent: string, project_id?: number) => ({ name, folder: name, scope: where(agent, project_id) }) as UnmanagedSkill;
+
+describe("folderNotes", () => {
+  it("写出归项目仓库管的、指向 Agent 目录以外的;副本和不在技能库里的一行写同样的几条", () => {
+    const plain = unmanaged("x", "claude-code");
+    expect(folderNotes(plain)).toEqual([]);
+    const notes = folderNotes({ ...plain, in_repository: true, in_project_lock: true, link_outside: true, link_target: "/home/code/x" });
+    expect(notes.map((x) => x.text)).toEqual(["在项目仓库里", "链到 /home/code/x"]);
+    expect(folderNotes({ ...plain, link_outside: true, link_target: "/home/me/code/x" }, "/home/me")[0].text).toBe("链到 ~/code/x");
+    expect(notes[1].title).toContain("/home/code/x");
+    expect(folderNotes({ ...plain, in_project_lock: true }).map((x) => x.text)).toEqual(["记在 skills-lock.json 里"]);
+  });
+});
+
+describe("skillFileProblemText", () => {
+  it("说出是 SKILL.md 的哪一行、怎样改，不给原始报错", () => {
+    expect(skillFileProblemText({ kind: SkillFileProblemKind.SkillFileUnquotedColon, line: 3 })).toBe(
+      'SKILL.md 第 3 行：值里带「: 」，整个值要加上引号（如 description: "Use when: …"）',
+    );
+    expect(skillFileProblemText({ kind: SkillFileProblemKind.SkillFileNoDescription })).toBe("SKILL.md 的 frontmatter 里没有 description，或 description 不是文本");
+    expect(skillFileProblemText({ kind: "later" as SkillFileProblemKind })).toBe("SKILL.md 写得不对");
+  });
+
+  it("SKILL.md 写错了的不能入库：整批入库的入口不算它", () => {
+    expect(fetchable(unmanaged("ok", "claude-code"))).toBe(true);
+    expect(fetchable({ ...unmanaged("broken", "claude-code"), invalid: { kind: SkillFileProblemKind.SkillFileInvalidYAML } })).toBe(false);
+  });
+});
+
+describe("identicalState", () => {
+  it("和库里一样、不是 app 装的那一份写明它已经在库里", () => {
+    const u = { ...unmanaged("screenshot", "claude-code", 1), skill_id: 9, version_id: 3 };
+    const state = identicalState({ id: 9, name: "screenshot", version_id: 3 } as Skill, u);
+    expect(state.text).toBe("已在库里 · 这一份不是 app 装的");
+    expect(state.stale).toBe(false);
+  });
+});

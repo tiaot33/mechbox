@@ -19,7 +19,7 @@ import { useT } from "@/lib/i18n";
 import { mentionsQuery, toLibraryError, useSnapshot } from "@/lib/library";
 import { labelled, layoutKey, mentionGraph, mentionSnippet, neighbours, searchHits, type GraphLink, type GraphNode, type MentionGraph, type Relation } from "@/lib/graph";
 import { focusLayout, forceLayout, radius, type Positions, type XY } from "@/lib/graph-layout";
-import { matches, type GraphSet } from "@/lib/model";
+import { matches, type GraphSet } from "@/lib/pages";
 import { cn } from "@/lib/utils";
 import { toggleDrawer, closeDrawer, useView } from "@/lib/view";
 import { Button } from "@/components/ui/button";

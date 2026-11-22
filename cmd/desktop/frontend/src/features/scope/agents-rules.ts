@@ -3,7 +3,8 @@
 import type { Agent, AgentCode, CustomAgent, Scope } from "@bindings/internal/library";
 import { detachedBy } from "@/lib/consent";
 import type { Snapshot } from "@/lib/library";
-import { folderPlaces, placeOf } from "@/lib/model";
+import { folderPlaces } from "@/lib/installs";
+import { placeOf } from "@/lib/scope";
 
 // cleanPath 是比较目录时去掉开头的 ./ 和末尾的 /:写法不同的同一个目录不算改了。
 const cleanPath = (path: string) => path.replace(/^\.\//, "").replace(/\/+$/, "");

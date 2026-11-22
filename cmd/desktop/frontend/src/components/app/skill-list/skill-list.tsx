@@ -10,20 +10,12 @@ import { useEffect, useLayoutEffect, useRef } from "react";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { cn } from "@/lib/utils";
-import {
-  agentNameIn,
-  parseScope,
-  placeOf,
-  projectFolderNote,
-  scopeLabel,
-  sectionKey,
-  sourceLabel,
-  updatableCollections,
-  type PageListing,
-  type ScopeKey,
-  type SkillSection,
-  fetchable,
-} from "@/lib/model";
+import { agentNameIn, projectFolderNote, scopeLabel } from "@/lib/places";
+import { parseScope, placeOf, type ScopeKey } from "@/lib/scope";
+import { sectionKey, type PageListing, type SkillSection } from "@/lib/pages";
+import { sourceLabel } from "@/lib/source";
+import { updatableCollections } from "@/lib/source-state";
+import { fetchable } from "@/lib/unmanaged";
 import { closeDrawer, doneRestoreScroll, openScope, setArrange, toggleUnfolded, usePageListing, useScopeDirectory, useView } from "@/lib/view";
 import { MentionGraphPage } from "@/components/app/mention-graph/mention-graph";
 import { SearchLine } from "./search-line";

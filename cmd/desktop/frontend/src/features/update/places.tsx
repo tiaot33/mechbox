@@ -4,7 +4,9 @@ import { SkillScopeStatus, type SkillID, type SkillScopeInspection } from "@bind
 import { canInstall, placeKey } from "@/lib/consent";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import { agentName, linkNote, mergeProjectPlaces, mergedScopeKey, scopeKey, scopeLabel, sharedWithNote } from "@/lib/model";
+import { agentName, scopeKey } from "@/lib/scope";
+import { linkNote } from "@/lib/installs";
+import { eachPlace, placeNames, mergedScopeKey, scopeLabel, sharedWithNote } from "@/lib/places";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Hint } from "@/components/ui/field";
@@ -35,7 +37,7 @@ export function Places({
     });
   // 项目里共用一个文件夹的几处合成一行;勾选本来就按文件夹记，一起换。
   const rows = new Map<string, SkillScopeInspection[]>();
-  for (const p of mergeProjectPlaces(s, places)) rows.set(mergedScopeKey(s, p.scope), [...(rows.get(mergedScopeKey(s, p.scope)) ?? []), p]);
+  for (const p of eachPlace(s, places)) rows.set(mergedScopeKey(s, p.scope), [...(rows.get(mergedScopeKey(s, p.scope)) ?? []), p]);
   return (
     <ListBox>
       {[...rows.entries()].map(([key, list]) => (
@@ -67,7 +69,7 @@ export function Places({
                 )}
                 {on(p) && unchecked(p).length > 0 && (
                   <span className="update-place-kept min-w-0 text-caption text-muted-foreground">
-                    {t.linkedHere(mergeProjectPlaces(s, unchecked(p).map((scope) => ({ scope }))).map((x) => scopeLabel(s, x.scope)))}
+                    {t.linkedHere(placeNames(s, unchecked(p)))}
                   </span>
                 )}
               </label>

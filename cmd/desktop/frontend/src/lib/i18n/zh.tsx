@@ -2,7 +2,9 @@
 // 随平台变的条目(如废纸篓的叫法)写成零参函数，用到时现取平台。
 // 新增界面文案时两份一起写。
 import type { ReactNode } from "react";
-import type { InstalledWhere, RevisionSummary, SameNameKind } from "@/lib/model";
+import type { InstalledWhere } from "@/lib/installs";
+import type { RevisionSummary } from "@/lib/source";
+import type { SameNameKind } from "@/lib/same-name";
 import type { ModeChange } from "@/lib/diff";
 import { platform } from "@/lib/platform";
 

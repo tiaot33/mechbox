@@ -9,7 +9,8 @@ import { describeError } from "@/lib/errors";
 import { changedFiles } from "@/lib/diff";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, type LibraryError } from "@/lib/library";
-import { folderKey, mergeProjectPlaces, scopeLabel } from "@/lib/model";
+import { folderKey } from "@/lib/installs";
+import { placeNames, scopeLabel } from "@/lib/places";
 import { Modal, useBusy, useUI } from "@/lib/ui";
 import { reportUpdates } from "./report";
 import { RiskList } from "./plan-sections";
@@ -140,7 +141,7 @@ export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; sco
 
       {same.length > 0 && (
         <Hint className="scope-update-same">
-          {t.same(mergeProjectPlaces(s, same).map((p) => scopeLabel(s, p.scope)))}
+          {t.same(placeNames(s, same))}
         </Hint>
       )}
       {places.length > 0 ? (

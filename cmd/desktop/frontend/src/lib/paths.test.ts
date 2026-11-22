@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { messages } from "./i18n";
-import { insideHome, pathParts, resolveFetchInput, resolveLocalPath, wslLocation } from "./paths";
+import { homePath, insideHome, pathParts, resolveFetchInput, resolveLocalPath, wslLocation } from "./paths";
 
 const wslHome = "\\\\wsl.localhost\\Ubuntu\\home\\me";
 const windowsHome = "C:\\Users\\me";
@@ -90,5 +90,35 @@ describe("pathParts", () => {
 
   it("源码里不用后行断言(旧版 WebKit 不认)", () => {
     expect(pathParts.toString()).not.toContain("(?<=");
+  });
+});
+
+describe("homePath", () => {
+  const wslHome = "\\\\wsl.localhost\\Ubuntu\\home\\me";
+
+  it("把主目录缩写成 ~", () => {
+    expect(homePath("/Users/me", "/Users/me/.agents/skills")).toBe("~/.agents/skills");
+  });
+
+  it("Windows 上的主目录不缩写", () => {
+    expect(homePath("C:\\Users\\me", "C:\\Users\\me\\.agents\\skills")).toBe("C:\\Users\\me\\.agents\\skills");
+    expect(homePath(wslHome, "C:\\Users\\me\\.agents\\skills")).toBe("C:\\Users\\me\\.agents\\skills");
+  });
+
+  it("全局目录在 WSL 发行版里时，发行版主目录下的路径写成 ~/...", () => {
+    expect(homePath(wslHome, wslHome + "\\.agents\\skills")).toBe("~/.agents/skills");
+    expect(homePath(wslHome, wslHome)).toBe("~");
+    expect(homePath(wslHome, "\\\\wsl$\\ubuntu\\home\\me\\.claude\\skills")).toBe("~/.claude/skills");
+  });
+
+  it("发行版里的其他路径写成 / 开头的 Linux 路径", () => {
+    expect(homePath(wslHome, "\\\\wsl.localhost\\Ubuntu\\opt\\proj")).toBe("/opt/proj");
+    expect(homePath(wslHome, "\\\\wsl.localhost\\Ubuntu\\home\\melody\\proj")).toBe("/home/melody/proj");
+    expect(homePath(wslHome, "\\\\wsl.localhost\\Debian\\home\\me\\proj")).toBe("/home/me/proj");
+    expect(homePath("C:\\Users\\me", "\\\\wsl.localhost\\Ubuntu\\home\\me\\proj")).toBe("/home/me/proj");
+  });
+
+  it("不在 Windows 上时，发行版里的路径照原样(如拉回的库里带着发行版里的来源)", () => {
+    expect(homePath("/Users/me", "\\\\wsl.localhost\\Ubuntu\\opt\\skills")).toBe("\\\\wsl.localhost\\Ubuntu\\opt\\skills");
   });
 });
