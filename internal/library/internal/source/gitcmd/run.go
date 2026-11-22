@@ -38,6 +38,20 @@ func runStdout(ctx context.Context, stdin io.Reader, args ...string) ([]byte, er
 	return run(ctx, stdin, false, args...)
 }
 
+type remoteKey struct{}
+
+func withRemote(ctx context.Context, remote string) context.Context {
+	if remote == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, remoteKey{}, remote)
+}
+
+func remoteFrom(ctx context.Context) string {
+	remote, _ := ctx.Value(remoteKey{}).(string)
+	return remote
+}
+
 func run(ctx context.Context, stdin io.Reader, combined bool, args ...string) ([]byte, error) {
 	ssh, err := sshCommand(ctx)
 	if err != nil {
@@ -45,14 +59,24 @@ func run(ctx context.Context, stdin io.Reader, combined bool, args ...string) ([
 	}
 	commandCtx, cancel := context.WithTimeout(ctx, timeout(ctx))
 	defer cancel()
-	command := process.Command(commandCtx, "git", append([]string{
+	gitArgs := []string{
 		"-c", "core.askPass=",
 		"-c", "credential.interactive=false",
 		"-c", "filter.lfs.smudge=",
 		"-c", "filter.lfs.process=",
 		"-c", "filter.lfs.required=false",
 		"-c", "protocol.ext.allow=never",
-	}, args...)...)
+	}
+	remote := remoteFrom(ctx)
+	if proxyValue, ok := process.GitProxy(ctx, remote); ok {
+		gitArgs = append(gitArgs, "-c", "http.proxy="+proxyValue)
+		lowerRemote := strings.ToLower(remote)
+		if strings.HasPrefix(lowerRemote, "http://") || strings.HasPrefix(lowerRemote, "https://") {
+			gitArgs = append(gitArgs, "-c", "http."+remote+".proxy="+proxyValue)
+		}
+	}
+	gitArgs = append(gitArgs, args...)
+	command := process.Command(commandCtx, "git", gitArgs...)
 	command.Env = append(command.Env,
 		"GIT_TERMINAL_PROMPT=0",
 		"GCM_INTERACTIVE=Never",
@@ -92,7 +116,7 @@ func Remote(ctx context.Context, remotes []string, args []string, patterns ...st
 		command := slices.Clone(args)
 		command = append(command, "--", remote)
 		command = append(command, patterns...)
-		output, err := Run(ctx, command...)
+		output, err := Run(withRemote(ctx, remote), command...)
 		if err == nil || ctx.Err() != nil {
 			return output, err
 		}

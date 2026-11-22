@@ -14,17 +14,19 @@
 //
 // 下面按用户操作的顺序列出每一步用到的方法和所在文件。
 //
-// 设置(library.go、sync.go、ai.go):设置都存在数据库的 config 表里,只认这里,不读环境变量。改完下一次请求就用新值。
+// 设置(library.go、sync.go、ai.go、proxy.go):设置都存在数据库的 config 表里,只认这里,不读环境变量。改完下一次请求就用新值。
 //   - [Library.GitHubToken]、[Library.SetGitHubToken] 读取与设置访问 GitHub 用的个人访问令牌;随推送、拉回走。没设置时匿名访问。
 //   - [Library.SyncSettings]、[Library.SetSyncSettings] 读取与设置同步用的 S3 设置:连接、放备份的文件夹、保留份数与自动推送的间隔。
 //     [Library.SyncStatus] 给出这台机器在 S3 上的设备目录与上次推送的时间。
 //   - [Library.AISettings]、[Library.SetAISettings] 读取与设置调用 AI 用的接口类型(OpenAI 兼容或 Anthropic)、服务地址、API Key、模型,
 //     以及每个请求额外带的请求头与合并进请求体的 JSON(设置思考深度这类参数);随推送、拉回走。
 //     [Library.TestAISettings] 用设置页上的一组设置发一条很短的消息,看能不能用。
+//   - [Library.ProxySettings]、[Library.SetProxySettings]、[Library.SystemProxy] 读取与设置联网用的网络代理(跟随系统代理、手动填写 HTTP / SOCKS5 地址、
+//     不用代理),以及读取这台机器当前启用的静态系统代理供展示;覆盖全部 HTTP 请求与启动的 git、gh 命令,[ProxyFunc] 供应用自己的请求(如检查新版本)共用。
 //   - [Library.ListWSLDistros]、[Library.WSLDistro]、[Library.SetWSLDistro]:Windows 上把各 Agent 的全局目录换到某个 WSL 发行版的主目录下,
 //     或换回 Windows 本机;换了以后只认新目录。[Open] 不自动换过去,调用方启动时取出存着的选择再设置。
 //   - [Library.AppSettings]、[Library.SetAppSettings] 读写应用自己的设置(如桌面端的自动检查、界面语言),库只存取、不解释;随推送、拉回走。
-//     同步设置、同步状态与 WSL 发行版只属于这台机器:推送出去的库里不带,拉回时保留本机的。
+//     同步设置、同步状态、网络代理与 WSL 发行版只属于这台机器:推送出去的库里不带,拉回时保留本机的。
 //
 // 搜索与入库(fetch.go):
 //   - [Library.SearchSkills] 搜索 skills.sh,结果里带可直接用于入库预览的请求(GitHub 仓库与 well-known 站点的技能)。
@@ -198,9 +200,10 @@
 // 认出来源里的新版只存了带可执行位的内容哈希,这里的可执行位取库里当前那一版的:来源的新版加了可执行文件、
 // 或改了哪个文件的可执行位时,Windows 本机上认不出,那一处照样算用户改过、未纳管技能照样单列。
 //
-// 启动 git、gh 用的环境变量([WithEnvironment])经 ctx 带到 process.Command:它从 ctx 里取环境变量,并在其中的 PATH 里找命令,
-// ctx 里没有时用进程的。source/catalog 在 Locate、Open、Refs 和它返回的 Snapshot 的每个方法上带上;
-// 不经 catalog 启动 git 的地方(unmanaged.go 查项目里已提交的文件夹)自己用 process.WithEnv 带上。
+// 启动 git、gh 用的环境变量([WithEnvironment] 与网络代理设置)与 git 的 -c http.proxy 覆盖经 ctx 带到 process.Command:
+// 它在真正启动命令或读环境变量时按步骤惰性求值一次,并在其中的 PATH 里找命令;不传 [WithEnvironment] 时在进程环境上叠加代理设置。
+// source/catalog 在 Locate、Open、Refs 和它返回的 Snapshot 的每个方法上经 Library 的 withProcess 带上;
+// 不经 catalog 启动本地 git 的地方(unmanaged.go 查项目里已提交的文件夹)自己用 process.WithEnv 带上。
 // 新加会启动 git、gh 的调用要走这两条路之一,否则会悄悄用进程的环境变量。WSL 发行版里的命令与 wsl.exe 不经这条路。
 //
 // 数据库、Agent 目录、各来源、skills.sh、S3、AI 服务各是 internal/ 下的一个子包,只返回自己的哨兵错误或错误类型,

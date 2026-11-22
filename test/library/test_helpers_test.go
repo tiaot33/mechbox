@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/tiaot33/mechbox/internal/library"
+	"github.com/tiaot33/mechbox/internal/library/platformtest"
 )
 
 // archiveServer 打桩 URL 来源的压缩包服务端(接管这个测试的 HTTP 请求),可配置 ETag 或 Last-Modified;
@@ -455,16 +456,20 @@ func testOptions(t *testing.T) []library.Option {
 // TestMain 让整个测试进程用一个空的主目录:git、gh 这些子进程读 HOME 下的配置与凭据,不该受这台机器上的影响。
 // Library 的主目录不看它,由 testOptions 按测试给出。
 func TestMain(m *testing.M) {
+	restoreProxy := platformtest.DisableSystemProxy()
 	home, err := os.MkdirTemp("", "mechbox-test-home-")
 	if err != nil {
+		restoreProxy()
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	if err := os.Setenv("HOME", home); err != nil {
+		restoreProxy()
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 	code := m.Run()
+	restoreProxy()
 	_ = os.RemoveAll(home)
 	os.Exit(code)
 }

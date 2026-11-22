@@ -336,6 +336,26 @@ export const wslDistroErrorQuery = queryOptions({
   queryFn: ({ signal }) => wails(signal, AppService.WSLDistroError()),
 });
 
+// 本机的网络代理设置与当前探测到的系统静态代理;窗口重新获得焦点时会随 reloadLibrary 重读系统代理。
+export const proxySettingsQuery = queryOptions({
+  queryKey: ["proxy-settings"],
+  queryFn: ({ signal }) => wails(signal, LibraryService.ProxySettings()),
+});
+
+export function invalidateProxySettings() {
+  return queryClient.invalidateQueries({ queryKey: proxySettingsQuery.queryKey });
+}
+
+export const systemProxyQuery = queryOptions({
+  queryKey: ["system-proxy"],
+  queryFn: ({ signal }) => wails(signal, LibraryService.SystemProxy()),
+  refetchOnMount: "always",
+});
+
+export function invalidateSystemProxy() {
+  return queryClient.invalidateQueries({ queryKey: systemProxyQuery.queryKey });
+}
+
 // releaseQuery 是检查 Mechbox 新版本的现状：Go 端启动时与之后每天检查一次，检查完发 release-checked 事件，App 据此重读;
 // 设置页「关于」里手动检查之后由发起处重读。
 export const releaseQuery = queryOptions({

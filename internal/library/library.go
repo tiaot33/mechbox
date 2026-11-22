@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
+	"github.com/tiaot33/mechbox/internal/library/internal/process"
+	"github.com/tiaot33/mechbox/internal/library/internal/proxy"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/catalog"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
 	"github.com/tiaot33/mechbox/internal/library/internal/wsl"
@@ -18,6 +21,7 @@ import (
 type Library struct {
 	store    *store.Store
 	client   *http.Client
+	proxy    *proxy.State
 	environ  func() []string
 	userHome string
 	home     agentdir.Home
@@ -78,7 +82,8 @@ func (l *Library) exclusiveOperation(ctx context.Context) (context.Context, func
 type Option func(*Library)
 
 // WithHTTPClient 让这个 Library 发出的 HTTP 请求都经 client:读 GitHub、直接下载、well-known 站点,搜索 skills.sh 与查审计,
-// 同步用的 S3,以及调用 AI 服务。不传时用 http.DefaultClient。git 与 gh 命令自己联网,不经它。
+// 同步用的 S3,以及调用 AI 服务。不传时使用技能库按网络代理设置([Library.SetProxySettings])管理的 HTTP 客户端;
+// 传了 client 时网络代理设置不再接管 client 自己的请求,只影响启动的 git、gh 命令与 [ProxyFunc]。git 与 gh 命令自己联网,不经它。
 func WithHTTPClient(client *http.Client) Option {
 	return func(l *Library) { l.client = client }
 }
@@ -109,7 +114,7 @@ func WithHomeDirectory(dir string) Option {
 // 库里有、本版应用不认识的 Agent(例如从装了更新版本应用的机器同步来的)保持原样。
 func Open(path string, options ...Option) (lib *Library, err error) {
 	defer func() { err = typedError(err) }()
-	opened := &Library{client: http.DefaultClient}
+	opened := &Library{}
 	for _, option := range options {
 		option(opened)
 	}
@@ -127,11 +132,39 @@ func Open(path string, options ...Option) (lib *Library, err error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("open library: %w", err)
 	}
+	storedProxy, err := db.ProxySettings(context.Background())
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("open library: %w", err)
+	}
+	opened.proxy = proxy.New(internalProxySettings(storedProxy))
+	if opened.client == nil {
+		opened.client = opened.proxy.Client()
+	}
 	opened.store, opened.home = db, home
 	opened.previews, opened.plans = map[FetchPreviewID]*previewState{}, map[UpdatePlanID]*planState{}
-	opened.sources = catalog.New(opened.client, opened.environ, maxFetchFiles, maxFetchSize)
+	opened.sources = catalog.New(opened.client, opened.withProcess, maxFetchFiles, maxFetchSize)
 	opened.sources.SetToken(token)
 	return opened, nil
+}
+
+func (l *Library) withProcess(ctx context.Context) context.Context {
+	ctx = process.WithEnv(ctx, l.commandEnviron)
+	ctx = process.WithGitProxy(ctx, l.proxy.GitProxy)
+	return ctx
+}
+
+func (l *Library) commandEnviron() []string {
+	var base []string
+	if l.environ != nil {
+		base = l.environ()
+		if base == nil {
+			base = []string{}
+		}
+	} else {
+		base = os.Environ()
+	}
+	return l.proxy.ApplyEnv(base)
 }
 
 // Close 关闭 Library:丢弃全部入库预览与更新计划句柄,清空 GitHub 缓存并关闭数据库。
@@ -151,6 +184,9 @@ func (l *Library) Close() (err error) {
 	clear(l.plans)
 	l.previewMu.Unlock()
 	l.sources.Close()
+	if l.proxy != nil {
+		l.proxy.Close()
+	}
 	return l.store.Close()
 }
 

@@ -8,36 +8,57 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 )
 
 type envKey struct{}
+
+type gitProxyKey struct{}
 
 func WithEnv(ctx context.Context, environ func() []string) context.Context {
 	if environ == nil {
 		return ctx
 	}
-	env := environ()
-	if env == nil {
-		env = []string{}
+	return context.WithValue(ctx, envKey{}, sync.OnceValue(func() []string {
+		env := environ()
+		if env == nil {
+			return []string{}
+		}
+		return env
+	}))
+}
+
+func WithGitProxy(ctx context.Context, resolver func(remote string) (string, bool)) context.Context {
+	if resolver == nil {
+		return ctx
 	}
-	return context.WithValue(ctx, envKey{}, env)
+	return context.WithValue(ctx, gitProxyKey{}, resolver)
+}
+
+func GitProxy(ctx context.Context, remote string) (string, bool) {
+	resolver, ok := ctx.Value(gitProxyKey{}).(func(string) (string, bool))
+	if !ok || resolver == nil {
+		return "", false
+	}
+	return resolver(remote)
 }
 
 func Getenv(ctx context.Context, key string) string {
-	env, ok := ctx.Value(envKey{}).([]string)
+	envFn, ok := ctx.Value(envKey{}).(func() []string)
 	if !ok {
 		return os.Getenv(key)
 	}
-	return lookup(env, key)
+	return lookup(envFn(), key)
 }
 
 func Command(ctx context.Context, name string, args ...string) *exec.Cmd {
-	env, ok := ctx.Value(envKey{}).([]string)
+	envFn, ok := ctx.Value(envKey{}).(func() []string)
 	if !ok {
 		command := exec.CommandContext(ctx, name, args...)
 		command.Env = os.Environ()
 		return command
 	}
+	env := envFn()
 	path, found := lookPath(env, name)
 	command := exec.CommandContext(ctx, path, args...)
 	command.Env = slices.Clone(env)

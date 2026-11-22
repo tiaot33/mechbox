@@ -1,19 +1,35 @@
-// 设置页里几个分区的内容：通用、项目、检查更新、关于。改了立即经设置页的 save 排队保存。
-import { useEffect } from "react";
+// 设置页里几个分区的内容：通用、项目、检查更新、关于。应用设置改了立即经设置页的 save 排队保存;
+// 通用里的网络代理存进技能库本机配置(切换模式立即生效，手动地址点保存生效)。
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Appearance, CheckInterval, Language, type Settings } from "@bindings/cmd/desktop";
+import { Appearance, CheckInterval, Language, LibraryService, type Settings } from "@bindings/cmd/desktop";
+import { ErrorCode, ProxyMode, type ProxySettings, type SystemProxy } from "@bindings/internal/library";
+import { describeError } from "@/lib/errors";
 import { setAppearance } from "@/lib/theme";
 import { ui } from "@/lib/ui";
 import { useT } from "@/lib/i18n";
-import { useSnapshot, wslDistroErrorQuery, wslDistrosQuery } from "@/lib/library";
+import {
+  invalidateProxySettings,
+  invalidateSystemProxy,
+  proxySettingsQuery,
+  queryClient,
+  systemProxyQuery,
+  toLibraryError,
+  useSnapshot,
+  wslDistroErrorQuery,
+  wslDistrosQuery,
+  type LibraryError,
+} from "@/lib/library";
 import { projectName } from "@/lib/scope";
 import { shortPath } from "@/lib/paths";
+import { formatSystemProxy } from "@/lib/proxy";
 import { cn } from "@/lib/utils";
 import { ProjectPathDialog } from "@/features/scope/project-path-dialog";
 import { unregisterProject } from "@/features/scope/projects";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Notice } from "@/components/ui/notice";
 import { Segmented } from "@/components/ui/segmented";
@@ -112,6 +128,7 @@ export function GeneralSection({
         options={appearances}
       />
     </SetRow>
+    <ProxySetting />
     {(distros.length > 0 || settings.wsl_distro) && (
       <SetRow>
         <Tipped className="grow" tip={t.wslDistroDesc}>
@@ -149,6 +166,158 @@ export function GeneralSection({
 
 // 左栏折叠集合时可选的技能数上限(不含):2 到 10,和 Go 端允许的一样。
 const foldBelowOptions = Array.from({ length: 9 }, (_, i) => i + 2);
+
+function ProxySetting() {
+  const { settings: t, credentials } = useT();
+  const { data: saved, error, refetch } = useQuery(proxySettingsQuery);
+  const { data: sysProxy } = useQuery(systemProxyQuery);
+  if (error) {
+    return (
+      <SetRow className="h-auto min-h-10 py-2">
+        <Hint className="grow">{t.proxyReadFailed(describeError(toLibraryError(error)))}</Hint>
+        <Button onClick={() => void refetch()}>{credentials.retry}</Button>
+      </SetRow>
+    );
+  }
+  if (!saved) return null;
+  const savedMode = saved.mode ?? ProxyMode.ProxySystem;
+  const savedURL = saved.url ?? "";
+  return <ProxyControl key={`${savedMode}\0${savedURL}`} saved={{ mode: savedMode, url: savedURL }} sysProxy={sysProxy} />;
+}
+
+function ProxyControl({ saved, sysProxy }: { saved: ProxySettings; sysProxy?: SystemProxy }) {
+  const t = useT().settings;
+  const savedMode = saved.mode ?? ProxyMode.ProxySystem;
+  const savedURL = saved.url ?? "";
+  const [mode, setMode] = useState<ProxyMode>(savedMode);
+  const [draftURL, setDraftURL] = useState(savedURL);
+  const [showURL, setShowURL] = useState(false);
+  const [urlError, setURLError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const modes: { value: ProxyMode; label: string }[] = [
+    { value: ProxyMode.ProxySystem, label: t.proxySystem },
+    { value: ProxyMode.ProxyManual, label: t.proxyManual },
+    { value: ProxyMode.ProxyDirect, label: t.proxyDirect },
+  ];
+
+  const switchMode = async (next: ProxyMode) => {
+    if (next === mode || saving) return;
+    setURLError("");
+    setMode(next);
+    if (next === ProxyMode.ProxyManual && !savedURL) return;
+    setSaving(true);
+    const ok = await ui.run(() => LibraryService.SetProxySettings({ mode: next, url: savedURL }).then(() => true), {
+      reload: false,
+    });
+    setSaving(false);
+    if (!ok) {
+      setMode(savedMode);
+      return;
+    }
+    await invalidateProxySettings();
+    if (next === ProxyMode.ProxySystem) void invalidateSystemProxy();
+  };
+
+  const dirty = savedMode !== ProxyMode.ProxyManual || draftURL.trim() !== savedURL;
+  const canSave = draftURL.trim() !== "" && dirty && !saving;
+
+  const saveManual = async () => {
+    if (!canSave) return;
+    setURLError("");
+    setSaving(true);
+    const ok = await ui.run(() => LibraryService.SetProxySettings({ mode: ProxyMode.ProxyManual, url: draftURL }).then(() => true), {
+      reload: false,
+      success: t.proxySaved,
+      onError: (err: LibraryError) => {
+        if (err.code === ErrorCode.InvalidArgument && err.details?.field === "url") {
+          setURLError(t.proxyInvalidUrl);
+          return true;
+        }
+        return false;
+      },
+    });
+    setSaving(false);
+    if (ok) {
+      await invalidateProxySettings();
+      const fresh = queryClient.getQueryData(proxySettingsQuery.queryKey);
+      if (fresh) setDraftURL(fresh.url ?? "");
+    }
+  };
+
+  const systemSummary = formatSystemProxy(sysProxy);
+
+  return (
+    <>
+      <SetRow className="proxy-row">
+        <Tipped className="grow" tip={t.proxyDesc}>
+          {t.proxy}
+        </Tipped>
+        <Segmented className="shrink-0" disabled={saving} value={mode} onChange={(v) => void switchMode(v)} options={modes} />
+      </SetRow>
+      {mode === ProxyMode.ProxySystem && (
+        <SetRow className="proxy-system-row h-auto min-h-10 py-2">
+          <span className="shrink-0 text-caption text-muted-foreground">{t.systemProxyCurrent}</span>
+          <span
+            className="min-w-0 grow truncate text-right font-mono text-caption text-muted-foreground select-text"
+            title={systemSummary || undefined}
+          >
+            {systemSummary || t.systemProxyNone}
+          </span>
+        </SetRow>
+      )}
+      {mode === ProxyMode.ProxyManual && (
+        <SetRow className="proxy-manual-row h-auto min-h-10 py-2">
+          <form
+            className="flex min-w-0 grow flex-col gap-1.5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void saveManual();
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <div className="relative flex min-w-0 grow items-center">
+                <Input
+                  className="min-w-0 grow pr-7 font-mono"
+                  type={showURL ? "text" : "password"}
+                  disabled={saving}
+                  aria-label={t.proxyAddress}
+                  placeholder={t.proxyPlaceholder}
+                  value={draftURL}
+                  onChange={(e) => {
+                    setDraftURL(e.target.value);
+                    setURLError("");
+                  }}
+                  autoComplete="off"
+                  autoCapitalize="off"
+                  spellCheck={false}
+                />
+                <button
+                  type="button"
+                  className="proxy-visibility absolute right-1.5 inline-flex size-5 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground disabled:opacity-40"
+                  disabled={saving}
+                  aria-label={showURL ? t.proxyHide : t.proxyShow}
+                  title={showURL ? t.proxyHide : t.proxyShow}
+                  onClick={() => setShowURL((v) => !v)}
+                >
+                  <Icon name={showURL ? "eyeOff" : "eye"} />
+                </button>
+              </div>
+              <Button type="submit" disabled={!canSave} loading={saving}>
+                {t.proxySave}
+              </Button>
+            </div>
+            {urlError ? (
+              <p className="text-caption text-destructive">{urlError}</p>
+            ) : dirty ? (
+              <Hint>{t.proxyUnsaved}</Hint>
+            ) : null}
+          </form>
+        </SetRow>
+      )}
+    </>
+  );
+}
 
 // ProjectsSection 是项目分区：已登记的项目，可以改位置、注销;项目目录不在这台机器上时带标记。
 export function ProjectsSection() {

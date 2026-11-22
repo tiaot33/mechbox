@@ -3204,6 +3204,73 @@ await step("设置页：分区、应用设置写进数据库、项目、关于",
   await page.waitForSelector(".a-list");
 });
 
+await step("设置页：网络代理（跟随系统、手动含用户名密码、不用代理）", async () => {
+  await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+  const general = section("通用");
+  const proxyRow = general.locator(".proxy-row");
+  await proxyRow.waitFor();
+  assert((await general.locator(".proxy-system-row").count()) === 1, "默认跟随系统时应展示当前系统代理行");
+  assert((await general.locator(".proxy-manual-row").count()) === 0, "跟随系统时不应展示手动输入框");
+  assert.equal(config()["proxy.mode"], undefined, "默认跟随系统时不写 proxy.mode");
+
+  // 切到手动：未填地址时保存按钮不可点，默认隐藏地址并支持切换显隐；填无效地址给行内报错且不落库
+  await btn(proxyRow, "手动").click();
+  const manualRow = general.locator(".proxy-manual-row");
+  await manualRow.waitFor();
+  const input = manualRow.locator("input");
+  const toggleVisibility = manualRow.locator(".proxy-visibility");
+  const saveBtn = btn(manualRow, "保存");
+  assert.equal(await input.getAttribute("type"), "password", "手动代理输入框应默认遮住内容");
+  await toggleVisibility.click();
+  assert.equal(await input.getAttribute("type"), "text", "点切换按钮后应明文显示");
+  await toggleVisibility.click();
+  assert.equal(await input.getAttribute("type"), "password", "再点应恢复隐藏");
+  assert(await saveBtn.isDisabled(), "地址为空时保存按钮应禁用");
+  await input.fill("127.0.0.1:7890");
+  await saveBtn.click();
+  await manualRow.locator("text=代理地址格式无效").waitFor();
+  assert.equal(config()["proxy.mode"], undefined, "地址无效时不应写入 proxy.mode");
+
+  // 填合法带用户名密码的代理地址并保存（含尾斜杠，规范化后应清掉「有改动」提示）
+  await input.fill("http://alice:secret@127.0.0.1:7890/");
+  await saveBtn.click();
+  await toast("网络代理已保存");
+  await settle();
+  assert.equal(config()["proxy.mode"], "manual", "手动模式应写入 proxy.mode=manual");
+  assert.equal(config()["proxy.url"], "http://alice:secret@127.0.0.1:7890", "代理地址应规范化后写入数据库");
+  assert.equal(await input.inputValue(), "http://alice:secret@127.0.0.1:7890", "保存后输入框应同步为规范化后的地址");
+  assert((await manualRow.locator("text=有改动，点保存才生效").count()) === 0, "规范化保存后不应残留有改动提示");
+  // 再输入等价的带尾斜杠地址保存，仍应清掉有改动提示
+  await input.fill("HTTP://alice:secret@127.0.0.1:7890/");
+  await saveBtn.click();
+  await toast("网络代理已保存");
+  await settle();
+  assert.equal(await input.inputValue(), "http://alice:secret@127.0.0.1:7890", "等价地址重新保存后应同步回规范值");
+  assert((await manualRow.locator("text=有改动，点保存才生效").count()) === 0, "等价地址保存后不应残留有改动提示");
+
+  // 切到不用代理：收起手动行，但保留已填地址以便切回
+  await btn(proxyRow, "不用代理").click();
+  await settle();
+  assert((await general.locator(".proxy-manual-row").count()) === 0, "不用代理时应收起手动输入行");
+  assert((await general.locator(".proxy-system-row").count()) === 0, "不用代理时不应显示系统代理行");
+  assert.equal(config()["proxy.mode"], "direct", "不用代理应写入 proxy.mode=direct");
+  assert.equal(config()["proxy.url"], "http://alice:secret@127.0.0.1:7890", "切到不用代理时应保留之前填的地址");
+
+  // 切回手动应立即生效并保留原地址，再切回跟随系统恢复默认
+  await btn(proxyRow, "手动").click();
+  await settle();
+  assert.equal(config()["proxy.mode"], "manual", "有已保存地址时切回手动应立即生效");
+  assert.equal(await manualRow.locator("input").inputValue(), "http://alice:secret@127.0.0.1:7890", "切回手动应回显已保存的地址");
+
+  await btn(proxyRow, "跟随系统").click();
+  await settle();
+  assert((await general.locator(".proxy-system-row").count()) === 1, "切回跟随系统应恢复显示系统代理行");
+  assert.equal(config()["proxy.mode"], undefined, "跟随系统时删除 proxy.mode");
+
+  await page.locator(".titlebar button[title='返回技能库']").click();
+  await page.waitForSelector(".a-list");
+});
+
 await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认这里填的", async () => {
   // sync.device、sync.last_pushed_at、sync.last_pushed_to 是同步状态(设备目录与上次推送),不是设置页填的
   const isSyncSetting = (k) => k.startsWith("sync.") && !["sync.device", "sync.last_pushed_at", "sync.last_pushed_to"].includes(k);
