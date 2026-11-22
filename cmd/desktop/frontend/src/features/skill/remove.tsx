@@ -16,8 +16,11 @@ import { inspectedSnapshot, installReplacing, lostMentionLines, lostMentions } f
 import type { MissingMention } from "@bindings/internal/library";
 import { lostAfterTwin, removedPlaces } from "./remove-rules";
 
+// removeSkill 移除技能(技能详情里的「移除技能」)。先现查磁盘(inspectedSnapshot):快照里上一次巡检的结果可能落后，
+// 会漏掉「改动会丢掉」;读不成时不移除。返回是否移除了。
 export async function removeSkill(id: SkillID) {
-  const s = currentSnapshot();
+  const s = await inspectedSnapshot({ skill_id: id });
+  if (!s) return false;
   const places = skillScopesOf(s, id);
   const installed = mergeProjectPlaces(s, places).length;
   const t = messages().actions;
@@ -122,9 +125,11 @@ function RemoveTwinDialog({
 }
 
 // removeSkills 从库里移除勾选的技能(底部操作栏的"移除技能"):和移除一个一样问一次已安装的文件夹删掉还是保留，
-// 一批只问一次，写出一共会删几处、其中几处被改过。有失败的才列出结果。返回是否至少移除了一个：取消了、都失败了时是 false。
+// 一批只问一次，写出一共会删几处、其中几处被改过(先现查磁盘，读不成时不移除)。有失败的才列出结果。
+// 返回是否至少移除了一个：取消了、都失败了、读不成时是 false。
 export async function removeSkills(ids: SkillID[]): Promise<boolean> {
-  const s = currentSnapshot();
+  const s = await inspectedSnapshot({});
+  if (!s) return false;
   // 几个技能装在同一个作用域只算一个作用域;项目里共用一个目录的几个 Agent 是一个。
   const { places, scopes } = removedPlaces(s, ids);
   const t = messages().actions;

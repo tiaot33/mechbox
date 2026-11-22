@@ -10,6 +10,7 @@ import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { DetachNotice, SharedFolders } from "@/components/app/link-notes";
 import { showResults } from "@/components/app/results";
+import { inspectedSnapshot } from "@/features/install/install";
 import { agentDelete, agentEdit } from "./agents-rules";
 
 export async function addAgent(input: CustomAgent, onInvalid: (err: LibraryError) => boolean): Promise<boolean> {
@@ -73,9 +74,10 @@ export async function editAgent(agent: Agent, input: CustomAgent, onInvalid: (er
   return true;
 }
 
-// deleteAgent 删除自定义 Agent,和注销项目一样让用户选文件夹的去留;还有别的 Agent 在读的文件夹不管怎么选都保留。
+// deleteAgent 删除自定义 Agent,和注销项目一样让用户选文件夹的去留(先现查磁盘，读不成时不删除);还有别的 Agent 在读的文件夹不管怎么选都保留。
 export async function deleteAgent(agent: Agent) {
-  const s = currentSnapshot();
+  const s = await inspectedSnapshot({});
+  if (!s) return;
   const { kept, own } = agentDelete(s, agent.code);
   const t = messages().actions;
   const choice = await ui.confirm({
