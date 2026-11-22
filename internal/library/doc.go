@@ -127,6 +127,9 @@
 //     npx skills 的来源记录里记了来源的,带出认出的来源([UnmanagedSkill].SourceInput),入库确认里预填。
 //     同时按内容认出它是库里哪个技能的哪一版([UnmanagedSkill].SkillID),或是库里哪个技能在来源里现在的那一版
 //     ([UnmanagedSkill].SourceLatestOf,在库外更新过,用更新换上);同一个技能就是一个技能,不因为放在别处、用别的链接找到而多出一个。
+//     认出是库里某一版的,列出时就自动纳入:记为这个技能装在这里,磁盘上什么都不改,不用入库;提交在项目仓库里、记在 skills-lock.json 里、
+//     指向 Agent 目录以外的符号链接不自动纳入,照旧列在库里那个技能下面等用户入库。
+//     所以它不是只读的,和 [Library.PlanFetchUnmanaged] 一样取独占;应用要先调用它,再读安装记录与巡检。
 //     认来源的优先级:库里内容完全一样的技能,其次来源记录,最后 skills.sh 比对上的来源。
 //   - [Library.FindUnmanagedSources] 给来源记录认不出来源、也不是库里技能的去 skills.sh 按名字搜,内容大部分相同的当作认出的来源,
 //     几个都比对上时库里已经在跟的来源优先;和来源记录认出的一样预填、整批确认按它分组。它要联网,列出与整批计划都不等它:
@@ -139,7 +142,7 @@
 //     装的就是来源现在这一版,入库成基于它的修改(和用目录里的修改更新之后一样,作者再改才报有新版本);
 //     其余标为 [SkillVersion].MaybeEdited,更新计划提示会换掉修改。
 //   - [Library.PlanFetchUnmanaged] 是第一次打开 app(各 Agent 的全局)、登记一个项目之后(这个项目)一次确认全部入库前的确认:
-//     内容一致的几处合成一条,同名不同内容的标为冲突、默认只勾最近修改的那份,在项目仓库里、记在 skills-lock.json 里
+//     先同样自动纳入,和库里某一版一致的不在计划里;内容一致的几处合成一条,同名不同内容的标为冲突、默认只勾最近修改的那份,在项目仓库里、记在 skills-lock.json 里
 //     或是指向 Agent 目录以外的符号链接([UnmanagedSkill].LinkOutside)、或是库里技能在来源里的新版([UnmanagedSkill].SourceLatestOf)的默认不勾。
 //     不记哪些作用域看过,每次都是现查。
 //   - [Library.FetchUnmanagedSkills] 按确认的勾选整批入库,每个技能的规则和 FetchUnmanaged 相同;同一个来源只读一次,

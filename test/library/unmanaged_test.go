@@ -242,13 +242,27 @@ func TestInspectSkillScopesFollowsSymlinkedInstalledFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	requireInspection(t, lib, library.SkillScopeCurrent, skill.VersionID)
-	requireUnmanagedSkills(t, lib, []library.UnmanagedSkill{
-		// 内容就是库里的 pdf:认作它。
-		{Scope: library.GlobalScope(library.AgentCodex), Name: skill.Name, Description: "", Folder: real, SkillID: skill.ID, VersionID: skill.VersionID},
-	})
+	// 内容就是库里的 pdf:Codex 全局里那份真实文件夹列出时自动记为装在那里,链接这一处也不算未纳管技能。
+	requireUnmanagedSkills(t, lib, nil)
+	codex := library.GlobalScope(library.AgentCodex)
+	requireScopeStatus(t, lib, skill.ID, codex, library.SkillScopeCurrent)
+	// 从 Codex 卸载时,链着它的 Claude Code 那一处先换上独立的一份,照旧是当前版本。
+	if err := lib.Uninstall(ctx, skill.ID, codex); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Lstat(folder); err != nil || !info.IsDir() {
+		t.Fatalf("claude folder after uninstalling codex = %v, %v, want its own folder", info, err)
+	}
+	requireInspection(t, lib, library.SkillScopeCurrent, skill.VersionID)
 
 	// 链接指向的内容被改过才是 modified;指向不存在之处也算改过。
+	if err := os.RemoveAll(folder); err != nil {
+		t.Fatal(err)
+	}
 	writeFile(t, filepath.Join(real, "SKILL.md"), []byte("# edited\n"), 0o644)
+	if err := os.Symlink(real, folder); err != nil {
+		t.Fatal(err)
+	}
 	requireInspection(t, lib, library.SkillScopeModified, 0)
 	if err := os.RemoveAll(real); err != nil {
 		t.Fatal(err)
@@ -280,7 +294,7 @@ func TestListUnmanagedSkillsDoesNotFollowSymlinkedAgentDirectories(t *testing.T)
 		t.Fatal(err)
 	}
 	// Claude Code 的全局目录整个是指向 Codex 全局目录的符号链接:共用只按目录设置判断,不跟随符号链接,
-	// 所以只装到 Codex 的技能在 Claude Code 里没有安装记录,是未纳管技能。
+	// 所以只装到 Codex 的技能在 Claude Code 里没有安装记录;内容和库里的一样,列出时照常自动记为装在 Claude Code。
 	claudeDirectory := scopeDirectory(t, lib, claude)
 	if err := os.MkdirAll(filepath.Dir(claudeDirectory), 0o755); err != nil {
 		t.Fatal(err)
@@ -292,9 +306,12 @@ func TestListUnmanagedSkillsDoesNotFollowSymlinkedAgentDirectories(t *testing.T)
 	if err := lib.Install(ctx, skill.ID, codex, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	requireUnmanagedSkills(t, lib, []library.UnmanagedSkill{
-		{Scope: claude, Name: "pdf", Folder: filepath.Join(claudeDirectory, "pdf"), SkillID: skill.ID, VersionID: skill.VersionID},
-	})
+	requireUnmanagedSkills(t, lib, nil)
+	requireScopeStatus(t, lib, skill.ID, claude, library.SkillScopeCurrent)
+	requireScopeStatus(t, lib, skill.ID, codex, library.SkillScopeCurrent)
+	if info, err := os.Lstat(claudeDirectory); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("claude directory = %v, %v, want it still a link", info, err)
+	}
 }
 
 func TestListUnmanagedSkillsReadsSourceRecordsOfNpxSkills(t *testing.T) {

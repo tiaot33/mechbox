@@ -1365,8 +1365,8 @@ export interface PlannedUnmanagedSkill {
     "source_ref"?: string;
 
     /**
-     * SkillID、VersionID、SourceLatestOf 同 UnmanagedSkill 的同名字段,按第一处认出。SkillID 不为 0 时它就是库里的这个技能:
-     * 入库只给它补记各处安装,界面把这些单独列成一组。SourceLatestOf 不为 0 时是那个技能在来源里现在的那一版,
+     * SkillID、VersionID、SourceLatestOf 同 UnmanagedSkill 的同名字段,按第一处认出。SkillID 不为 0 时它就是库里的这个技能,
+     * 只剩不自动纳入的那几种(见 UnmanagedSkill.SkillID):入库只给它补记各处安装,界面把这些单独列成一组。SourceLatestOf 不为 0 时是那个技能在来源里现在的那一版,
      * 按来源入库会返回 AlreadyExists,所以默认不勾,界面引导用更新换上这一版。
      */
     "skill_id"?: SkillID;
@@ -2564,6 +2564,7 @@ export interface UnmanagedFetchItem {
 /**
  * UnmanagedSkill 是作用域的技能目录里一个不是库装的技能文件夹:这个作用域里没有安装记录用它。它可能是命令行工具
  * (如 npx skills)装的、手动拷进去的、用户自己写的,或者提交在项目仓库里的。库只列出它,不改动、不删除。
+ * 和库里某个技能的某一版完全一致的文件夹列出时自动记为那个技能的安装,不再是未纳管技能(不自动纳入的几种见 SkillID)。
  */
 export interface UnmanagedSkill {
     "scope": Scope;
@@ -2592,7 +2593,8 @@ export interface UnmanagedSkill {
     /**
      * LinkOutside 表示 LinkTarget 不在任何 Agent 的技能目录里(各 Agent 的全局目录与在各已登记项目里的技能目录),
      * 例如技能作者把它链到自己的工作目录 ~/code/my-skills/foo,在那里改了 Agent 马上就能用上。入库后库第一次写这一处时
-     * 会把链接换成独立的一份,在原来的目录里改就不再影响这里;所以和在项目仓库里的一样默认不入库,界面写明它指向哪里。
+     * 会把链接换成独立的一份,在原来的目录里改就不再影响这里;所以和在项目仓库里的一样默认不入库,内容和库里一致也不自动纳入,
+     * 界面写明它指向哪里。
      */
     "link_outside"?: boolean;
 
@@ -2625,7 +2627,9 @@ export interface UnmanagedSkill {
 
     /**
      * SkillID 不为 0 时,文件夹的内容(文件路径、内容与可执行位都相同,Windows 本机的目录只比路径与内容)和库里这个技能的某个版本完全一致,VersionID 是那个版本:
-     * 和当前版本一致的优先,其次是最新的旧版本。它就是库里的这个技能,只是这一处不是库装的,界面把它显示在这个技能下;
+     * 和当前版本一致的优先,其次是最新的旧版本。这样的文件夹列出时(ListUnmanagedSkills、PlanFetchUnmanaged)自动记为这个技能装在这里,
+     * 不再出现在结果里;留下的只有不自动纳入的几种:提交在项目仓库里的(InRepository)、记在 skills-lock.json 里的(InProjectLock)、
+     * 指向 Agent 目录以外的符号链接(LinkOutside)。它们就是库里的这个技能,只是这一处不是库装的,界面把它显示在这个技能下;
      * 入库(FetchUnmanaged、FetchUnmanagedSkills)只给这个技能补记这一处安装,不论带不带来源、带的是哪个来源。
      * 已经装在这个作用域的技能不算:一个技能在一个作用域只记一处安装。
      */

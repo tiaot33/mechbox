@@ -111,7 +111,9 @@ function list<T>(call: Promise<T[] | null>): Promise<T[]> {
 // ---------- 快照 ----------
 
 async function readSnapshot(signal: AbortSignal): Promise<Snapshot> {
-  const [info, agents, projects, skills, collections, groups, groupInstalls, skillScopes, unmanaged, sameName, missingMentions, settings] = await Promise.all([
+  // 列出未纳管技能时，技能库先把和库里某一版一致的文件夹记为安装：先读它，安装记录、巡检与同名才把这几处算进去。
+  const unmanaged = await list(wails(signal, LibraryService.ListUnmanagedSkills()));
+  const [info, agents, projects, skills, collections, groups, groupInstalls, skillScopes, sameName, missingMentions, settings] = await Promise.all([
     wails(signal, LibraryService.Info()),
     list(wails(signal, LibraryService.ListAgents())),
     list(wails(signal, LibraryService.ListRegisteredProjects())),
@@ -120,7 +122,6 @@ async function readSnapshot(signal: AbortSignal): Promise<Snapshot> {
     list(wails(signal, LibraryService.ListGroups())),
     list(wails(signal, LibraryService.ListGroupInstalls())),
     list(wails(signal, LibraryService.InspectSkillScopes({}))),
-    list(wails(signal, LibraryService.ListUnmanagedSkills())),
     list(wails(signal, LibraryService.ListSameNameSkills())),
     // 提到关系只是提示：读不出来时按没有，不让整个主界面打不开。
     list(wails(signal, LibraryService.ListMissingMentions())).catch(() => []),
@@ -242,7 +243,8 @@ export function scopeDirectoryQuery(scope: ScopeKey | null, home: string | undef
 }
 
 // sameNameCopiesQuery 比较几个作用域里不是库装的技能文件夹的内容(整批入库的计划，见 PlanFetchUnmanaged),
-// 用来认出同名但内容不同的几份;作用域页只在别处有同名的未纳管技能时才查(见 lib/same-name 的 sameNameScopes)。只读，随写操作重读。
+// 用来认出同名但内容不同的几份;作用域页只在别处有同名的未纳管技能时才查(见 lib/same-name 的 sameNameScopes)。随写操作重读。
+// 技能库生成计划前先把和库里某一版一致的文件夹记为安装，所以它不是只读的。
 export function sameNameCopiesQuery(scopes: Scope[]) {
   return queryOptions({
     queryKey: ["same-name-copies", scopes.map(scopeKey).sort()],

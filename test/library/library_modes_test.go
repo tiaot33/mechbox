@@ -94,7 +94,6 @@ func TestUpdateFromScopeWithoutFileModesKeepsExecutableBitAndRollsBack(t *testin
 func TestUnmanagedCopyWithoutFileModesIsRecognized(t *testing.T) {
 	setTestHome(t, t.TempDir())
 	lib := openTestLibrary(t)
-	ctx := t.Context()
 	claude, codex := library.GlobalScope(library.AgentClaudeCode), library.GlobalScope(library.AgentCodex)
 	skill := installExample(t, lib, claude)
 	copied := filepath.Join(scopeDirectory(t, lib, codex), "alpha")
@@ -102,13 +101,11 @@ func TestUnmanagedCopyWithoutFileModesIsRecognized(t *testing.T) {
 	writeFile(t, filepath.Join(copied, "scripts", "run.sh"), []byte("#!/bin/sh\n"), 0o644)
 	withoutFileModes(t)
 
-	if found := unmanagedIn(t, lib, codex, "alpha"); found.SkillID != skill.ID {
-		t.Fatalf("unmanaged = %#v; want the codex copy recognized as skill %d", found, skill.ID)
+	// 只按路径与内容认作库里的 alpha,列出时自动记为装在 Codex 全局。
+	if unmanaged := listUnmanagedSkills(t, lib); len(unmanaged) != 0 {
+		t.Fatalf("unmanaged = %#v; want the codex copy taken as skill %d", unmanaged, skill.ID)
 	}
-	fetched, err := lib.FetchUnmanaged(ctx, library.FetchUnmanagedRequest{Scope: codex, Name: "alpha"})
-	if err != nil || !fetched.Matched || fetched.Skill.ID != skill.ID {
-		t.Fatalf("FetchUnmanaged = %#v, %v; want it recorded as an install of skill %d", fetched, err, skill.ID)
-	}
+	requireScopeStatus(t, lib, skill.ID, codex, library.SkillScopeCurrent)
 }
 
 func TestFetchUnmanagedWithSourceWithoutFileModesTakesSourceModes(t *testing.T) {
@@ -168,7 +165,7 @@ func TestSourceLatestWithoutFileModesIsRecognized(t *testing.T) {
 }
 
 // Windows 本机的一份读不出可执行位,只按内容认作库里的技能;WSL 里同样内容、可执行位和库里不同的一份不是那个技能。
-// 整批入库的计划不能借着前一份把后一份也并进「库里的技能」,入库时也不能因此多出一个技能。
+// 整批入库的计划不能借着前一份把后一份也认作「库里的技能」一并纳入,也不能因此多出一个技能。
 func TestPlanFetchUnmanagedKeepsWSLCopyWithOtherModesApart(t *testing.T) {
 	setTestHome(t, t.TempDir())
 	platformtest.EmulateWSL(t, "sh")
@@ -191,26 +188,15 @@ func TestPlanFetchUnmanagedKeepsWSLCopyWithOtherModesApart(t *testing.T) {
 	inProject := library.ProjectScope(library.AgentClaudeCode, project.ID)
 	withoutFileModes(t)
 
+	// Windows 本机那份在计划前自动记为装在 Codex 全局;WSL 里那份不是 alpha,单独一条,不借前一份并进来。
 	plan, err := lib.PlanFetchUnmanaged(ctx, library.PlanFetchUnmanagedRequest{Scopes: []library.Scope{codex, inProject}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	recognized := map[library.Scope]library.SkillID{}
-	for _, planned := range plan {
-		for _, folder := range planned.Folders {
-			recognized[folder.Scope] = planned.SkillID
-		}
-		if len(planned.Folders) != 1 {
-			t.Fatalf("plan = %#v; want the Windows copy and the WSL copy with other modes apart", plan)
-		}
+	if len(plan) != 1 || len(plan[0].Folders) != 1 || plan[0].Folders[0].Scope != inProject || plan[0].SkillID != 0 {
+		t.Fatalf("plan = %#v; want only the WSL copy with other modes, not taken as skill %d", plan, skill.ID)
 	}
-	if recognized[codex] != skill.ID || recognized[inProject] != 0 {
-		t.Fatalf("recognized = %v; want only the Windows copy taken as skill %d", recognized, skill.ID)
-	}
-	results, err := lib.FetchUnmanagedSkills(ctx, library.FetchUnmanagedSkillsRequest{Skills: []library.UnmanagedFetchItem{{Folders: []library.FolderInScope{{Scope: codex, Name: "alpha"}}}}})
-	if err != nil || len(results) != 1 || results[0].Error != nil || !results[0].Matched || results[0].Skill.ID != skill.ID {
-		t.Fatalf("FetchUnmanagedSkills = %#v, %v; want the Windows copy recorded as skill %d", results, err, skill.ID)
-	}
+	requireScopeStatus(t, lib, skill.ID, codex, library.SkillScopeCurrent)
 	if skills, err := lib.ListSkills(ctx); err != nil || len(skills) != 1 {
 		t.Fatalf("skills = %#v, %v; want no new skill", skills, err)
 	}

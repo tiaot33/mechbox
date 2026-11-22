@@ -828,8 +828,9 @@ export const en = {
     takeOver: "Fetch",
     sameAsLibrary: (name: string) => `Same as “${name}” in the Library`,
     sourceLatestOf: (name: string) => `Newer version of “${name}”`,
-    sourceLatestOfTitle: (name: string) =>
-      `This is the author’s newer version, updated outside the app. Click “Update” to bring “${name}” in the Library to this version; then this copy matches the Library, and fetching it only records where it is installed`,
+    sourceLatestOfTitle: (name: string, adopted: boolean) =>
+      `This is the author’s newer version, updated outside the app. Click “Update” to bring “${name}” in the Library to this version; then this copy matches the Library` +
+      (adopted ? " and is recorded as installed here" : ", and fetching it only records where it is installed"),
     statGlobal: "from global",
     statStale: "to reinstall",
     statEdited: "edited by hand",

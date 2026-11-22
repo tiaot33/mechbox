@@ -1,6 +1,7 @@
 package library_test
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -105,8 +106,15 @@ func TestUnmanagedCopyOfALibrarySkillIsThatSkill(t *testing.T) {
 	f.publish(t, "https://author.example", "alpha", "v1")
 	alpha := f.fetch(t, "https://author.example", "alpha")
 	f.install(t, alpha, f.claude)
-	// Codex 全局里有一份一模一样的,npx skills 的来源记录说它来自一个 fork。
-	f.write(t, f.codex, "alpha", "v1")
+	// Codex 全局里的 alpha 链到作者的工作目录(不会自动纳入),内容一模一样;npx skills 的来源记录说它来自一个 fork。
+	work := filepath.Join(t.TempDir(), "alpha")
+	writeFile(t, filepath.Join(work, "SKILL.md"), []byte(skillDocument("alpha", "v1")), 0o644)
+	if err := os.MkdirAll(scopeDirectory(t, f.lib, f.codex), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(work, filepath.Join(scopeDirectory(t, f.lib, f.codex), "alpha")); err != nil {
+		t.Fatal(err)
+	}
 	writeSourceRecords(t, globalRecordsPath(f.home), 3, map[string]map[string]string{
 		"alpha": {"source": "fork.example", "sourceType": "well-known", "sourceUrl": "https://fork.example"},
 	})
@@ -115,8 +123,8 @@ func TestUnmanagedCopyOfALibrarySkillIsThatSkill(t *testing.T) {
 	f.write(t, f.codex, "beta", "beta")
 
 	here := unmanagedIn(t, f.lib, f.codex, "alpha")
-	if here.SkillID != alpha.ID || here.VersionID != alpha.VersionID || here.SourceLatestOf != 0 {
-		t.Fatalf("here = %#v, want alpha's current version", here)
+	if here.SkillID != alpha.ID || here.VersionID != alpha.VersionID || here.SourceLatestOf != 0 || !here.LinkOutside {
+		t.Fatalf("here = %#v, want alpha's current version, linked outside", here)
 	}
 	// 库里的技能排在来源记录前面:不再预填 fork。
 	if here.SourceInput != "" || here.SourceRef != "" {
@@ -131,9 +139,9 @@ func TestUnmanagedCopyOfALibrarySkillIsThatSkill(t *testing.T) {
 		t.Fatalf("alpha-here = %#v, want unrecognized in a scope alpha is installed in", other)
 	}
 
-	// 整批入库确认里也是库里的 alpha:不带来源,默认勾上。
+	// 整批入库确认里也是库里的 alpha:不带来源,链到 Agent 目录以外,默认不勾。
 	planned := plannedNamed(t, planFetchUnmanaged(t, f.lib, f.codex), "alpha")[0]
-	if planned.SkillID != alpha.ID || planned.VersionID != alpha.VersionID || planned.SourceInput != "" || !planned.Selected {
+	if planned.SkillID != alpha.ID || planned.VersionID != alpha.VersionID || planned.SourceInput != "" || planned.Selected {
 		t.Fatalf("planned = %#v", planned)
 	}
 
@@ -202,17 +210,9 @@ func TestUnmanagedCopyOfAnOlderVersionIsThatVersion(t *testing.T) {
 	project := f.project(t)
 	f.write(t, project, "alpha", "v1")
 
-	here := unmanagedIn(t, f.lib, project, "alpha")
-	if here.SkillID != alpha.ID || here.VersionID != alpha.VersionID {
-		t.Fatalf("here = %#v, want alpha's first version %d", here, alpha.VersionID)
-	}
-	// 按作者的来源入库:不报集合里已有同名技能,补记安装,巡检为落后。
-	result, err := f.lib.FetchUnmanaged(ctx, library.FetchUnmanagedRequest{Scope: project, Name: "alpha", SourceInput: "https://author.example"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.Matched || result.Skill.ID != alpha.ID {
-		t.Fatalf("fetched = %#v", result)
+	// 和 alpha 的第一版一致:列出时自动记为装在这里,巡检为落后。
+	if unmanaged := listUnmanagedSkills(t, f.lib); len(unmanaged) != 0 {
+		t.Fatalf("unmanaged = %#v, want the copy taken as alpha", unmanaged)
 	}
 	if inspection := inspectionsOf(t, f.lib, alpha.ID)[project]; inspection.Status != library.SkillScopeStale || inspection.VersionID != alpha.VersionID {
 		t.Fatalf("project = %#v, want stale at the first version", inspection)
@@ -292,13 +292,12 @@ func TestCopyUpdatedOutsideTheLibraryToTheAuthorsVersionIsANewVersion(t *testing
 	if inspections[f.codex].Status != library.SkillScopeCurrent || inspections[f.claude].Status != library.SkillScopeModified {
 		t.Fatalf("after update = %#v", inspections)
 	}
-	// 项目里那份现在就是库里的 alpha。
-	here = unmanagedIn(t, f.lib, project, "alpha")
-	if here.SkillID != alpha.ID || here.VersionID != updated.VersionID || here.SourceLatestOf != 0 {
-		t.Fatalf("copy after update = %#v", here)
+	// 项目里那份现在就是库里的 alpha:再列出时自动记为装在那里。
+	if unmanaged := listUnmanagedSkills(t, f.lib); len(unmanaged) != 0 {
+		t.Fatalf("unmanaged after update = %#v, want the project copy taken as alpha", unmanaged)
 	}
-	if fetched, err := f.lib.FetchUnmanaged(ctx, library.FetchUnmanagedRequest{Scope: project, Name: "alpha", SourceInput: "https://author.example"}); err != nil || !fetched.Matched {
-		t.Fatalf("fetched = %#v, %v", fetched, err)
+	if inspection := inspectionsOf(t, f.lib, alpha.ID)[project]; inspection.Status != library.SkillScopeCurrent || inspection.VersionID != updated.VersionID {
+		t.Fatalf("project after update = %#v, want current", inspection)
 	}
 }
 

@@ -584,3 +584,53 @@ func TestWSLDistroSkillFolderUnderHomeIsItsOwnSource(t *testing.T) {
 		t.Fatalf("preview = %#v; want the folder itself as the source", preview)
 	}
 }
+
+// 存着 WSL 发行版、全局目录却暂时留在 Windows 本机时(启动时发行版打不开，或还没换过去),只列出不自动纳入:
+// 全局安装不分主目录，这时记下的安装切回发行版后都会显示成缺失。切回发行版后照常纳入。
+func TestUnmanagedCopiesAreNotAdoptedWhileTheDistroIsUnavailable(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	setTestHome(t, home)
+	t.Setenv("HOME", home)
+	platformtest.EmulateWSL(t, "sh")
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "library.db")
+	before := openTestLibraryAt(t, path)
+	if err := before.SetWSLDistro(ctx, t.Name()); err != nil {
+		t.Fatal(err)
+	}
+	skill := fetchNamedSkill(t, before, "pdf")
+	codex := library.GlobalScope(library.AgentCodex)
+	if err := before.Install(ctx, skill.ID, codex, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := before.Close(); err != nil {
+		t.Fatal(err)
+	}
+	claude := library.GlobalScope(library.AgentClaudeCode)
+	if err := os.CopyFS(filepath.Join(home, ".claude", "skills", "pdf"), os.DirFS(filepath.Join(home, ".agents", "skills", "pdf"))); err != nil {
+		t.Fatal(err)
+	}
+
+	lib := openTestLibraryAt(t, path)
+	if distro, err := lib.WSLDistro(ctx); err != nil || distro != t.Name() {
+		t.Fatalf("WSLDistro = %q, %v, want the stored distro", distro, err)
+	}
+	if here := unmanagedIn(t, lib, claude, "pdf"); here.SkillID != skill.ID {
+		t.Fatalf("unmanaged = %#v, want it recognized as pdf", here)
+	}
+	if plan := planFetchUnmanaged(t, lib, claude); len(plan) != 1 || plan[0].SkillID != skill.ID {
+		t.Fatalf("plan = %#v, want the copy listed, not adopted", plan)
+	}
+	if inspections, err := lib.InspectSkillScopes(ctx, library.SkillScopeFilter{Scope: &claude}); err != nil || len(inspections) != 0 {
+		t.Fatalf("InspectSkillScopes(claude) = %#v, %v, want nothing recorded", inspections, err)
+	}
+
+	if err := lib.SetWSLDistro(ctx, t.Name()); err != nil {
+		t.Fatal(err)
+	}
+	requireUnmanagedSkills(t, lib, nil)
+	requireScopeStatus(t, lib, skill.ID, claude, library.SkillScopeCurrent)
+}
