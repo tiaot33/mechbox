@@ -1,6 +1,6 @@
 // 来源与集合：来源是哪一种、在界面上叫什么，集合里有哪些技能、在哪个来源版本上。
 // 来源那边有没有新内容见 lib/source-state。
-import { SourceType, type Collection, type Skill, type Source } from "@bindings/internal/library";
+import { SourceType, type Collection, type CollectionID, type Skill, type Source } from "@bindings/internal/library";
 import { messages } from "./i18n";
 import type { Snapshot } from "./library";
 import { lastSegment, shortPath } from "./paths";
@@ -90,6 +90,14 @@ export function foldCollections(s: Pick<Snapshot, "collections" | "foldCollectio
   const shown = s.collections.filter((c) => !small(c));
   if (!s.foldCollections || shown.length === 0) return { shown: s.collections, folded: [] };
   return { shown, folded: s.collections.filter(small) };
+}
+
+// collectionName 是更新页的集合行、更新计划和更新提示里集合的名字：只有一个技能时用技能名，否则是来源名。
+export function collectionName(s: Snapshot, collectionID: CollectionID): string {
+  const c = s.collections.find((x) => x.id === collectionID);
+  if (!c) return messages().update.collectionFallback(collectionID);
+  const skills = collectionSkills(s, c);
+  return skills.length === 1 ? skills[0].name : sourceLabel(s, c.source);
 }
 
 // ---------- 来源版本 ----------

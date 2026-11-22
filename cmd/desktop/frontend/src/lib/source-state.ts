@@ -1,5 +1,6 @@
 // 一个技能在来源那边的情况：有新版本、可能改名、来源里已删除、本地目录来源在目录里改过，以及用户对它说过什么(跳过、继续保留)。
 // 只在 sourceState 这一处判断：技能行的状态、节标题的计数、更新页、技能详情和左栏的更新数都读它的结论，说的是同一回事。
+// 技能库的检查结论(Skill.last_update_check)只在这个文件里读：别处要状态、检查时间、来源版本都从结论里取。
 // 要不要处理(todo)直接取技能库给的 UpdateCheck.pending,这里不另算:有新版本且没跳过、来源里已删除且没选继续保留、
 // 推测出改名且没跳过才计入;回滚掉的改动也算跳过。作者就是用户自己的(本地目录来源、没有来源)不计入：
 // 不进更新页，本地目录来源只有「重新读取」,没有来源的只能用目录里的修改更新。Dock 角标由 Go 端按同一个标记算。
@@ -19,6 +20,11 @@ import { collectionSkills, isLocal, userAuthored } from "./source";
 export interface SourceState {
   kind: "none" | "newVersion" | "renamed" | "deleted" | "localChanged";
   renamedTo: string;
+  // checked 是检查过没有：never 是从没检查过，failed 是上一次没读成来源(这时 kind 为 none),done 是读到了。checkedAt 是上一次检查的时间。
+  checked: "never" | "failed" | "done";
+  checkedAt?: string;
+  // revision 是上一次检查时来源所在的来源版本;没检查过、没读成时为空。
+  revision: string;
   // userAuthored 是作者就是用户自己：本地目录来源、没有来源。
   userAuthored: boolean;
   // todo 是计入角标：更新页列出它，左栏的更新数算上它。
@@ -54,6 +60,9 @@ export function sourceState(skill: Skill): SourceState {
   return {
     kind,
     renamedTo,
+    checked: !check ? "never" : check.status === UpdateCheckStatus.UpdateFailed ? "failed" : "done",
+    checkedAt: check?.checked_at,
+    revision: check?.revision ?? "",
     userAuthored: userAuthored(skill.source),
     todo,
     changed: todo && canPlan,
@@ -67,7 +76,10 @@ export function sourceState(skill: Skill): SourceState {
 // SourceChanges 是一组技能(一个集合的，或一次检查更新读到的)里要处理的各有哪些：todo 是计入角标的全部;
 // newVersion、renamed、deleted 是其中有新版本、可能改名、来源里已删除的;changed 是有变化的(newVersion 加 renamed)。
 // localChanged 是本地目录来源在目录里改过的，不计入角标。
+// revision 是要处理的技能在检查时看到的来源版本(更新页集合行「从哪到哪」的终点);继续保留的、跳过的技能的结论
+// 可能停在更早的来源版本上，不拿它们来定。没有要处理的技能时没有。
 export interface SourceChanges {
+  revision?: string;
   todo: Skill[];
   changed: Skill[];
   newVersion: Skill[];
@@ -80,6 +92,7 @@ export function sourceChanges(skills: Skill[]): SourceChanges {
   const states = skills.map((skill) => ({ skill, state: sourceState(skill) }));
   const pick = (want: (st: SourceState) => boolean) => states.filter((x) => want(x.state)).map((x) => x.skill);
   return {
+    revision: states.filter((x) => x.state.todo).map((x) => x.state.revision).find(Boolean),
     todo: pick((st) => st.todo),
     changed: pick((st) => st.changed),
     newVersion: pick((st) => st.todo && st.kind === "newVersion"),

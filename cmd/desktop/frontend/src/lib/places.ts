@@ -3,8 +3,9 @@
 // 界面上它们合成一处：右栏、作用域页、技能详情的安装表、"安装到…"和各处逐处列出的地方都只列一次，
 // 名字是这台机器上显示的那几个 Agent 的名字;点选、拖放、安装都落在其中第一个(代表)的作用域上。
 // 全局不合：全局目录大多各是各的，少数共用的照旧一个 Agent 一行，卸载前提示还被谁共用。
-// 手里是一串安装(快照里的、技能库返回的结果、更新计划或历史里的)要写名字、数个数、逐处列出时，
-// 用 placeNames、placeCount、eachPlace:合并在这里做，调用处不用管。
+// 手里是一串安装(快照里的、技能库返回的结果、更新计划或历史里的)时，合并在这里做，调用处不用管:
+// 逐处列出用 eachPlace,数几处用 placeCount(一个技能在一处算一处),写这几处的名字用 placeNames,
+// 只问涉及几个地方、不分技能用 scopeCount。
 import type { Agent, AgentCode, Scope, SkillScopeInspection } from "@bindings/internal/library";
 import { messages } from "./i18n";
 import type { Snapshot } from "./library";
@@ -122,16 +123,23 @@ export function eachPlace<T extends Placed>(s: AgentList, items: readonly T[]): 
   });
 }
 
-const placed = (items: readonly (Placed | Scope)[]): Placed[] => items.map((x) => ("scope" in x ? x : { scope: x }));
-
-// placeCount 是这几条一共几处;直接给一串作用域时数的是不分技能的几处。
-export function placeCount(s: AgentList, items: readonly (Placed | Scope)[]): number {
-  return eachPlace(s, placed(items)).length;
+// placeCount 是这几条安装一共几处：一个技能在一处算一处，两个技能装在同一处是两处。
+export function placeCount(s: AgentList, items: readonly { skill_id: number; scope: Scope }[]): number {
+  return eachPlace(s, items).length;
 }
 
-// placeNames 是这几条各处的名字(见 scopeLabel),一处只写一次;也可以直接给一串作用域。
-export function placeNames(s: AgentList & Pick<Snapshot, "projects">, items: readonly (Placed | Scope)[]): string[] {
-  return eachPlace(s, placed(items)).map((p) => scopeLabel(s, p.scope));
+// 只问地方、不分技能时，一条安装和一个作用域是一回事。
+const scopesOf = (s: AgentList, items: readonly ({ scope: Scope } | Scope)[]): Scope[] =>
+  eachPlace(s, items.map((x) => ({ scope: "scope" in x ? x.scope : x }))).map((p) => p.scope);
+
+// scopeCount 是这几条涉及几个地方：不分技能，几个技能装在同一处只算一个。
+export function scopeCount(s: AgentList, items: readonly ({ scope: Scope } | Scope)[]): number {
+  return scopesOf(s, items).length;
+}
+
+// placeNames 是这几条所在各处的名字(见 scopeLabel):不分技能，一处只写一次，保持第一次出现的先后;也可以直接给一串作用域。
+export function placeNames(s: AgentList & Pick<Snapshot, "projects">, items: readonly ({ scope: Scope } | Scope)[]): string[] {
+  return scopesOf(s, items).map((scope) => scopeLabel(s, scope));
 }
 
 // ---------- 一个地方列哪些 Agent ----------

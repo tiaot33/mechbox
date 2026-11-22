@@ -59,6 +59,16 @@ describe("sourceState", () => {
     expect(sourceState(local({}, { edited: true })).kind).toBe("none");
   });
 
+  it("写出检查过没有、什么时候检查的、检查时来源在哪个来源版本上", () => {
+    expect(sourceState(tracked(undefined))).toMatchObject({ checked: "never", revision: "" });
+    expect(sourceState(tracked({ status: UpdateCheckStatus.UpdateFailed, checked_at: "2026-11-01T00:00:00Z" }))).toMatchObject({
+      kind: "none",
+      checked: "failed",
+      checkedAt: "2026-11-01T00:00:00Z",
+    });
+    expect(sourceState(tracked({ status: UpdateCheckStatus.UpdateAvailable, revision: "d4e5f6", pending: true }))).toMatchObject({ checked: "done", revision: "d4e5f6" });
+  });
+
   it("作者就是用户自己的是本地目录来源和没有来源的", () => {
     expect(sourceState(tracked(undefined)).userAuthored).toBe(false);
     expect(sourceState({ id: 1, name: "foo", source: { type: SourceType.$zero, label: "" } } as Skill).userAuthored).toBe(true);
@@ -85,6 +95,16 @@ describe("sourceChanges", () => {
     expect(ids(found.renamed)).toEqual([3]);
     expect(ids(found.deleted)).toEqual([4]);
     expect(ids(found.localChanged)).toEqual([7]);
+  });
+
+  it("来源版本取要处理的技能看到的，不拿跳过的、继续保留的来定", () => {
+    const list = [
+      tracked({ status: UpdateCheckStatus.UpdateDeleted, revision: "old" }, { id: 1, kept_deleted: true }),
+      tracked({ status: UpdateCheckStatus.UpdateAvailable, revision: "older", skipped: true }, { id: 2 }),
+      tracked({ status: UpdateCheckStatus.UpdateAvailable, revision: "new", pending: true }, { id: 3 }),
+    ];
+    expect(sourceChanges(list).revision).toBe("new");
+    expect(sourceChanges(list.slice(0, 2)).revision).toBeUndefined();
   });
 
   it("左栏的更新数和更新页列出的是计入角标的技能", () => {

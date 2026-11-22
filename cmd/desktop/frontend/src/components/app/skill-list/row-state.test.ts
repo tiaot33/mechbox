@@ -74,8 +74,10 @@ describe("技能库页一行的状态", () => {
     expect(libraryRow(snapshot({}), skill(1, "pdf", { status: UpdateCheckStatus.UpdateAvailable, skipped: true })).alerts).toEqual([]);
   });
 
-  it("有新版本而库里的当前版本带着用户的修改：另写一条更新会换掉修改", () => {
-    expect(labels(libraryRow(snapshot({}), skill(1, "pdf", available, { edited: true })))).toEqual(["有新版本", "更新会换掉你的修改", "有你的修改"]);
+  it("有新版本而库里的当前版本带着用户的修改：行上画的是更新会换掉修改，点它不直接打开更新计划", () => {
+    const state = libraryRow(snapshot({}), skill(1, "pdf", available, { edited: true }));
+    expect(labels(state)).toEqual(["更新会换掉你的修改", "有新版本", "有你的修改"]);
+    expect(state.alerts[0].plan).toBeUndefined();
   });
 
   it("来源里已删除是一条提示;选了继续保留的不提醒，只留一句淡色的说明", () => {
@@ -93,7 +95,7 @@ describe("技能库页一行的状态", () => {
     expect(libraryRow(snapshot({}), x).alerts[0].plan).toBeUndefined();
   });
 
-  it("装出去的几处和当前版本不一样的按原因各一条，排在更新前面", () => {
+  it("装出去的几处和当前版本不一样的按原因各一条;行上画最要紧的：严重、注意在前，接着是更新，提示最后", () => {
     const x = skill(1, "pdf", available);
     const s = snapshot({
       skills: [x],
@@ -104,9 +106,9 @@ describe("技能库页一行的状态", () => {
       ],
     });
     const state = libraryRow(s, x);
-    expect(labels(state)).toEqual(["文件夹不在了", "被手动改过", "作者的新版", "有新版本"]);
+    expect(labels(state)).toEqual(["文件夹不在了", "作者的新版", "有新版本", "被手动改过"]);
     // 在 app 外更新到了作者新版的那一处是更新：点它也打开更新计划。
-    expect(state.alerts.map((a) => !!a.plan)).toEqual([false, false, true, true]);
+    expect(state.alerts.map((a) => !!a.plan)).toEqual([false, true, true, false]);
   });
 
   it("库里有同名的另一个时带上它们，行组件据此弹出菜单", () => {

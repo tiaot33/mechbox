@@ -1,7 +1,7 @@
 // 更新页每一行的风险(改动了脚本等)来自更新计划。按"集合 + 来源版本 + 库里各技能的当前版本"记下来：同一份差异只读一次，
 // 不论是更新页自己读的，还是用户打开过的更新计划，读到了就记下，更新页直接用。
 import { PlannedChange, type CollectionID, type Skill, type SkillID, type UpdatePlan, type UpdateRisk } from "@bindings/internal/library";
-import { sourceChanges } from "./source-state";
+import { sourceChanges, sourceState } from "./source-state";
 
 const risks = new Map<string, Map<SkillID, UpdateRisk[]>>();
 
@@ -11,8 +11,8 @@ const keyOf = (id: CollectionID, revision: string | undefined, versions: number[
 // snapshotRiskKey 是快照里一个集合现在该看哪一份风险：来源版本取要处理的技能看到的(更新页这一行写的就是它),
 // 没有时再取集合里任一个技能看到的;继续保留的、跳过的技能的结论可能停在更早的来源版本上，不拿它们来定。
 export function snapshotRiskKey(id: CollectionID, skills: Skill[]): string {
-  const revision = (list: Skill[]) => list.map((x) => x.last_update_check?.revision).find(Boolean);
-  return keyOf(id, revision(sourceChanges(skills).todo) ?? revision(skills), skills.map((x) => x.version_id));
+  const revision = sourceChanges(skills).revision ?? skills.map((x) => sourceState(x).revision).find(Boolean);
+  return keyOf(id, revision, skills.map((x) => x.version_id));
 }
 
 // planRiskKey 是一份更新计划对应的键，和快照的键对得上时就是同一份差异。

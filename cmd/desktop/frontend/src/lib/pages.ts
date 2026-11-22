@@ -174,7 +174,7 @@ export interface ScopeListing {
   hereCount: number;
 }
 
-export function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, search: string): ScopeListing {
+function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, search: string): ScopeListing {
   const hit = (x: { name: string; description?: string }) => matches(search, x);
   // 和库里某个技能一样的未纳管文件夹(identicalIn)就是那个技能：列在上面库里的技能里，不进"不在技能库里"。
   const split = splitIdentical(unmanagedIn(s, key));

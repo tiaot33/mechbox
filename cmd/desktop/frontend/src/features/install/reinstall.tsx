@@ -10,12 +10,12 @@ import {
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import { toggled } from "@/lib/utils";
-import { canInstall, overwriteKey, placeKey, planReinstall, reinstallsNothing, reinstallTargets, type MissingChoice, type ReinstallChoices } from "@/lib/consent";
+import { overwriteKey, placeKey, planReinstall, reinstallsNothing, reinstallTargets, type MissingChoice, type ReinstallChoices } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, toLibraryError, useSnapshot } from "@/lib/library";
 import { agentName, groupName, skillName } from "@/lib/scope";
-import { folderKey, linkNote } from "@/lib/installs";
+import { canInstall, folderKey, linkNote } from "@/lib/installs";
 import { eachPlace, placeCount, placeNames, scopeLabel, sharedWithNote } from "@/lib/places";
 import { shortPath, wslTitle } from "@/lib/paths";
 import { Modal, ui } from "@/lib/ui";

@@ -6,6 +6,7 @@ import { sameNameCopies, sameNameScopes } from "@/lib/same-name";
 import { placeNames } from "@/lib/places";
 import type { ScopeKey } from "@/lib/scope";
 
+// 别处的地名按显示的名字再去一次重：两个 Agent 显示名相同时也只写一遍。
 // SameNameCopies 是一个作用域里同名不同内容的几份(见 lib/same-name 的 sameNameCopies):copies 按这里的文件夹给出别处的地名(去过重);
 // pending 是还在等技能库比较内容(这时整批入库的确认还给不出同名提醒，入口先等着)。
 export interface SameNameCopies {

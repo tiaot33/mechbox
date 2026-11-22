@@ -10,7 +10,7 @@ import {
   type UnmanagedSkill,
 } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { pageListing, pageSkills, pickRange, projectAgents, projectSkillCount, scopeHereCount, scopeListing, sortSkills } from "./pages";
+import { pageListing, pageSkills, pickRange, projectAgents, projectSkillCount, scopeHereCount, sortSkills, type Arrange } from "./pages";
 
 const collection = (id: number, label: string, skills: number[] = []) => ({ id, skills, source: { type: SourceType.SourceGitHub, label } }) as Collection;
 const snapshot = (s: Partial<Snapshot>) =>
@@ -32,7 +32,14 @@ describe("sortSkills", () => {
   });
 });
 
-describe("scopeListing", () => {
+// scopeListing 是作用域页要列的：经 pageListing 取。
+function scopeListing(s: Snapshot, scope: string, arrange: Arrange, search: string) {
+  const page = pageListing(s, { kind: "scope", scope }, arrange, search);
+  if (page.kind !== "scope") throw new Error("不是作用域页");
+  return page.listing;
+}
+
+describe("作用域页列什么", () => {
   const s = snapshot({
     agents: [agent("claude-code", ".claude/skills")],
     projects: [{ id: 1, name: "proj", path: "/home/proj" }] as Snapshot["projects"],

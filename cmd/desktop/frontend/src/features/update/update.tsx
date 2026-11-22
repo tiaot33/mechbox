@@ -20,8 +20,7 @@ import {
 import { defaultInstallOn, defaultSkills, placeKey, refreshRequests, updateInstalls } from "@/lib/consent";
 import { messages } from "@/lib/i18n";
 import { currentSnapshot } from "@/lib/library";
-import { collectionName } from "@/features/update/update-rules";
-import { isLocal } from "@/lib/source";
+import { isLocal, collectionName } from "@/lib/source";
 import { ui } from "@/lib/ui";
 import { confirmLinkWrites } from "@/components/app/link-notes";
 import { ScopeUpdateDialog } from "./scope-update-dialog";

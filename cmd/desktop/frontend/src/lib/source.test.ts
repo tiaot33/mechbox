@@ -1,8 +1,8 @@
-// 来源与集合：左栏折叠技能少的来源，技能行里的来源短名。
+// 来源与集合：左栏折叠技能少的来源，技能行里的来源短名，更新页与更新计划里集合叫什么。
 import { describe, expect, it } from "vitest";
-import { SourceType, type Collection } from "@bindings/internal/library";
+import { SourceType, type Collection, type Skill } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { foldCollections, sourceShort } from "./source";
+import { collectionName, foldCollections, sourceShort } from "./source";
 
 const collection = (id: number, label: string, skills: number[] = []) => ({ id, skills, source: { type: SourceType.SourceGitHub, label } }) as Collection;
 const snapshot = (s: Partial<Snapshot>) =>
@@ -36,5 +36,18 @@ describe("sourceShort", () => {
   it("本地目录来源写目录，和左栏、节标题是同一个名字", () => {
     const s = snapshot({ info: { home_dir: "/home/me" } as Snapshot["info"] });
     expect(sourceShort(s, { type: SourceType.SourceLocal, label: "/home/me/code/my-skills" })).toBe("~/code/my-skills");
+  });
+});
+
+describe("collectionName", () => {
+  const skill = (id: number, name: string) => ({ id, name }) as Skill;
+  const s = snapshot({
+    collections: [collection(1, "matt/skills", [10, 11]), collection(2, "team/kit", [20])],
+    skills: [skill(10, "pdf"), skill(11, "docx"), skill(20, "review")],
+  });
+
+  it("只有一个技能的集合用技能名称呼，否则是来源名", () => {
+    expect(collectionName(s, 1)).toBe("matt/skills");
+    expect(collectionName(s, 2)).toBe("review");
   });
 });

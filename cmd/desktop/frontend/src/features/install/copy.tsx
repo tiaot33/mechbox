@@ -16,17 +16,6 @@ import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, toLibraryError, type Snapshot } from "@/lib/library";
 import { agentName, placeOf, projectName, scopeKey, type Place } from "@/lib/scope";
 import { agentNameIn, scopeLabel } from "@/lib/places";
-import {
-  copyFromAgent,
-  copyFromProject,
-  copyItems,
-  copyProjectSources,
-  copySources,
-  uncopiedProjectUnmanaged,
-  uncopiedUnmanaged,
-  type CopyPlace,
-  type UncopiedUnmanaged,
-} from "@/features/install/copy-rules";
 import { shortPath } from "@/lib/paths";
 import { sourceLabel } from "@/lib/source";
 import { Modal, ui } from "@/lib/ui";
@@ -43,16 +32,25 @@ import {
   canCheck,
   checkedCounts,
   comingNotes,
+  copyFromAgent,
+  copyFromProject,
+  copyItems,
+  copyProjectSources,
   copyResults,
+  copySources,
   copySteps,
   groupKey,
   meantPlaces,
   placeKeys,
   skillKey,
   togglePlace as toggledPlace,
+  uncopiedProjectUnmanaged,
+  uncopiedUnmanaged,
   type CopyOutcome,
+  type CopyPlace,
   type Planned,
   type Plans,
+  type UncopiedUnmanaged,
 } from "./copy-rules";
 
 // CopyKind 是一种照装：照着谁(sources 的 key)、装到的那一处的名字(toName)、要装的各处、各处的标题与确认框里另外说的话。

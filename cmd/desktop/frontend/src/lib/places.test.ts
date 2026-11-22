@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { AgentCode, ScopeKind, type Agent, type RegisteredProject, type Scope } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { eachPlace, mergedScope, mergedScopeKey, placeCount, placeNames, sameMergedScope } from "./places";
+import { eachPlace, mergedScope, mergedScopeKey, placeCount, placeNames, sameMergedScope, scopeCount } from "./places";
 
 const claude = AgentCode.AgentClaudeCode;
 const codex = AgentCode.AgentCodex;
@@ -42,8 +42,10 @@ describe("几处", () => {
     expect(placeNames(s, [at(cursor, 1), at(codex, 1), at(claude, 1)])).toEqual(["Codex、Cursor · web", "Claude Code · web"]);
   });
 
-  it("直接给作用域时数的是不分技能的几处", () => {
-    expect(placeCount(s, installs.map((p) => p.scope))).toBe(3);
+  it("只问涉及几个地方时不分技能：几个技能装在同一处只算一个，名字也只写一次", () => {
+    expect(scopeCount(s, installs)).toBe(3);
+    expect(scopeCount(s, installs.map((p) => p.scope))).toBe(3);
+    expect(placeNames(s, installs)).toEqual(["Codex · 全局", "Cursor · 全局", "Codex、Cursor · web"]);
   });
 
   it("没有共用目录时一条就是一处", () => {

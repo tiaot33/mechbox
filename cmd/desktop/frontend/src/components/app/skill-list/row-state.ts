@@ -1,12 +1,13 @@
 // 列表一行的状态写什么(rows.tsx 只管画):库里的技能一行的提醒与更新——同名、装出去的几处、来源那边的情况、有你的修改、
 // 库里有同名的、目录里改过、提到的技能找不到——和没有提醒时写的那句(随组安装、来自全局、来源已删除);
 // 未纳管技能一行归谁管、能不能入库、来源和链接。不碰界面、不调技能库，单元测试见 row-state.test.ts。
-// 一行只画最要紧的一条、其余写 +N,先后在 components/ui/badge 的 AlertIcon 里按 lib/level 的 byUrgency 排;这里只给出有哪几条。
+// 一行只画最要紧的一条、其余写 +N:这里给出的几条已经按画出来的先后排好(lib/level 的 byUrgency;只画图标、不写字的按 byLevel),
+// 第一条就是行上画的那一条，点图标做的也是它的事;components/ui/badge 的 AlertIcon 照这个先后画。
 // 来源那边的情况取 lib/source-state 的结论，和节标题的计数、更新页、左栏的更新数说的是同一回事。
 import { SkillScopeStatus, type MissingMention, type Skill, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
 import { messages } from "@/lib/i18n";
 import { installedWhere, needsReinstall, reinstallAlerts, skillScopeIn, skillScopeStatus } from "@/lib/installs";
-import type { Mark } from "@/lib/level";
+import { byLevel, byUrgency, type Mark } from "@/lib/level";
 import type { Snapshot } from "@/lib/library";
 import { missingAt, missingNames } from "@/lib/mentions";
 import { shortPath } from "@/lib/paths";
@@ -33,7 +34,8 @@ export interface Plain {
   title?: string;
 }
 
-// RowState 是一行的状态：alerts 是提醒与更新(都没有时为空),plain 是没有提醒时写的那句(不用写时没有)。
+// RowState 是一行的状态：alerts 是提醒与更新(都没有时为空),已按画出来的先后排好，第一条是行上画的那一条;
+// plain 是没有提醒时写的那句(不用写时没有)。
 export interface RowState {
   alerts: RowAlert[];
   plain?: Plain;
@@ -61,6 +63,13 @@ export interface RowInstall {
   foreign: boolean;
 }
 
+// inOrder 把几条按画出来的先后排好：labeled 是图标后面写字的(列表一行的状态)，严重、注意在前，接着是能做的更新、可能改名，提示最后;
+// 只画图标的按级别从重到轻，更新、可能改名在最后。同一级的保持原来的先后。
+function inOrder(alerts: RowAlert[], labeled: boolean): RowAlert[] {
+  const by = labeled ? byUrgency : byLevel;
+  return [...alerts].sort((a, b) => by(a.tone, b.tone));
+}
+
 export function rowInstall(s: Snapshot, skill: Skill, at?: RowAt): RowInstall {
   if (!at) return { via: [], foreign: false };
   const here = at.fromGlobal ? undefined : skillScopeIn(s, skill.id, at.scope);
@@ -80,13 +89,13 @@ export function skillRowState(s: Snapshot, skill: Skill, install: RowInstall, el
   const same = at ? (folder ? sameNameNote(s, at.scope, folder) : undefined) : skillSameNameNote(s, skill.id);
   const own = [same && sameNameAlert(same), sameNameCopiesAlert(skill.name, elsewhere)];
   const alerts = [...own, ...(foreign ? [] : skillAlerts(s, skill, install))].filter((x): x is RowAlert => !!x);
-  if (!at) return { alerts, plain: sourceState(skill).kept ? { text: t.keptDeleted, title: t.keptDeletedTitle } : undefined };
-  if (!identical) return { alerts, plain: scopePlain(install, !!at.fromGlobal) };
-  // 这里那一份不是 app 装的：先写这一句和归谁管;和库里的旧版本一样时标出来。归项目仓库、作者自己管的不跟库里的版本走，和旧版本一样也不提醒。
+  if (!at) return { alerts: inOrder(alerts, true), plain: sourceState(skill).kept ? { text: t.keptDeleted, title: t.keptDeletedTitle } : undefined };
+  if (!identical) return { alerts: inOrder(alerts, true), plain: scopePlain(install, !!at.fromGlobal) };
+  // 这里那一份不是 app 装的：先写这一句和归谁管，提醒只跟一个图标;和库里的旧版本一样时标出来。归项目仓库、作者自己管的不跟库里的版本走，和旧版本一样也不提醒。
   const state = identicalState(skill, identical, s.info.home_dir);
   const stale = skillScopeStatus(SkillScopeStatus.SkillScopeStale);
   return {
-    alerts: [...(state.stale && !foreign ? [{ tone: stale.tone as Mark, label: stale.label }] : []), ...alerts],
+    alerts: inOrder([...(state.stale && !foreign ? [{ tone: stale.tone as Mark, label: stale.label }] : []), ...alerts], false),
     plain: { text: state.text, title: state.title },
   };
 }
@@ -177,7 +186,8 @@ function sameNameCopiesAlert(name: string, places: string[] | undefined): RowAle
 // - state:最后一列逐条写的——来自全局、不能入库、和库里哪个技能的关系或不在技能库里、归谁管与链到哪里;
 // - notes:不占一行的说明(哪里写错了、来源、来源是怎么认出来的、符号链接指向哪里),写在描述的悬停提示里，
 //   没有描述时描述那一格直接写(detail 的只在提示里);className 是测试钩子;
-// - alerts:同名的提醒(和同一个 Agent 另一层级同名、同一层的别处同名不同内容、库里有同名的)。
+// - alerts:同名的提醒(和同一个 Agent 另一层级同名、同一层的别处同名不同内容、库里有同名的),已按画出来的先后排好:
+//   state 为空时图标后面写最要紧的那一条。
 export interface UnmanagedRowState {
   library?: Skill;
   newer?: Skill;
@@ -232,5 +242,5 @@ export function unmanagedRowState(
         className: "library-twin",
       },
   ].filter((x): x is RowAlert => !!x);
-  return { library, newer, invalid, state, notes, alerts };
+  return { library, newer, invalid, state, notes, alerts: inOrder(alerts, !state.length) };
 }

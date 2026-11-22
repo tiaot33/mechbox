@@ -50,7 +50,7 @@ export interface CopyPlace {
 
 // copyTarget 是照装到 to 时这一处装在谁的作用域上：项目里共用一个目录的几个 Agent 合成一处，落在代表的 Agent 上，
 // 和右栏、作用域页一致(组安装记在代表上，合成的那一行才显示为已组安装)。
-export function copyTarget(s: AgentList, to: AgentCode, place: Place): AgentCode {
+function copyTarget(s: AgentList, to: AgentCode, place: Place): AgentCode {
   return mergedScope(s, scopeOf(to, place)).agent;
 }
 

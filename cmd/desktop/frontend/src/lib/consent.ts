@@ -44,8 +44,6 @@ export function defaultSkills(plan: UpdatePlan, select?: SkillID[]): Set<SkillID
   return new Set(skills.filter((p) => p.change === PlannedChange.PlannedChanged && !p.skipped).map((p) => p.skill.id));
 }
 
-export { canInstall } from "./installs";
-
 // edited 是用户在这里改过的一处，和界面上说「被手动改过」的是同一批(lib/installs 的 editedHere)。
 const edited = editedHere;
 
@@ -59,7 +57,7 @@ export const chosenInstallOn = (choice: ReadonlyMap<string, boolean>) => (p: Ski
   canInstall(p) && (choice.get(folderKey(p)) ?? defaultInstallOn(p));
 
 // consented 是勾上即同意的地方：用户改过的覆盖，文件夹不在了的装回去。作者新版的那一处不用同意覆盖。
-export const consented = (p: SkillScopeInspection) => edited(p) || p.status === SkillScopeStatus.SkillScopeMissing;
+const consented = (p: SkillScopeInspection) => edited(p) || p.status === SkillScopeStatus.SkillScopeMissing;
 
 // updatedByDefault 是不打开更新计划、按默认勾选更新时会更新到的技能：有新版本、计入角标(没跳过),库里的当前版本没有用户的修改。
 // 和 defaultSkills 是同一条规则，这里按快照里的检查结论算：更新页的「更新」「全部更新」只在有这样的技能时才能直接做，

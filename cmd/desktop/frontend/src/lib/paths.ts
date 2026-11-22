@@ -30,7 +30,7 @@ export function resolveLocalPath(input: string, home: string, wsl: boolean): Pat
 }
 
 // windowsHome 按主目录的写法判断是不是 Windows 上的主目录：带盘符，或 \\ 开头的网络路径(含选了发行版时的 \\wsl.localhost\...)。
-export function windowsHome(home: string): boolean {
+function windowsHome(home: string): boolean {
   return /^([A-Za-z]:|\\\\|\/\/)/.test(home);
 }
 
@@ -50,7 +50,7 @@ export function insideHome(path: string, home: string): boolean {
 }
 
 // wslRest 是 path 在发行版主目录 home 下的那一段(/ 开头，就是主目录本身时为空);两者不都在同一个发行版里或不在主目录下时为 null。
-export function wslRest(path: string, home: string): string | null {
+function wslRest(path: string, home: string): string | null {
   const at = wslLocation(path);
   const base = wslLocation(home);
   if (!at || !base || at.distro.toLowerCase() !== base.distro.toLowerCase()) return null;

@@ -187,7 +187,7 @@ cmd/desktop/
         ├── index.css       样式入口:Tailwind 主题(原型的颜色、圆角、阴影、半透明表面)、毛玻璃材质(glass / glass-clear)、少量全局样式与按状态切换的动画
         ├── components/ui/  shadcn/ui 组件(按本应用的主题改过)与几个同风格的小组件
         ├── components/app/ 主界面：顶栏(toolbar,外框与 Windows 的窗口按钮在 titlebar)、左栏(left-sidebar)、中间列表(skill-list/:五种页面、分节与节标题、技能行与未纳管技能行、搜索行、
-        │                   作用域摘要与更新列表、勾选框与勾选后的操作栏;一行的状态写什么在 row-state.ts,是纯函数，有单元测试，行组件只管画)、右栏(scope-panel)、详情抽屉(skill-drawer/:外壳与元数据、安装、提到关系、文件、版本历史几个分区),
+        │                   作用域摘要与更新列表、勾选框与勾选后的操作栏;一行的状态写什么在 row-state.ts,是纯函数，有单元测试，给出的几条已按画出来的先后排好，行组件只管画)、右栏(scope-panel)、详情抽屉(skill-drawer/:外壳与元数据、安装、提到关系、文件、版本历史几个分区),
         │                   关系图页的图(mention-graph/:SVG 画圆点和线,d3-zoom 平移缩放，线的原文提示),
         │                   拖放(dnd.ts),几个流程共用的结果列表(results.tsx;结果行怎么写在 result-rows.ts,是纯函数，流程里的判断也用它)与符号链接说明(link-notes.tsx),
         │                   技能文件与更新说明的 Markdown(markdown.tsx:react-markdown + GFM,代码高亮,mermaid 图用 Pele 画,dot 图用 Graphviz 在 graphviz.worker.ts 里画);layout.ts 是三栏的公共样式
@@ -202,9 +202,9 @@ cmd/desktop/
         │                   release/ Mechbox 的新版本(更新说明与更新的对话框、「关于」里的检查新版本、macOS 菜单「检查新版本…」的结果)
         └── lib/            consent.ts 默认勾选与写之前的说明(守住产品承诺的规则，有单元测试),library.ts 读取技能库(快照与其他只读数据的查询、查询缓存),
                             从快照算出界面内容的函数按主题分文件，都是纯函数、各有单元测试:scope.ts 作用域的身份与 Agent、项目、技能、组的名字，
-                            places.ts 界面上的「一处」(项目里共用目录的几个 Agent 合成一处;写出几处的名字、数几处、逐处列出用 placeNames、placeCount、eachPlace,调用处不用自己合并),
+                            places.ts 界面上的「一处」(项目里共用目录的几个 Agent 合成一处;写出几处的名字、数几处、逐处列出用 placeNames、placeCount、eachPlace,不分技能只问涉及几个地方用 scopeCount,调用处不用自己合并),
                             installs.ts 安装状态，unmanaged.ts 未纳管技能，same-name.ts 同名，source.ts 来源的名字、集合与来源版本，
-                            source-state.ts 一个技能在来源那边的情况(有新版本、可能改名、来源里已删除、目录里改过，只在 sourceState 一处判断，技能行、节标题、更新页、技能详情和左栏的更新数都读它),
+                            source-state.ts 一个技能在来源那边的情况(有新版本、可能改名、来源里已删除、目录里改过，只在 sourceState 一处判断，技能库的检查结论 last_update_check 也只在这里读;技能行、节标题、更新页、技能详情和左栏的更新数都读它的结论),
                             pages.ts 各页面列什么、怎样分节、数到几;只有一个流程用的不放这里，放在 features/ 里那个流程旁边的 <流程>-rules.ts;
                             mentions.ts 安装、卸载与作用域页怎样看提到关系(有单元测试),graph.ts 关系图的圆点、连线与原文片段，graph-layout.ts 力导向布局与点了技能后的排法(都有单元测试),diff.ts 改了的文件与逐行差异(左右对比、行内对比，有单元测试),
                             view.ts 界面状态(筛选、作用域、搜索、左右栏、抽屉、拖放等，zustand),ui.tsx 弹窗 / toast / run(组件外也能用的 ui),errors.ts 错误文案，dnd.ts 拖放，

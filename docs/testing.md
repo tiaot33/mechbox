@@ -188,9 +188,9 @@ Windows 本机的目录读不出可执行位，相关的测试也不需要 Windo
 
   改了流程里的判断，同时改对应的 `-rules.test.ts`。只是原样转发、没有判断的流程不另拆。
 - 从快照算出界面内容的函数按主题放在 `lib/` 下各自的文件里（`scope.ts`、`places.ts`、`installs.ts`、`unmanaged.ts`、`same-name.ts`、`source.ts`、`source-state.ts`、`pages.ts`），测试是旁边的同名 `.test.ts`。新函数放进对应主题的文件，不另开一个什么都放的文件；只有一个流程用的，放进那个流程的 `-rules.ts`。有三条规则各只有一个入口，改界面时用它们，不在调用处另写一遍：
-  - 写出几处的名字、数几处、逐处列出，用 `lib/places.ts` 的 `placeNames`、`placeCount`、`eachPlace`。项目里共用一个目录的几个 Agent 在里面合成一处。
-  - 一个技能在来源那边的情况（有新版本、可能改名、来源里已删除、目录里改过，是否计入角标），读 `lib/source-state.ts` 的 `sourceState`；一组技能里各有几个，读 `sourceChanges`。
-  - 列表一行的状态写哪几条，在 `components/app/skill-list/row-state.ts` 里改，行组件只接上点击和菜单。
+  - 写出几处的名字、数几处、逐处列出，用 `lib/places.ts` 的 `placeNames`、`placeCount`、`eachPlace`；不分技能、只问涉及几个地方用 `scopeCount`。项目里共用一个目录的几个 Agent 在里面合成一处。
+  - 一个技能在来源那边的情况（有新版本、可能改名、来源里已删除、目录里改过，是否计入角标），读 `lib/source-state.ts` 的 `sourceState`；一组技能里各有几个，读 `sourceChanges`。技能库的检查结论（`last_update_check`）只在这个文件里读。
+  - 列表一行的状态写哪几条，在 `components/app/skill-list/row-state.ts` 里改，它给出的几条已按画出来的先后排好，行组件只接上点击和菜单。
 
 ## 运行端到端验证
 

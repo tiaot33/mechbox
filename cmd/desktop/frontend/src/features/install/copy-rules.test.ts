@@ -33,7 +33,6 @@ import {
   copyResults,
   copySources,
   copySteps,
-  copyTarget,
   groupKey,
   meantPlaces,
   placeKeys,
@@ -281,8 +280,8 @@ describe("照着装时装哪些", () => {
     });
 
     it("项目里装到共用目录的代表 Agent 上，全局装到它自己", () => {
-      expect(copyTarget({ agents, agentsShown: {} }, cursor, 1)).toBe(codex);
-      expect(copyTarget({ agents, agentsShown: {} }, cursor, 0)).toBe(cursor);
+      const s = snapshot({ ...base, agentsShown: {}, skillScopes: [installed(1, at(claude)), installed(2, at(claude, 1))] });
+      expect(copyFromAgent(s, claude, cursor).map((p) => p.to)).toEqual([at(cursor), at(codex, 1)]);
     });
 
     it("要装过来的技能里，原来那一处被改过的单列出来", () => {

@@ -6,13 +6,12 @@ import type { Collection, CollectionID, Skill } from "@bindings/internal/library
 import { updatedByDefault } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { useSnapshot, type Snapshot } from "@/lib/library";
-import { collectionSkills, revisionSummary, revisionText, shortRevision, sourceLabel } from "@/lib/source";
+import { collectionSkills, revisionSummary, revisionText, shortRevision, sourceLabel, collectionName } from "@/lib/source";
 import { sourceChanges, sourceState, updatableCollections } from "@/lib/source-state";
 import { knownRisks, ReadRetries, rememberPlanRisks, snapshotRiskKey } from "@/lib/plan-risks";
 import { useBusy, useUI } from "@/lib/ui";
 import { riskSummary } from "@/features/update/risks";
 import { openUpdate, updateWithDefaults } from "@/features/update/update";
-import { collectionName } from "@/features/update/update-rules";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -58,7 +57,7 @@ export function UpdatesHead() {
         // plain 是点「更新」就会更新到的，edited 是更新会换掉用户修改的(更新计划里默认不勾)。
         const plain = found.newVersion.filter(updatedByDefault);
         const edited = found.newVersion.filter((x) => !updatedByDefault(x));
-        const to = found.todo.map((x) => x.last_update_check?.revision).find(Boolean);
+        const to = found.revision;
         const risk = risks.get(c.id);
         const names = (list: Skill[]) => list.map((x) => x.name);
         const facts = [

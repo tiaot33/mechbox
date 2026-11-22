@@ -7,7 +7,6 @@ import {
   PlannedChange,
   ReinstallOutcome,
   UpdateRecordKind,
-  type CollectionID,
   type ReinstallRequest,
   type ReinstallResult,
   type Scope,
@@ -21,9 +20,8 @@ import {
   type UpdateResult,
 } from "@bindings/internal/library";
 import { defaultSkills, placeKey } from "@/lib/consent";
-import { messages } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
-import { collectionSkills, isLocal, sourceLabel } from "@/lib/source";
+import { isLocal } from "@/lib/source";
 import { placeCount, sameMergedScope } from "@/lib/places";
 import { scopeKey } from "@/lib/scope";
 import { skillScopesOf } from "@/lib/installs";
@@ -203,12 +201,4 @@ export function plannedName(plan: UpdatePlan, checked: ReadonlySet<SkillID>, id:
 // (共用目录，或符号链接指向同一个文件夹):内容已经是这份修改。
 export function sameFolderAsSource(s: Snapshot, id: SkillID, scope: Scope, places: SkillScopeInspection[]): SkillScopeInspection[] {
   return skillScopesOf(s, id).filter((p) => !sameMergedScope(s, p.scope, scope) && !places.some((x) => scopeKey(x.scope) === scopeKey(p.scope)));
-}
-
-// collectionName 是更新计划、更新提示里集合的名字：只有一个技能时用技能名(和更新页的集合行一致),否则是来源名。
-export function collectionName(s: Snapshot, collectionID: CollectionID): string {
-  const c = s.collections.find((x) => x.id === collectionID);
-  if (!c) return messages().update.collectionFallback(collectionID);
-  const skills = collectionSkills(s, c);
-  return skills.length === 1 ? skills[0].name : sourceLabel(s, c.source);
 }

@@ -3,14 +3,14 @@
 import type { MissingMention, Scope, SkillID } from "@bindings/internal/library";
 import type { Snapshot } from "@/lib/library";
 import { canInstall, skillScopeIn, skillScopesOf } from "@/lib/installs";
-import { globalScopesSeenFrom, mergedScopeKey, placeCount } from "@/lib/places";
+import { globalScopesSeenFrom, mergedScopeKey, scopeCount } from "@/lib/places";
 import { scopeKey } from "@/lib/scope";
 
 // removedPlaces 是移除 ids 这几个技能时它们装着的各处，以及涉及几个作用域：几个技能装在同一个作用域只算一个，
 // 项目里共用一个目录的几个 Agent 是一个。
 export function removedPlaces(s: Snapshot, ids: SkillID[]) {
   const places = s.skillScopes.filter((p) => ids.includes(p.skill_id));
-  return { places, scopes: placeCount(s, places.map((p) => p.scope)) };
+  return { places, scopes: scopeCount(s, places) };
 }
 
 // lostAfterTwin 是移除同名的另一个技能(name)、删掉它的文件夹之后会找不到被提到技能的地方:replaced 是在那几处装上留下的这个，
