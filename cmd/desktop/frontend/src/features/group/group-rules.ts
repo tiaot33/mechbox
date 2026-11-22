@@ -1,11 +1,23 @@
 // 组(group.tsx)里的判断：勾选的技能里哪些要加入、哪些要移出，删组、移出组时选「一并卸载」会删掉哪些文件夹，
 // 逐个加入组之后是只提示一句还是逐个列出结果。不碰界面、不调技能库，单元测试见 group-rules.test.ts。
-import { GroupMemberOutcome, type CollectionID, type GroupID, type GroupMemberResult, type SkillID, type SkillScopeInspection } from "@bindings/internal/library";
+import {
+  GroupMemberOutcome,
+  InstallPlanStatus,
+  type CollectionID,
+  type GroupID,
+  type GroupMemberResult,
+  type InstallPlan,
+  type Scope,
+  type SkillID,
+  type SkillScopeInspection,
+} from "@bindings/internal/library";
 import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
 import type { Attempt, Snapshot } from "@/lib/library";
 import { scopeKey, skillName } from "@/lib/scope";
 import { memberRows, placedBy, type ResultRow } from "@/components/app/result-rows";
+import { readsTwiceNotes } from "@/features/install/install-rules";
+import { scopeLabel } from "@/lib/places";
 
 // notInGroup 是勾选的技能里还不在组里的(要加入的),inGroup 是在组里的(要移出的)。
 export function notInGroup(s: Snapshot, groupID: GroupID, picked: SkillID[]): SkillID[] {
@@ -47,4 +59,14 @@ export function addedToGroup(s: Snapshot, ids: SkillID[], results: readonly (Att
 export function missingFromGroup(s: Snapshot, collectionID: CollectionID, groupID: GroupID): SkillID[] {
   const members = new Set(s.groups.find((g) => g.id === groupID)?.members ?? []);
   return (s.collections.find((c) => c.id === collectionID)?.skills ?? []).filter((id) => !members.has(id));
+}
+
+// addReadsTwice 是把技能加入组之前要提示的「会读到两份」(#378:加入组时照装，事先提示):对这个组已组安装的各处取了安装计划，
+// 会装上的(没被占用)里有别的 Agent 也读这个目录、又在自己别的目录装着这个技能的，一处一行，写出是哪一处。
+export function addReadsTwice(s: Snapshot, plans: readonly { scope: Scope; plan: InstallPlan }[]): string[] {
+  const installs = plans.filter(({ plan }) => plan.status === InstallPlanStatus.InstallReady || plan.status === InstallPlanStatus.InstallUntracked);
+  return readsTwiceNotes(
+    s,
+    installs.map(({ scope, plan }) => ({ plan, label: scopeLabel(s, scope) })),
+  );
 }

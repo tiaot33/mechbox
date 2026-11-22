@@ -375,6 +375,8 @@ export const zh = {
     migratedPartly: (migrated: number, skipped: number) =>
       `迁移了 ${migrated} 处${skipped ? `；${skipped} 处没有迁移，这个 Agent 在那里不再算已装` : ""}。`,
     agentSavedMigrated: (name: string, n: number) => `已保存 Agent「${name}」，迁移了 ${n} 处技能`,
+    addToGroupReadsTwiceTitle: (group: string) => `加入组「${group}」`,
+    addToGroupConfirm: "加入",
     readsTwice: (agents: string[], skill: string) => `${agents.join("、")} 也读这个目录，已经在自己别的目录装着 ${skill}，装上后会读到两份`,
     staleLinks: (n: number) => `会一并删掉 ${n} 个指向这些文件夹的旧链接：`,
     copiesLeft: (skill: string, copies: string[], folder: string, stillInstalled: boolean) =>

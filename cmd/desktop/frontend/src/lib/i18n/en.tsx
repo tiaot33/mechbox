@@ -407,6 +407,8 @@ export const en = {
     migratedPartly: (migrated: number, skipped: number) =>
       `Migrated ${count(migrated, "install")}${skipped ? `; ${count(skipped, "install")} ${skipped === 1 ? "wasn't" : "weren't"} migrated, and this Agent no longer counts ${skipped === 1 ? "it" : "them"} as installed there` : ""}.`,
     agentSavedMigrated: (name: string, n: number) => `Saved Agent “${name}” and migrated ${count(n, "install")}`,
+    addToGroupReadsTwiceTitle: (group: string) => `Add to Group “${group}”`,
+    addToGroupConfirm: "Add",
     readsTwice: (agents: string[], skill: string) =>
       `${and(agents)} also read this directory and already have ${skill} in another of their directories, so they'll see two copies`,
     staleLinks: (n: number) => `${count(n, "old link")} pointing to these folders will be deleted too:`,

@@ -490,7 +490,7 @@ export async function uninstallGroup(groupID: GroupID, scope: Scope) {
 
 
 // ReadsTwiceNotice 是安装前「这几个 Agent 也读这个目录，会读到两份」的提示(见 readsTwiceNotes),一处一行;没有时不显示。
-function ReadsTwiceNotice({ notes }: { notes: string[] }) {
+export function ReadsTwiceNotice({ notes }: { notes: string[] }) {
   if (!notes.length) return null;
   return (
     <Notice className="reads-twice">

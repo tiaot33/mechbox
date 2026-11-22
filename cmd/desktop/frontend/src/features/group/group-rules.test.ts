@@ -4,6 +4,7 @@ import {
   AgentCode,
   ErrorCode,
   GroupMemberOutcome,
+  InstallPlanStatus,
   ScopeKind,
   SkillScopeStatus,
   SourceType,
@@ -12,13 +13,14 @@ import {
   type Group,
   type GroupInstall,
   type GroupMemberResult,
+  type InstallPlan,
   type Scope,
   type Skill,
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import { messages } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
-import { addedToGroup, groupOnly, inGroup, missingFromGroup, notInGroup } from "./group-rules";
+import { addReadsTwice, addedToGroup, groupOnly, inGroup, missingFromGroup, notInGroup } from "./group-rules";
 
 const claude = AgentCode.AgentClaudeCode;
 const codex = AgentCode.AgentCodex;
@@ -119,5 +121,24 @@ describe("missingFromGroup", () => {
   it("集合为空或都已在组里时为空", () => {
     expect(missingFromGroup(s, 2, 7)).toEqual([]);
     expect(missingFromGroup(snapshot({ collections: [collection(1, "a/a", [11])], groups: [group(7, [11])] }), 1, 7)).toEqual([]);
+  });
+});
+
+describe("加入组之前的「会读到两份」", () => {
+  const agents = [
+    { code: claude, name: "Claude Code", global_directories: ["/home/.claude/skills"], project_directories: [".claude/skills"] },
+    { code: codex, name: "Codex", global_directories: ["/home/.agents/skills"], project_directories: [".agents/skills"] },
+    { code: "cursor", name: "Cursor", global_directories: ["/home/.agents/skills", "/home/.cursor/skills"], project_directories: [".agents/skills"] },
+  ] as Agent[];
+  const s = { agents, agentsShown: {}, projects: [], skillScopes: [] } as unknown as Snapshot;
+  const plan = (status: InstallPlanStatus, reads_twice: Scope[] = []) => ({ name: "foo", status, folder: "/home/.agents/skills/foo", reads_twice }) as InstallPlan;
+  it("组安装到的各处里会装上、又有别的 Agent 会读到两份的写出来，写明是哪一处;被占用装不上的不说", () => {
+    expect(
+      addReadsTwice(s, [
+        { scope: global(codex), plan: plan(InstallPlanStatus.InstallReady, [global("cursor" as AgentCode)]) },
+        { scope: global(claude), plan: plan(InstallPlanStatus.InstallReady) },
+        { scope: global(codex), plan: plan(InstallPlanStatus.InstallOccupied, [global("cursor" as AgentCode)]) },
+      ]),
+    ).toEqual(["Codex · 全局：Cursor 也读这个目录，已经在自己别的目录装着 foo，装上后会读到两份"]);
   });
 });
