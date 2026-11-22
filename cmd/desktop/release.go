@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -114,12 +115,15 @@ type releases struct {
 	installing bool
 }
 
-func newReleases(feedURL, current, stateDir string, u *updater.Updater, target func() installTarget) *releases {
+func newReleases(feedURL, current, stateDir string, u *updater.Updater, target func() installTarget, proxyFunc func(*http.Request) (*url.URL, error)) *releases {
 	if feedURL == "" || current == "" || u == nil {
 		return nil
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.ResponseHeaderTimeout = checkTimeout
+	if proxyFunc != nil {
+		transport.Proxy = proxyFunc
+	}
 	feed := &githubFeed{url: feedURL, client: &http.Client{Transport: transport}, target: target}
 	r := &releases{feed: feed, updater: u, stateDir: stateDir, apply: installStaged, failed: takePending(stateDir, current)}
 	r.init = sync.OnceValue(func() error {

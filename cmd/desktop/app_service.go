@@ -539,7 +539,7 @@ func (a *AppService) showWindow() {
 
 func (a *AppService) attach(app *application.App, window *application.WebviewWindow) {
 	a.app, a.window = app, window
-	a.releases = newReleases(releaseFeedURL(), appVersion(), filepath.Dir(a.library.path), app.Updater, releaseTarget)
+	a.releases = newReleases(releaseFeedURL(), appVersion(), filepath.Dir(a.library.path), app.Updater, releaseTarget, a.library.proxyURL)
 	var checkRelease func()
 	if a.releases != nil {
 		checkRelease = a.requestReleaseCheck

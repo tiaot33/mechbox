@@ -372,6 +372,18 @@ func (s *LibraryService) TestAISettings(ctx context.Context, settings library.AI
 	return settleErr(ctx, s.lib.TestAISettings(ctx, settings))
 }
 
+func (s *LibraryService) ProxySettings(ctx context.Context) (library.ProxySettings, error) {
+	return settle(s.lib.ProxySettings(ctx))(ctx)
+}
+
+func (s *LibraryService) SetProxySettings(ctx context.Context, settings library.ProxySettings) error {
+	return settleErr(ctx, s.lib.SetProxySettings(ctx, settings))
+}
+
+func (s *LibraryService) SystemProxy(ctx context.Context) (library.SystemProxy, error) {
+	return settle(s.lib.SystemProxy(ctx))(ctx)
+}
+
 func (s *LibraryService) SyncSettings(ctx context.Context) (library.SyncSettings, error) {
 	return settle(s.lib.SyncSettings(ctx))(ctx)
 }

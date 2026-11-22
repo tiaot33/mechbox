@@ -1,9 +1,9 @@
 // 设置页：替换主界面的三栏，左边是分区目录，右边按分区排开。
 // 检查技能更新与通用是应用设置，存在数据库的 config 表里(app.*),随推送、拉回走，改了立即保存、生效;
 // 拉回后 Go 端换成拉回来的设置并发 settings-reloaded 事件，这里随之重读。
-// 通用里的全局目录(Windows 上装了 WSL 时才出现)只属于这台机器，拉回不变;改了以后重读快照，界面换成新的全局目录。
+// 通用里的网络代理与全局目录(Windows 上装了 WSL 时才出现)只属于这台机器，拉回不变;网络代理切换模式立即生效、手动地址点保存生效;改了全局目录后重读快照，界面换成新的全局目录。
 // GitHub 令牌、AI 设置与同步设置也存在数据库里，点保存才存入(见 credentials-form.tsx);AI 分区里的自动翻译开关是应用设置，改了立即保存。
-// 目录按保存方式分组：改了就生效的在上，GitHub、AI、同步三个要点保存的在下，再下面是关于。
+// 目录大致按保存方式分组：通用与管理分区在上，GitHub、AI、同步三个凭据表单在下，再下面是关于。
 // Agent 分区见 agent-settings;项目分区复用主界面右栏的登记 / 改位置 / 注销;卸载 Mechbox 在关于分区的最后一行，不进目录，见 uninstall-dialog。
 import { useEffect, useRef, useState } from "react";
 import { Events } from "@wailsio/runtime";

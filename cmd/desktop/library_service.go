@@ -5,6 +5,8 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -64,12 +66,16 @@ func (s *LibraryService) ServiceStartup(context.Context, application.ServiceOpti
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return fmt.Errorf("create library directory: %w", err)
 	}
-	lib, err := library.Open(s.path)
+	lib, err := openDesktopLibrary(s.path)
 	if err != nil {
 		return err
 	}
 	s.lib = lib
 	return nil
+}
+
+func (s *LibraryService) proxyURL(req *http.Request) (*url.URL, error) {
+	return library.ProxyFunc(s.lib)(req)
 }
 
 func (s *LibraryService) inBackground(ctx context.Context, work func()) {

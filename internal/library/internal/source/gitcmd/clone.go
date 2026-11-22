@@ -53,25 +53,27 @@ func clone(ctx context.Context, remotes []string, ref, subpath string, partial b
 		filter = "--filter=blob:none"
 	}
 	cloneFrom := func(remote string) error {
-		_, err := Run(ctx, "clone", "--quiet", "--depth", "1", "--single-branch", filter, "--no-checkout", "--origin", "origin", "--branch", ref, "--", remote, repository)
+		rctx := withRemote(ctx, remote)
+		_, err := Run(rctx, "clone", "--quiet", "--depth", "1", "--single-branch", filter, "--no-checkout", "--origin", "origin", "--branch", ref, "--", remote, repository)
 		if err != nil && ctx.Err() == nil && FullCommit.MatchString(ref) {
 			if removeErr := os.RemoveAll(repository); removeErr != nil {
 				return removeErr
 			}
-			if _, initErr := Run(ctx, "init", "--quiet", repository); initErr != nil {
+			if _, initErr := Run(rctx, "init", "--quiet", repository); initErr != nil {
 				return initErr
 			}
-			if _, remoteErr := Run(ctx, "-C", repository, "remote", "add", "--", "origin", remote); remoteErr != nil {
+			if _, remoteErr := Run(rctx, "-C", repository, "remote", "add", "--", "origin", remote); remoteErr != nil {
 				return remoteErr
 			}
-			if _, fetchErr := Run(ctx, "-C", repository, "fetch", "--quiet", "--no-tags", "--depth", "1", filter, "origin", ref); fetchErr != nil {
+			if _, fetchErr := Run(rctx, "-C", repository, "fetch", "--quiet", "--no-tags", "--depth", "1", filter, "origin", ref); fetchErr != nil {
 				return fetchErr
 			}
-			_, err = Run(ctx, "-C", repository, "update-ref", "--no-deref", "HEAD", "FETCH_HEAD")
+			_, err = Run(rctx, "-C", repository, "update-ref", "--no-deref", "HEAD", "FETCH_HEAD")
 		}
 		return MissingRef(err, ref)
 	}
 	var first error
+	var usedRemote string
 	for i, remote := range remotes {
 		if i > 0 {
 			if err := os.RemoveAll(repository); err != nil {
@@ -79,7 +81,11 @@ func clone(ctx context.Context, remotes []string, ref, subpath string, partial b
 			}
 		}
 		err = cloneFrom(remote)
-		if err == nil || ctx.Err() != nil {
+		if err == nil {
+			usedRemote = remote
+			break
+		}
+		if ctx.Err() != nil {
 			break
 		}
 		if i == 0 {
@@ -91,6 +97,7 @@ func clone(ctx context.Context, remotes []string, ref, subpath string, partial b
 	if err != nil {
 		return result, err
 	}
+	ctx = withRemote(ctx, usedRemote)
 	output, err := Run(ctx, "-C", repository, "rev-parse", "HEAD")
 	if err != nil {
 		return result, err
@@ -169,7 +176,7 @@ func Commits(ctx context.Context, remotes []string, since, head string) ([]sourc
 	}
 	var first error
 	for i, remote := range remotes {
-		_, err = Run(ctx, "-C", repository, "fetch", "--quiet", "--filter=tree:0", "--", remote, head)
+		_, err = Run(withRemote(ctx, remote), "-C", repository, "fetch", "--quiet", "--filter=tree:0", "--", remote, head)
 		if err == nil || ctx.Err() != nil {
 			break
 		}

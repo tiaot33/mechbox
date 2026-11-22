@@ -317,7 +317,7 @@ type SyncPushResult struct {
 }
 
 // SyncPush 把本机的库推送到 S3,作为这台机器的一份新备份:<文件夹>/<设备目录>/library-<推送时间>.db。
-// 推送的是调用时本机库的完整内容(只属于这台机器的同步设置与 WSL 发行版除外)。从不覆盖已有的备份,
+// 推送的是调用时本机库的完整内容(只属于这台机器的同步设置、网络代理与 WSL 发行版除外)。从不覆盖已有的备份,
 // 本机的库和这台机器最新的那份备份内容相同时不新建(Unchanged),免得自动推送用同样的副本占满份数;
 // 只是检查更新时记下的检查时间变了不算变化。
 // 之后删掉这台机器超出保留份数([SyncSettings].Keep)的最旧备份,刚推送的(或 Unchanged 时最新的)那份始终留着;
@@ -490,7 +490,7 @@ func (l *Library) downloadBackup(ctx context.Context, operation string, backup S
 //   - 内置 Agent 与 [Open] 时一样以本机应用为准;全局作用域按本机的用户主目录。
 //   - 设置换成那份备份里的:GitHub 令牌([Library.SetGitHubToken],那份备份里没有时变成没设置)、AI 设置([Library.SetAISettings])
 //     与应用的设置([Library.SetAppSettings])。
-//     只属于这台机器的同步设置([Library.SetSyncSettings])、同步状态([Library.SyncStatus])与 WSL 发行版([Library.SetWSLDistro])保留本机的。
+//     只属于这台机器的同步设置([Library.SetSyncSettings])、同步状态([Library.SyncStatus])、网络代理([Library.SetProxySettings])与 WSL 发行版([Library.SetWSLDistro])保留本机的。
 func (l *Library) SyncPull(ctx context.Context, backup SyncBackupID) (err error) {
 	defer func() { err = typedError(err) }()
 	data, err := l.downloadBackup(ctx, "sync pull", backup)

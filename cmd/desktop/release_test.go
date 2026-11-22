@@ -89,7 +89,7 @@ func newFakeGitHub(t *testing.T, tag string, assets map[string][]byte) *fakeGitH
 }
 
 func (g *fakeGitHub) releases(t *testing.T, current string, target installTarget) *releases {
-	return newReleases(g.server.URL+"/releases/latest/download/"+releaseManifest, current, t.TempDir(), updater.New(stubUpdaterHost{}), func() installTarget { return target })
+	return newReleases(g.server.URL+"/releases/latest/download/"+releaseManifest, current, t.TempDir(), updater.New(stubUpdaterHost{}), func() installTarget { return target }, nil)
 }
 
 const testAsset = "Mechbox-1.2.0-macos-universal.zip"
@@ -219,7 +219,7 @@ func TestInstallReleaseRejectsChecksumMismatch(t *testing.T) {
 }
 
 func TestReleasesDisabledWithoutFeed(t *testing.T) {
-	r := newReleases("", "1.0.0", t.TempDir(), updater.New(stubUpdaterHost{}), func() installTarget { return installTarget{} })
+	r := newReleases("", "1.0.0", t.TempDir(), updater.New(stubUpdaterHost{}), func() installTarget { return installTarget{} }, nil)
 	if status := r.status(); status.Checks {
 		t.Fatalf("status = %+v", status)
 	}
@@ -438,5 +438,66 @@ func TestReleaseDue(t *testing.T) {
 		if got := releaseDue(c.now, c.last, c.checked); got != c.want {
 			t.Errorf("%s: releaseDue = %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+func TestReleaseCheckAndDownloadUseLibraryProxy(t *testing.T) {
+	const assetName = "Mechbox-2.0.0-linux-amd64.AppImage"
+	assetData := []byte("proxied release installer")
+	sum := sha256.Sum256(assetData)
+	manifest, _ := json.Marshal(githubRelease{
+		TagName: "v2.0.0",
+		Body:    "## What's Changed\n- proxy support",
+		HTMLURL: "https://github.com/tiaot33/mechbox/releases/tag/v2.0.0",
+		Assets: []struct {
+			Name string `json:"name"`
+			URL  string `json:"browser_download_url"`
+			Size int64  `json:"size"`
+		}{
+			{Name: assetName, URL: "http://releases.proxy-test.example/download/" + assetName, Size: int64(len(assetData))},
+			{Name: checksumsAsset, URL: "http://releases.proxy-test.example/download/" + checksumsAsset},
+		},
+	})
+	var proxiedPaths []string
+	proxyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxiedPaths = append(proxiedPaths, r.URL.Path)
+		switch r.URL.Path {
+		case "/releases/latest/download/" + releaseManifest:
+			_, _ = w.Write(manifest)
+		case "/download/" + checksumsAsset:
+			fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), assetName)
+		case "/download/" + assetName:
+			_, _ = w.Write(assetData)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer proxyServer.Close()
+
+	lib, err := library.Open(filepath.Join(t.TempDir(), "library.db"), library.WithHomeDirectory(t.TempDir()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lib.Close()
+	if err := lib.SetProxySettings(t.Context(), library.ProxySettings{Mode: library.ProxyManual, URL: proxyServer.URL}); err != nil {
+		t.Fatal(err)
+	}
+
+	r := newReleases("http://releases.proxy-test.example/releases/latest/download/"+releaseManifest, "1.0.0", t.TempDir(), updater.New(stubUpdaterHost{}), func() installTarget { return installTarget{asset: "-linux-amd64.AppImage"} }, library.ProxyFunc(lib))
+	applied := false
+	r.apply = func(context.Context, *updater.Updater, string, string, func()) error {
+		applied = true
+		return nil
+	}
+
+	got, err := r.check(t.Context())
+	if err != nil || got == nil || got.Version != "2.0.0" {
+		t.Fatalf("check via proxy = %+v, %v", got, err)
+	}
+	if err := r.install(t.Context(), "2.0.0", func() {}); err != nil || !applied {
+		t.Fatalf("install via proxy = %v, applied = %v", err, applied)
+	}
+	if len(proxiedPaths) != 3 {
+		t.Fatalf("proxied requests = %v; want manifest, checksums, and asset", proxiedPaths)
 	}
 }

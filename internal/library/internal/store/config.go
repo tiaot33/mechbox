@@ -11,13 +11,14 @@ const (
 	githubTokenKey = "github_token"
 	wslDistroKey   = "wsl_distro"
 	syncPrefix     = "sync."
+	proxyPrefix    = "proxy."
 	appPrefix      = "app."
 	aiPrefix       = "ai."
 )
 
-const machineConfigWhere = `substr(key, 1, length(?)) = ? OR key = ?`
+const machineConfigWhere = `substr(key, 1, length(?)) = ? OR substr(key, 1, length(?)) = ? OR key = ?`
 
-var machineConfigArgs = []any{syncPrefix, syncPrefix, wslDistroKey}
+var machineConfigArgs = []any{syncPrefix, syncPrefix, proxyPrefix, proxyPrefix, wslDistroKey}
 
 type SyncSettings struct {
 	Endpoint, Bucket, Folder, Region, AccessKeyID, SecretAccessKey, SessionToken, Keep, AutoPush string
@@ -61,6 +62,17 @@ func (s *AISettings) fields() []configField {
 		{"model", &s.Model},
 		{"headers", &s.Headers},
 		{"body", &s.Body},
+	}
+}
+
+type ProxySettings struct {
+	Mode, URL string
+}
+
+func (s *ProxySettings) fields() []configField {
+	return []configField{
+		{"mode", &s.Mode},
+		{"url", &s.URL},
 	}
 }
 
@@ -180,6 +192,16 @@ func (q queries) AISettings(ctx context.Context) (AISettings, error) {
 
 func (s *Store) SetAISettings(ctx context.Context, settings AISettings) error {
 	return s.writeConfigFields(ctx, aiPrefix, settings.fields())
+}
+
+func (q queries) ProxySettings(ctx context.Context) (ProxySettings, error) {
+	var settings ProxySettings
+	err := q.readConfigFields(ctx, proxyPrefix, settings.fields())
+	return settings, err
+}
+
+func (s *Store) SetProxySettings(ctx context.Context, settings ProxySettings) error {
+	return s.writeConfigFields(ctx, proxyPrefix, settings.fields())
 }
 
 func (q queries) AppSettings(ctx context.Context) (map[string]string, error) {

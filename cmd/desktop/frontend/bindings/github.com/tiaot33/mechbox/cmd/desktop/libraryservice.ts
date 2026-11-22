@@ -253,6 +253,10 @@ export function PreviewFetch(req: library$0.PreviewFetchRequest): $CancellablePr
     return $Call.ByID(2817557670, req);
 }
 
+export function ProxySettings(): $CancellablePromise<library$0.ProxySettings> {
+    return $Call.ByID(1488928559);
+}
+
 export function RegisterProject(path: string): $CancellablePromise<library$0.RegisteredProject> {
     return $Call.ByID(1972591636, path);
 }
@@ -317,6 +321,10 @@ export function SetGitHubToken(token: string): $CancellablePromise<void> {
     return $Call.ByID(1235509666, token);
 }
 
+export function SetProxySettings(settings: library$0.ProxySettings): $CancellablePromise<void> {
+    return $Call.ByID(1880687735, settings);
+}
+
 export function SetSkillNote(id: library$0.SkillID, note: string): $CancellablePromise<void> {
     return $Call.ByID(443534239, id, note);
 }
@@ -356,6 +364,10 @@ export function SyncSettings(): $CancellablePromise<library$0.SyncSettings> {
 
 export function SyncStatus(): $CancellablePromise<library$0.SyncStatus> {
     return $Call.ByID(189153527);
+}
+
+export function SystemProxy(): $CancellablePromise<library$0.SystemProxy> {
+    return $Call.ByID(3305202969);
 }
 
 export function TestAISettings(settings: library$0.AISettings): $CancellablePromise<void> {

@@ -1454,6 +1454,48 @@ export interface PreviewFetchRequest {
 export type ProjectID = number;
 
 /**
+ * ProxyMode 是技能库联网时选用网络代理的方式。
+ */
+export enum ProxyMode {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    /**
+     * ProxySystem 跟随这台机器的系统代理设置(默认)。
+     */
+    ProxySystem = "system",
+
+    /**
+     * ProxyManual 使用手动填写的代理地址(HTTP、HTTPS 或 SOCKS5)。
+     */
+    ProxyManual = "manual",
+
+    /**
+     * ProxyDirect 不用代理,按进程原本的默认行为联网。
+     */
+    ProxyDirect = "direct",
+};
+
+/**
+ * ProxySettings 是网络代理设置,用 [Library.SetProxySettings] 存进数据库。
+ * 只属于这台机器:推送出去的库里不带,拉回时保留本机的。
+ */
+export interface ProxySettings {
+    /**
+     * Mode 是代理方式;传入时留空为 [ProxySystem],读出的总是三种之一。
+     */
+    "mode"?: ProxyMode;
+
+    /**
+     * URL 是手动填写的代理地址(http://、https://、socks5://、socks5h://,可带用户名密码);
+     * Mode 为 [ProxyManual] 时必填,切到其他模式时保留以便切回。
+     */
+    "url"?: string;
+}
+
+/**
  * RecordedInstall 是一条记录里一处重新安装的结果。
  */
 export interface RecordedInstall {
@@ -2462,6 +2504,27 @@ export interface SyncStatus {
      * 或那次推到的服务地址、存储桶、文件夹和现在的同步设置不同时为零值。应用据此和 [SyncSettings].AutoPush 判断该不该自动推送。
      */
     "last_pushed_at"?: string;
+}
+
+/**
+ * SystemProxy 是这台机器当前启用的静态系统代理,供设置页展示(密码已隐藏)。
+ * 各项均为空时表示当前未检测到系统代理。
+ */
+export interface SystemProxy {
+    /**
+     * HTTP 是系统设置的 HTTP 代理地址。
+     */
+    "http"?: string;
+
+    /**
+     * HTTPS 是系统设置的 HTTPS 代理地址。
+     */
+    "https"?: string;
+
+    /**
+     * SOCKS 是系统设置的 SOCKS5 代理地址。
+     */
+    "socks"?: string;
 }
 
 /**

@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/tiaot33/mechbox/internal/library/internal/process"
 	"github.com/tiaot33/mechbox/internal/library/internal/source"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/discovery"
 	"github.com/tiaot33/mechbox/internal/library/internal/source/download"
@@ -21,14 +20,14 @@ import (
 
 type Catalog struct {
 	kinds     source.Kinds
-	environ   func() []string
+	withCtx   func(context.Context) context.Context
 	github    *github.Client
 	download  download.Kind
 	wellknown wellknown.Kind
 	local     local.Kind
 }
 
-func New(httpClient *http.Client, environ func() []string, maxFiles int, maxBytes int64) *Catalog {
+func New(httpClient *http.Client, withCtx func(context.Context) context.Context, maxFiles int, maxBytes int64) *Catalog {
 	client := github.NewClient(httpClient)
 	direct := download.New(httpClient, maxFiles, maxBytes)
 	known := wellknown.New(httpClient, maxFiles, maxBytes)
@@ -44,13 +43,20 @@ func New(httpClient *http.Client, environ func() []string, maxFiles int, maxByte
 		github:    client,
 		download:  direct,
 		wellknown: known,
-		environ:   environ,
+		withCtx:   withCtx,
 		local:     directory,
 	}
 }
 
+func (c *Catalog) withEnv(ctx context.Context) context.Context {
+	if c.withCtx == nil {
+		return ctx
+	}
+	return c.withCtx(ctx)
+}
+
 func (c *Catalog) Open(ctx context.Context, sourceType string, loc source.Locator, subpath string, hint source.State) (source.Snapshot, error) {
-	snapshot, err := c.kinds.Open(process.WithEnv(ctx, c.environ), sourceType, loc, subpath, hint)
+	snapshot, err := c.kinds.Open(c.withEnv(ctx), sourceType, loc, subpath, hint)
 	return c.wrap(snapshot), err
 }
 
@@ -100,7 +106,7 @@ func classify(input string) inputKind {
 }
 
 func (c *Catalog) Locate(ctx context.Context, in Input, home string) (source.Target, error) {
-	target, err := c.locate(process.WithEnv(ctx, c.environ), in, home)
+	target, err := c.locate(c.withEnv(ctx), in, home)
 	target.Snapshot = c.wrap(target.Snapshot)
 	return target, err
 }
@@ -170,7 +176,7 @@ func (c *Catalog) probe(ctx context.Context, link string, in Input) (source.Targ
 }
 
 func (c *Catalog) Refs(ctx context.Context, input string) (gitcmd.Refs, error) {
-	ctx = process.WithEnv(ctx, c.environ)
+	ctx = c.withEnv(ctx)
 	input = withHTTPS(input)
 	switch classify(input) {
 	case localDirectory, hostedDownload:
