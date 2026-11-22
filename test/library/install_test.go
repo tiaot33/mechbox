@@ -1226,3 +1226,50 @@ func TestUninstallSkillsIsAllOrNothing(t *testing.T) {
 		t.Fatalf("skill scopes = %#v; want none", got)
 	}
 }
+
+// 手填 Agent 的附加全局目录正好在一个已登记项目里:项目里 Claude Code 那一处是指向它全局 foo 的链接,已经记为项目里的安装。
+// 卸载全局的 foo 时,这个链接不是没人管的旧链接,不删,先给它换上独立的一份,项目里照常装着。以前只按同一个目录、同一个项目核对记录,把它删了。
+func TestUninstallKeepsALinkRecordedInAProjectInsideTheHomeDirectory(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	home := t.TempDir()
+	setTestHome(t, home)
+	lib := openTestLibrary(t)
+	repo := filepath.Join(home, "repo")
+	if err := os.MkdirAll(filepath.Join(repo, ".claude", "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	project, err := lib.RegisterProject(ctx, repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent, err := lib.AddAgent(ctx, library.AgentInput{
+		Name: "Custom", GlobalDirectories: []string{filepath.Join(home, ".custom", "skills"), filepath.Join(repo, ".claude", "skills")}, ProjectDirectories: []string{".custom/skills"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	skill := fetchNamedSkill(t, lib, "foo")
+	if err := lib.Install(ctx, skill.ID, library.GlobalScope(agent.Code), library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(repo, ".claude", "skills", "foo")
+	if err := os.Symlink(filepath.Join(home, ".custom", "skills", "foo"), link); err != nil {
+		t.Fatal(err)
+	}
+	projectScope := library.ProjectScope(library.AgentClaudeCode, project.ID)
+	if _, err := lib.ListUnmanagedSkills(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if scopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{Scope: &projectScope}); err != nil || len(scopes) != 1 {
+		t.Fatalf("precondition: the project link should be recorded as an install, got %#v, %v", scopes, err)
+	}
+	if err := lib.Uninstall(ctx, skill.ID, library.GlobalScope(agent.Code), library.UninstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	requireInstalledFolder(t, filepath.Join(repo, ".claude", "skills"), "foo", "# foo\n")
+	inspections, err := lib.InspectSkillScopes(ctx, library.SkillScopeFilter{Scope: &projectScope})
+	if err != nil || len(inspections) != 1 || inspections[0].Status != library.SkillScopeCurrent {
+		t.Fatalf("project install after uninstalling the global one = %#v, %v; want it still current", inspections, err)
+	}
+}

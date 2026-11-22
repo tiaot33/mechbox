@@ -1009,12 +1009,12 @@ func TestAddingMemberSkipsSecondScopeResolvingToTheSameDirectory(t *testing.T) {
 			results, err := lib.AddSkillToGroup(ctx, g.ID, skill.ID)
 			requireMemberResults(t, results, err, []library.GroupMemberResult{
 				{SkillID: skill.ID, Scope: global, Outcome: library.MemberInstalled},
-				skippedMember(skill.ID, sameDirectory, library.FailedPrecondition, library.ErrorDetails{Path: projectDir}),
+				skippedMember(skill.ID, sameDirectory, library.FailedPrecondition, library.ErrorDetails{Path: filepath.Join(projectDir, skill.Name), Name: skill.Name, SkillID: skill.ID}),
 			})
 			requireInstalledFolder(t, globalDir, "shared", "# shared\n")
 			results, err = lib.InstallGroup(ctx, g.ID, sameDirectory, library.InstallOptions{Overwrite: true})
 			requireMemberResults(t, results, err, []library.GroupMemberResult{
-				skippedMember(skill.ID, sameDirectory, library.FailedPrecondition, library.ErrorDetails{Path: projectDir}),
+				skippedMember(skill.ID, sameDirectory, library.FailedPrecondition, library.ErrorDetails{Path: filepath.Join(projectDir, skill.Name), Name: skill.Name, SkillID: skill.ID}),
 			})
 			requireSkillScopes(t, lib, []library.SkillScope{{SkillID: skill.ID, Scope: global, Folder: filepath.Join(globalDir, skill.Name), Groups: []library.GroupID{g.ID}}})
 		})

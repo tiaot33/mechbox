@@ -348,6 +348,13 @@ func (l *Library) foldersElsewhere(ctx context.Context, places []installedPlace)
 		return nil, err
 	}
 	claimed := map[string][]store.Claimant{}
+	type candidate struct {
+		place     int
+		directory int
+	}
+	var candidates []candidate
+	var directories []string
+	recordedAt := map[string][]int{}
 	for i, place := range places {
 		if !place.installed() {
 			continue
@@ -357,11 +364,14 @@ func (l *Library) foldersElsewhere(ctx context.Context, places []installedPlace)
 			if claimed[name], err = l.store.Claimants(ctx, name, 0); err != nil {
 				return nil, err
 			}
-		}
-		recorded := func(directory string) bool {
-			return slices.ContainsFunc(claimed[name], func(other store.Claimant) bool {
-				return other.Directory == directory && sameProject(other.Scope.ProjectID, place.target.ProjectID)
-			})
+			for _, other := range claimed[name] {
+				resolved, err := l.resolveRow(ctx, other.Scope)
+				if err != nil {
+					return nil, err
+				}
+				recordedAt[name] = append(recordedAt[name], len(directories))
+				directories = append(directories, resolved.in(other.Directory).directory)
+			}
 		}
 		var seen []string
 		for _, agent := range agents {
@@ -377,11 +387,20 @@ func (l *Library) foldersElsewhere(ctx context.Context, places []installedPlace)
 				continue
 			}
 			for _, directory := range paths {
-				if directory != place.target.relative && !slices.Contains(seen, directory) && !recorded(directory) {
+				if directory != place.target.relative && !slices.Contains(seen, directory) {
 					seen = append(seen, directory)
-					elsewhere[i] = append(elsewhere[i], agentdir.FolderPath(agentdir.Join(place.target.root, directory), name))
+					candidates = append(candidates, candidate{place: i, directory: len(directories)})
+					directories = append(directories, agentdir.Join(place.target.root, directory))
 				}
 			}
+		}
+	}
+	canonical := agentdir.CanonicalAll(directories)
+	for _, c := range candidates {
+		name := places[c.place].rows[0].Folder
+		recorded := slices.ContainsFunc(recordedAt[name], func(at int) bool { return canonical[at] == canonical[c.directory] })
+		if !recorded {
+			elsewhere[c.place] = append(elsewhere[c.place], agentdir.FolderPath(directories[c.directory], name))
 		}
 	}
 	return elsewhere, nil
