@@ -6,9 +6,10 @@ import { unmanagedSourceError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, foundSource, useFoundSources, type LibraryError } from "@/lib/library";
 import { outsideLinkNote } from "@/lib/unmanaged";
-import { sameNameFetchNote, sameNameInLibrary, skillSourceLabel, twinNote } from "@/lib/same-name";
+import { sameNameFetchNote, sameNameInLibrary, twinNote } from "@/lib/same-name";
 import { scopeKey } from "@/lib/scope";
-import { scopeLabel } from "@/lib/places";
+import { placeNames, scopeLabel } from "@/lib/places";
+import { sourceLabel } from "@/lib/source";
 import { shortPath } from "@/lib/paths";
 import { Modal, ui, useUI } from "@/lib/ui";
 import { flashSkill } from "@/lib/view";
@@ -28,7 +29,7 @@ export async function fetchUnmanaged(skill: UnmanagedSkill) {
   const t = messages().actions;
   const place = scopeLabel(s, skill.scope);
   const library = s.skills.find((x) => x.id === skill.skill_id);
-  const from = library && skillSourceLabel(s, library);
+  const from = library && sourceLabel(s, library.source);
   // 和库里的旧版本一样时说清入库后是旧版本，之后更新、重新安装会换成当前版本。
   const same = library
     ? skill.version_id === library.version_id
@@ -39,7 +40,7 @@ export async function fetchUnmanaged(skill: UnmanagedSkill) {
   const twins = library ? [] : sameNameInLibrary(s, { id: 0, name: skill.name }).map((x) => twinNote(s, x));
   const outside = skill.link_outside && skill.link_target ? outsideLinkNote(shortPath(s, skill.link_target)) : undefined;
   // 别的作用域里是同一个文件夹(这里链过去，或那里链过来，见 UnmanagedSkill.same_folder)的，库一起记为装在那里：确认时说出来。
-  const companions = (skill.same_folder ?? []).map((sc) => scopeLabel(s, sc));
+  const companions = placeNames(s, skill.same_folder ?? []);
   const r = await ui.open<FetchUnmanagedResult>((close) => (
     <FetchUnmanagedDialog place={place} skill={skill} twins={twins} same={same} outside={outside} companions={companions} close={close} />
   ));

@@ -42,6 +42,10 @@ describe("几处", () => {
     expect(placeNames(s, [at(cursor, 1), at(codex, 1), at(claude, 1)])).toEqual(["Codex、Cursor · web", "Claude Code · web"]);
   });
 
+  it("直接给作用域时数的是不分技能的几处", () => {
+    expect(placeCount(s, installs.map((p) => p.scope))).toBe(3);
+  });
+
   it("没有共用目录时一条就是一处", () => {
     expect(placeCount(s, [placed(1, at(claude)), placed(1, at(claude, 1))])).toBe(2);
   });

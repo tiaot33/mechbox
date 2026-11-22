@@ -1,10 +1,12 @@
 // 未纳管技能：归谁管、指向哪里的标注，SKILL.md 哪里写错了，和库里一样但不是 app 装的那一份怎么说。
 import { describe, expect, it } from "vitest";
-import { ScopeKind, SkillFileProblemKind, type Skill, type UnmanagedSkill } from "@bindings/internal/library";
-import { fetchable, folderNotes, identicalState, skillFileProblemText } from "./unmanaged";
+import { ScopeKind, SkillFileProblemKind, type Agent, type Skill, type UnmanagedSkill } from "@bindings/internal/library";
+import type { Snapshot } from "./library";
+import { fetchable, folderNotes, identicalsOf, identicalState, skillFileProblemText } from "./unmanaged";
 
 const where = (agent: string, project_id?: number) =>
   project_id ? { kind: ScopeKind.ScopeProject, agent, project_id } : { kind: ScopeKind.ScopeGlobal, agent };
+const snapshot = (s: Partial<Snapshot>) => ({ agents: [], projects: [], skills: [], unmanaged: [], info: { home_dir: "/home" }, ...s }) as unknown as Snapshot;
 const unmanaged = (name: string, agent: string, project_id?: number) => ({ name, folder: name, scope: where(agent, project_id) }) as UnmanagedSkill;
 
 describe("folderNotes", () => {
@@ -40,5 +42,35 @@ describe("identicalState", () => {
     const state = identicalState({ id: 9, name: "screenshot", version_id: 3 } as Skill, u);
     expect(state.text).toBe("已在库里 · 这一份不是 app 装的");
     expect(state.stale).toBe(false);
+  });
+});
+
+describe("identicalsOf", () => {
+  it("项目里共用一个目录的几个 Agent 那里是同一个文件夹，只算一处", () => {
+    const agents = [
+      { code: "codex", name: "Codex", project_directory: ".agents/skills", detected: true },
+      { code: "cursor", name: "Cursor", project_directory: ".agents/skills", detected: true },
+    ] as Agent[];
+    const copy = (agent: string, project_id?: number) => ({ ...unmanaged("pdf", agent, project_id), skill_id: 9 });
+    const s = snapshot({ agents, agentsShown: {}, unmanaged: [copy("codex", 1), copy("cursor", 1), copy("codex"), unmanaged("other", "codex")] });
+    expect(identicalsOf(s, 9).map((u) => [u.scope.agent, u.scope.project_id ?? 0])).toEqual([
+      ["codex", 1],
+      ["codex", 0],
+    ]);
+  });
+});
+
+describe("identicalState 的悬停说明", () => {
+  const skill = { id: 9, name: "screenshot", version_id: 3 } as Skill;
+  const copy = { ...unmanaged("screenshot", "claude-code", 1), skill_id: 9, version_id: 3 };
+  const lines = (u: UnmanagedSkill) => identicalState(skill, u, "/home").title.split("\n");
+
+  it("Agent 目录之间的符号链接写出指向哪里", () => {
+    expect(lines({ ...copy, link_target: "/home/.agents/skills/screenshot" }).filter((x) => x.startsWith("符号链接"))).toEqual(["符号链接，指向 /home/.agents/skills/screenshot"]);
+  });
+
+  it("指向 Agent 目录以外的只写一遍", () => {
+    const outside = lines({ ...copy, link_outside: true, link_target: "/home/code/drafts/screenshot" });
+    expect(outside.filter((x) => x.startsWith("符号链接"))).toEqual(["符号链接，指向 /home/code/drafts/screenshot：不在任何 Agent 的技能目录里，默认不入库"]);
   });
 });

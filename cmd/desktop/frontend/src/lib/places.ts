@@ -106,25 +106,32 @@ export function sharedWithNote(p: Pick<SkillScopeInspection, "scope" | "shared_w
 // 只说地方、不分技能时(如"这几处链着它")没有 skill_id。
 type Placed = { skill_id?: number; scope: Scope };
 
+// mergedPlaceKey 是一条的身份：哪个技能(只说地方时没有)装在合成后的哪一处。两条的键相同就是界面上的同一处。
+export function mergedPlaceKey(s: AgentList, p: Placed): string {
+  return `${p.skill_id ?? ""}|${mergedScopeKey(s, p.scope)}`;
+}
+
 // eachPlace 是这几条逐处列出时的每一处：一个技能在项目里共用一个文件夹的几个 Agent 那里只算一处(留第一条),保持原来的先后。
 export function eachPlace<T extends Placed>(s: AgentList, items: readonly T[]): T[] {
   const seen = new Set<string>();
   return items.filter((p) => {
-    const key = `${p.skill_id ?? ""}|${mergedScopeKey(s, p.scope)}`;
+    const key = mergedPlaceKey(s, p);
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
 
-// placeCount 是这几条一共几处。
-export function placeCount(s: AgentList, items: readonly Placed[]): number {
-  return eachPlace(s, items).length;
+const placed = (items: readonly (Placed | Scope)[]): Placed[] => items.map((x) => ("scope" in x ? x : { scope: x }));
+
+// placeCount 是这几条一共几处;直接给一串作用域时数的是不分技能的几处。
+export function placeCount(s: AgentList, items: readonly (Placed | Scope)[]): number {
+  return eachPlace(s, placed(items)).length;
 }
 
 // placeNames 是这几条各处的名字(见 scopeLabel),一处只写一次;也可以直接给一串作用域。
 export function placeNames(s: AgentList & Pick<Snapshot, "projects">, items: readonly (Placed | Scope)[]): string[] {
-  return eachPlace(s, items.map((x) => ("scope" in x ? x : { scope: x }))).map((p) => scopeLabel(s, p.scope));
+  return eachPlace(s, placed(items)).map((p) => scopeLabel(s, p.scope));
 }
 
 // ---------- 一个地方列哪些 Agent ----------

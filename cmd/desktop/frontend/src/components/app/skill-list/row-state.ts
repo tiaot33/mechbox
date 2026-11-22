@@ -45,7 +45,7 @@ export interface RowAt {
   fromGlobal?: boolean;
 }
 
-// RowInstall 是作用域页、项目页上一个技能在这一行所在作用域的安装情况(技能库页的行都为空):
+// RowInstall 是一个技能在这一行所在作用域(at;技能库页的行没有)的安装情况，技能库页的行都为空:
 // - here:装在这里的那一处(来自全局的行没有);
 // - identical:这里有一份和它一模一样、不是库装的文件夹(就是这个技能，行首是"入库");
 // - place:最后一列说的那一处，来自全局的是全局那一处，否则是 here;
@@ -53,6 +53,7 @@ export interface RowAt {
 // - foreign:identical 那一份提交在项目仓库里或链到 Agent 目录以外，归团队、归作者自己管，只是内容和库里的一样:
 //   行上不带库里这个技能的组和提醒，免得看上去像是库装过来的那一份，只留这个文件夹自己的同名提醒。
 export interface RowInstall {
+  at?: RowAt;
   here?: SkillScopeInspection;
   identical?: UnmanagedSkill;
   place?: SkillScopeInspection;
@@ -65,19 +66,20 @@ export function rowInstall(s: Snapshot, skill: Skill, at?: RowAt): RowInstall {
   const here = at.fromGlobal ? undefined : skillScopeIn(s, skill.id, at.scope);
   const identical = !here && !at.fromGlobal ? identicalIn(s, at.scope, skill.id) : undefined;
   const place = at.fromGlobal ? globalScopesSeenFrom(s, at.scope).map((key) => skillScopeIn(s, skill.id, key)).find(Boolean) : here;
-  return { here, identical, place, via: (place?.groups ?? []).map((id) => groupName(s, id)), foreign: !!identical && !notTakenOver(identical) };
+  return { at, here, identical, place, via: (place?.groups ?? []).map((id) => groupName(s, id)), foreign: !!identical && !notTakenOver(identical) };
 }
 
-// skillRowState 是库里一个技能一行的状态。at 为空是技能库页：说它装出去的各处;有 at 是作用域页、项目页：只说这一处。
+// skillRowState 是库里一个技能一行的状态;install 是 rowInstall 算出的这一行的安装情况。技能库页的行(没有 at)说它装出去的各处，
+// 作用域页、项目页的行只说这一处。
 // elsewhere 是这里那一份不是库装的文件夹在同一层的别处同名、内容不同的那几处的地名(技能库比出来的，见 same-name 的 useSameNameCopies)。
-export function skillRowState(s: Snapshot, skill: Skill, at: RowAt | undefined, install: RowInstall, elsewhere?: string[]): RowState {
+export function skillRowState(s: Snapshot, skill: Skill, install: RowInstall, elsewhere?: string[]): RowState {
   const t = messages().list;
-  const { here, identical, foreign } = install;
+  const { at, here, identical, foreign } = install;
   // 作用域页说这一处的同名后果;技能库页说它装出去的各处。
   const folder = here?.folder ?? identical?.folder;
   const same = at ? (folder ? sameNameNote(s, at.scope, folder) : undefined) : skillSameNameNote(s, skill.id);
   const own = [same && sameNameAlert(same), sameNameCopiesAlert(skill.name, elsewhere)];
-  const alerts = [...own, ...(foreign ? [] : skillAlerts(s, skill, at, install))].filter((x): x is RowAlert => !!x);
+  const alerts = [...own, ...(foreign ? [] : skillAlerts(s, skill, install))].filter((x): x is RowAlert => !!x);
   if (!at) return { alerts, plain: sourceState(skill).kept ? { text: t.keptDeleted, title: t.keptDeletedTitle } : undefined };
   if (!identical) return { alerts, plain: scopePlain(install, !!at.fromGlobal) };
   // 这里那一份不是 app 装的：先写这一句和归谁管;和库里的旧版本一样时标出来。归项目仓库、作者自己管的不跟库里的版本走，和旧版本一样也不提醒。
@@ -91,7 +93,7 @@ export function skillRowState(s: Snapshot, skill: Skill, at: RowAt | undefined, 
 
 // skillAlerts 是库里这个技能自己的提醒与更新(不算同名):装出去的几处(技能库页)或这一处(作用域页)和当前版本不一样、来源那边的情况、
 // 有你的修改、库里有同名的、目录里改过、提到的技能在这里找不到。
-function skillAlerts(s: Snapshot, skill: Skill, at: RowAt | undefined, { here, place }: RowInstall): (RowAlert | false | undefined)[] {
+function skillAlerts(s: Snapshot, skill: Skill, { at, here, place }: RowInstall): (RowAlert | false | undefined)[] {
   const t = messages().list;
   const places: RowAlert[] = at
     ? place && needsReinstall(place)

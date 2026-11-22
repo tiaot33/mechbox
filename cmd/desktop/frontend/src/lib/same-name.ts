@@ -5,7 +5,7 @@ import { installedWhere } from "./installs";
 import type { Snapshot } from "./library";
 import { shortPath } from "./paths";
 import { parseScope, placeOf, projectName, scopeKey, type ScopeKey } from "./scope";
-import { noSource, sourceLabel } from "./source";
+import { sourceLabel } from "./source";
 import { unmanagedIn } from "./unmanaged";
 
 // ---------- 同一个 Agent 的全局和项目里同名 ----------
@@ -115,14 +115,9 @@ export function sameNameInLibrary(s: Snapshot, skill: Pick<Skill, "id" | "name">
   return s.skills.filter((x) => x.name === skill.name && x.id !== skill.id);
 }
 
-// skillSourceLabel 是技能来自哪个来源的说法：没有来源的写「没有来源」。
-export function skillSourceLabel(s: Snapshot, skill: Skill): string {
-  return noSource(skill.source) ? messages().model.noSource : sourceLabel(s, skill.source);
-}
-
 // twinNote 是库里一个同名技能哪来的、装在哪，供各处的同名提示分辨是哪一个。
 export function twinNote(s: Snapshot, skill: Skill): string {
-  return messages().actions.twin(skillSourceLabel(s, skill), installedWhere(s, skill.id));
+  return messages().actions.twin(sourceLabel(s, skill.source), installedWhere(s, skill.id));
 }
 
 // sameNameFetchNote 说明入库一个和库里技能同名的技能会怎样：不带来源时和库里所有技能比，带来源时只和这个来源里同名的比。

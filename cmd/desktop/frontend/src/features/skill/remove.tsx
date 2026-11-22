@@ -10,7 +10,7 @@ import { currentSnapshot, type Snapshot } from "@/lib/library";
 import { placeCount, placeNames } from "@/lib/places";
 import { skillName } from "@/lib/scope";
 import { skillScopesOf } from "@/lib/installs";
-import { skillSourceLabel } from "@/lib/same-name";
+import { sourceLabel } from "@/lib/source";
 import { twinReplaceScopes } from "@/features/skill/remove-rules";
 import { ChoiceList, Modal, ui } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
@@ -102,7 +102,7 @@ function RemoveTwinDialog({
   const choices = wheres.length ? folderChoices(a.removeTwinFolders(wheres, skill.name, lostEdits(places).length), lost) : undefined;
   return (
     <Modal
-      title={a.removeTwinTitle(skill.name, skillSourceLabel(s, skill))}
+      title={a.removeTwinTitle(skill.name, sourceLabel(s, skill.source))}
       onClose={() => close()}
       footer={
         <>
@@ -120,7 +120,7 @@ function RemoveTwinDialog({
           <input type="checkbox" className="mt-[3px] shrink-0 accent-primary" checked={swap} onChange={(e) => setSwap(e.target.checked)} />
           <div>
             <b className="block font-semibold">{a.replaceTwin}</b>
-            <span className="text-body text-muted-foreground">{a.replaceTwinDesc(kept.name, skillSourceLabel(s, kept), replaceWheres)}</span>
+            <span className="text-body text-muted-foreground">{a.replaceTwinDesc(kept.name, sourceLabel(s, kept.source), replaceWheres)}</span>
           </div>
         </label>
       )}

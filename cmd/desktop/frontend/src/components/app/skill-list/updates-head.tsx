@@ -12,6 +12,7 @@ import { knownRisks, ReadRetries, rememberPlanRisks, snapshotRiskKey } from "@/l
 import { useBusy, useUI } from "@/lib/ui";
 import { riskSummary } from "@/features/update/risks";
 import { openUpdate, updateWithDefaults } from "@/features/update/update";
+import { collectionName } from "@/features/update/update-rules";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -72,7 +73,7 @@ export function UpdatesHead() {
           <div key={c.id} className="update-row flex min-w-0 flex-col gap-0.5 border-t border-row-line pt-2">
             <div className={barRowClass}>
               {/* 名字不跟风险标签抢位置：它的宽度只看自己(最多占一半),风险读回来前后不变。 */}
-              <b className="max-w-1/2 min-w-0 shrink-0 truncate font-semibold">{single ? skills[0].name : sourceLabel(s, c.source)}</b>
+              <b className="max-w-1/2 min-w-0 shrink-0 truncate font-semibold">{collectionName(s, c.id)}</b>
               {/* 风险读回来之后才出现：只占名字后面的空白，放不下时自己截短(悬停看全),不挤名字和按钮。 */}
               {risk && (
                 <Badge tone="warn" className="update-risk min-w-0 shrink" title={`${risk}\n${t.riskTitle}`}>

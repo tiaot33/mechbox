@@ -4,6 +4,7 @@ import { SkillFileProblemKind, type Skill, type SkillFileProblem, type SkillID, 
 import { messages } from "./i18n";
 import type { Snapshot } from "./library";
 import { homePath } from "./paths";
+import { eachPlace } from "./places";
 import { scopeKey, type ScopeKey } from "./scope";
 
 // unmanagedIn 是作用域的技能目录里不是库装的技能文件夹(未纳管技能)。
@@ -79,17 +80,17 @@ export function identicalIn(s: Snapshot, key: ScopeKey, skillID: SkillID): Unman
   return unmanagedIn(s, key).find((u) => u.skill_id === skillID);
 }
 
-// identicalsOf 是各作用域里这个技能的、不是库装的文件夹(见 identicalIn)。
+// identicalsOf 是各处这个技能的、不是库装的文件夹(见 identicalIn),逐处一条：项目里共用一个目录的几个 Agent 那里是同一个文件夹，只算一处。
 export function identicalsOf(s: Snapshot, skillID: SkillID): UnmanagedSkill[] {
-  return s.unmanaged.filter((u) => u.skill_id === skillID);
+  return eachPlace(s, s.unmanaged.filter((u) => u.skill_id === skillID));
 }
 
 // identicalState 是这个技能那一份不是库装的文件夹(identicalIn)怎么说：不是 app 装的，接着写归谁管、指向哪里(folderNotes),
-// 符号链接时 title 里写出指向哪里;stale 表示和库里的旧版本一样。作用域页的行和技能详情的安装表都用它。
+// 符号链接时 title 里写出指向哪里(指向 Agent 目录以外的，folderNotes 已经写了，不再写一遍);stale 表示和库里的旧版本一样。作用域页的行和技能详情的安装表都用它。
 export function identicalState(skill: Skill, u: UnmanagedSkill, home?: string): { text: string; title: string; stale: boolean } {
   const t = messages().list;
   // 归谁管写在前面(在项目仓库里、链到哪里),一眼看得出这一份不是库装过来的。
   const notes = [...folderNotes(u, home), { text: t.identicalHere, title: t.identicalHereTitle(skill.name) }];
-  const titles = [...notes.map((x) => x.title), ...(u.link_target ? [t.linkTitle(u.link_target)] : [])];
+  const titles = [...notes.map((x) => x.title), ...(u.link_target && !u.link_outside ? [t.linkTitle(u.link_target)] : [])];
   return { text: notes.map((x) => x.text).join(" · "), title: titles.join("\n"), stale: u.version_id !== skill.version_id };
 }

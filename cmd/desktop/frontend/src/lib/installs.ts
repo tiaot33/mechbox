@@ -62,9 +62,7 @@ export function installedSummary(s: Snapshot, skillID: SkillID): { text: string;
   ]
     .filter(Boolean)
     .join(m.listSeparator);
-  const title = eachPlace(s, places)
-    .map((p) => scopeLabel(s, p.scope))
-    .join("\n");
+  const title = placeNames(s, places).join("\n");
   return { text, title, bad: places.some(needsRepair) };
 }
 

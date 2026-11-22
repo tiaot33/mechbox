@@ -104,7 +104,7 @@ export function SkillRow(props: {
   // 这一行的状态：技能本身的、它装出去的几处(技能库页)或这一处(作用域页)的提醒与更新，在最后一列只写最要紧的一条，
   // 鼠标停住时逐条列出;一行只有这一个图标。写哪几条见 row-state,这里接上能做的事：有新版本、可能改名时点它打开更新计划，
   // 库里有同名的点它弹出另外几个(来源、装在哪),选一个打开它的详情。
-  const state = skillRowState(s, skill, at, install, elsewhere);
+  const state = skillRowState(s, skill, install, elsewhere);
   const plan = () => void openUpdate(skill.collection_id, { focus: skill.id });
   const alerts: Alert[] = state.alerts.map((x) => ({
     ...x,

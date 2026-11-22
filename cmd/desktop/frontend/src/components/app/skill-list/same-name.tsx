@@ -19,6 +19,6 @@ export function useSameNameCopies(scope: ScopeKey | undefined): SameNameCopies {
   const query = useQuery(sameNameCopiesQuery(scopes));
   if (!scope || scopes.length < 2) return { pending: false, copies: new Map() };
   const found = query.data ? sameNameCopies(query.data, scope) : new Map<string, UnmanagedSkill[]>();
-  const copies = new Map([...found].map(([folder, others]): [string, string[]] => [folder, placeNames(s, others.map((x) => x.scope))]));
+  const copies = new Map([...found].map(([folder, others]): [string, string[]] => [folder, [...new Set(placeNames(s, others))]]));
   return { pending: query.isPending, copies };
 }

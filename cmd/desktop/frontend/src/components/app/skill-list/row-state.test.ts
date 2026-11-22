@@ -52,8 +52,8 @@ const unmanaged = (name: string, scope: Scope, extra: Partial<UnmanagedSkill> = 
 
 const available = { status: UpdateCheckStatus.UpdateAvailable, pending: true };
 // libraryRow 是技能库页的一行，scopeRow 是作用域页、项目页的一行。
-const libraryRow = (s: Snapshot, x: Skill) => skillRowState(s, x, undefined, rowInstall(s, x));
-const scopeRow = (s: Snapshot, x: Skill, where: RowAt, elsewhere?: string[]) => skillRowState(s, x, where, rowInstall(s, x, where), elsewhere);
+const libraryRow = (s: Snapshot, x: Skill) => skillRowState(s, x, rowInstall(s, x));
+const scopeRow = (s: Snapshot, x: Skill, where: RowAt, elsewhere?: string[]) => skillRowState(s, x, rowInstall(s, x, where), elsewhere);
 const labels = (state: { alerts: { label: string }[] }) => state.alerts.map((a) => a.label);
 
 describe("技能库页一行的状态", () => {

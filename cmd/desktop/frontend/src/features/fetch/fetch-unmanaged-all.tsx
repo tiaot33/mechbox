@@ -15,7 +15,7 @@ import { describeError, unmanagedSourceError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { toLibraryError, useFoundSources, useLoadedSnapshot, withFoundSource } from "@/lib/library";
 import { fetchPlan, sameFolderElsewhere, toggleFetchGroup } from "@/lib/consent";
-import { agentNameIn, scopeLabel } from "@/lib/places";
+import { agentNameIn, placeNames, scopeLabel } from "@/lib/places";
 import { homePath } from "@/lib/paths";
 import { outsideLinkNote, skillFileProblemText } from "@/lib/unmanaged";
 import { placeOf, scopeOf } from "@/lib/scope";
@@ -149,7 +149,7 @@ function FetchUnmanagedDialog({
     t.agents([...new Set(foldersOf(planned).map((f) => placeName(f.scope)))]);
   // 一并记下的别处可能不在这次的范围里，写成完整的作用域。
   const projects = useLoadedSnapshot()?.projects ?? (where.kind === "everywhere" ? where.projects : where.kind === "project" ? [where.project] : []);
-  const sameFolder = (planned: PlannedUnmanagedSkill) => sameFolderElsewhere(planned).map((sc) => scopeLabel({ agents, agentsShown, projects }, sc));
+  const sameFolder = (planned: PlannedUnmanagedSkill) => placeNames({ agents, agentsShown, projects }, sameFolderElsewhere(planned));
 
   // 按来源分组、同名不同内容的单列，见 fetchGroups。
   const { usable, unusable, conflicts, ordered } = fetchGroups(plan);
