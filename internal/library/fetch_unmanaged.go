@@ -209,10 +209,15 @@ func (l *Library) withSameFolders(ctx context.Context, operation string, folders
 	if err != nil {
 		return nil, err
 	}
-	same := indexSameFolders(found, l.committedFolders(), l.sourceRecords())
+	same := sameFolders{folders: found, committed: l.committedFolders(), records: l.sourceRecords()}
+	paths := make([]string, len(folders))
+	for i, folder := range folders {
+		paths[i] = folder.path
+	}
+	canonical := agentdir.CanonicalAll(paths)
 	result := slices.Clone(folders)
-	for _, folder := range folders {
-		for _, other := range same.of(ctx, folder.target, folder.path) {
+	for i, folder := range folders {
+		for _, other := range same.of(ctx, folder.target, canonical[i]) {
 			if slices.ContainsFunc(result, func(listed unmanagedFolder) bool {
 				return listed.target.scope() == other.target.scope() || listed.target.sharesFolderWith(other.target)
 			}) {

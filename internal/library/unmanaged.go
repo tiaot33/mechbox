@@ -182,9 +182,9 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 			return nil, err
 		}
 	}
-	same := indexSameFolders(everywhere, committed, records)
+	same := sameFolders{folders: everywhere, committed: committed, records: records}
 	for i, entry := range entries {
-		for _, other := range same.of(ctx, entry.found.target, entry.Folder) {
+		for _, other := range same.of(ctx, entry.found.target, entry.found.canonical) {
 			entries[i].SameFolder = append(entries[i].SameFolder, other.target.scope())
 		}
 	}
@@ -222,26 +222,14 @@ func (c committedFolders) has(ctx context.Context, target resolvedScope, name st
 
 type sameFolders struct {
 	folders   []scopeFolder
-	real      []string
 	committed committedFolders
 	records   *sourceRecords
 }
 
-func indexSameFolders(folders []scopeFolder, committed committedFolders, records *sourceRecords) sameFolders {
-	index := sameFolders{folders: folders, real: make([]string, len(folders)), committed: committed, records: records}
-	for i, found := range folders {
-		if found.skillID == 0 {
-			index.real[i] = agentdir.Canonical(found.Path)
-		}
-	}
-	return index
-}
-
-func (s sameFolders) of(ctx context.Context, target resolvedScope, path string) []scopeFolder {
-	real := agentdir.Canonical(path)
+func (s sameFolders) of(ctx context.Context, target resolvedScope, canonical string) []scopeFolder {
 	var same []scopeFolder
-	for i, other := range s.folders {
-		if other.skillID != 0 || s.real[i] != real || other.target.scope() == target.scope() || target.sharesFolderWith(other.target) {
+	for _, other := range s.folders {
+		if other.skillID != 0 || other.canonical != canonical || other.target.scope() == target.scope() || target.sharesFolderWith(other.target) {
 			continue
 		}
 		if inRepository, err := s.committed.has(ctx, other.target, other.Name); err != nil || inRepository {
@@ -401,8 +389,9 @@ func skillName(folder agentdir.Folder) string {
 
 type scopeFolder struct {
 	agentdir.Folder
-	target  resolvedScope
-	skillID SkillID
+	target    resolvedScope
+	canonical string
+	skillID   SkillID
 }
 
 func (l *Library) scopeFolders(ctx context.Context, only map[Scope]bool) ([]scopeFolder, error) {
@@ -434,13 +423,18 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 	for _, skillScope := range installed {
 		claimed[folder{skillScope.Scope, agentdir.FolderName(skillScope.Folder)}] = skillScope.SkillID
 	}
-	var folders []scopeFolder
 	type rootCheck struct {
 		missing *Error
 		err     error
 	}
 	roots := map[string]rootCheck{}
-	unlisted := map[string]bool{}
+	type listing struct {
+		row    store.Scope
+		target resolvedScope
+	}
+	var listings []listing
+	var directories []string
+	seen := map[string]bool{}
 	for _, agent := range agents {
 		rows := []store.Scope{{Agent: agent.Code}}
 		for _, project := range projects {
@@ -469,20 +463,43 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 			if err != nil || missing != nil {
 				continue
 			}
-			if unlisted[target.directory] {
-				continue
+			if !seen[target.directory] {
+				seen[target.directory] = true
+				directories = append(directories, target.directory)
 			}
-			listed, err := agentdir.List(target.directory)
-			if err != nil && skipUnreadable {
-				unlisted[target.directory] = true
-				continue
-			}
-			if err != nil {
-				return nil, err
-			}
-			for _, found := range listed {
-				folders = append(folders, scopeFolder{Folder: found, target: target, skillID: claimed[folder{scopeFrom(row), found.Name}]})
-			}
+			listings = append(listings, listing{row: row, target: target})
+		}
+	}
+	canonical := map[string]string{}
+	for i, directory := range agentdir.CanonicalAll(directories) {
+		canonical[directories[i]] = directory
+	}
+	type listed struct {
+		folders []agentdir.Folder
+		err     error
+	}
+	lists := map[string]listed{}
+	var folders []scopeFolder
+	for _, each := range listings {
+		directory := canonical[each.target.directory]
+		list, ok := lists[directory]
+		if !ok {
+			list.folders, list.err = agentdir.List(each.target.directory)
+			lists[directory] = list
+		}
+		if list.err != nil && skipUnreadable {
+			continue
+		}
+		if list.err != nil {
+			return nil, list.err
+		}
+		for _, found := range list.folders {
+			own := found
+			own.Path = agentdir.FolderPath(each.target.directory, found.Name)
+			folders = append(folders, scopeFolder{
+				Folder: own, target: each.target, canonical: cmp.Or(found.Target, agentdir.FolderPath(directory, found.Name)),
+				skillID: claimed[folder{scopeFrom(each.row), found.Name}],
+			})
 		}
 	}
 	return folders, nil

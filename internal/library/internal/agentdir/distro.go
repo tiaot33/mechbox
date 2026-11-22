@@ -70,7 +70,9 @@ one() {
 	if [ -L "$1" ]; then t=l; elif [ -d "$1" ]; then t=d; elif [ -e "$1" ]; then t=o; else t=-; fi
 	r=
 	if [ "$t" = l ] && [ -e "$1" ]; then r=$(readlink -f -- "$1") || r=; fi
-	printf '%s\0%s\0' "$t" "$r"
+	y=
+	if [ -d "$1" ]; then y=d; fi
+	printf '%s\0%s\0%s\0' "$t" "$r" "$y"
 	key "$1"
 	h=$1
 	i=0
@@ -294,10 +296,6 @@ func (d distro) within(directories []string) func(string) bool {
 	}
 }
 
-func (d distro) canonical(p string) string {
-	return d.canonicalAll([]string{p})[0]
-}
-
 func (d distro) canonicalAll(paths []string) []string {
 	canonical := make([]string, len(paths))
 	args := make([]string, len(paths))
@@ -396,6 +394,11 @@ func (p *inspection) next(folder string, read bool) (FolderState, bool, error) {
 	if err != nil {
 		return state, false, err
 	}
+	directory, err := p.field()
+	if err != nil {
+		return state, false, err
+	}
+	state.Directory = directory == "d"
 	if state.key, err = p.key(); err != nil {
 		return state, false, err
 	}

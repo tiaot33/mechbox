@@ -164,7 +164,7 @@ func TestDistroStatFoldersFollowsLinks(t *testing.T) {
 	link := filepath.Join(home, ".claude/skills/shared")
 	target := filepath.Join(home, ".agents/skills/shared")
 	symlink(t, link, filepath.Join(home, "second"))
-	paths := []string{filepath.Join(home, "second"), link, target, filepath.Join(home, ".claude/skills/dangling"), filepath.Join(home, "missing")}
+	paths := []string{filepath.Join(home, "second"), link, target, filepath.Join(home, ".claude/skills/dangling"), filepath.Join(home, "missing"), filepath.Join(home, ".claude/skills/own/SKILL.md")}
 	for _, convert := range []func(string) string{func(p string) string { return p }, unc} {
 		var folders []string
 		for _, p := range paths {
@@ -180,6 +180,9 @@ func TestDistroStatFoldersFollowsLinks(t *testing.T) {
 		}
 		if dangling.LinkTarget != convert(filepath.Join(home, "nowhere")) || !dangling.Exists || dangling.Resolves || missing.Exists || !second.Resolves {
 			t.Errorf("dangling %+v, missing %+v", dangling, missing)
+		}
+		if file := states[5]; !second.Directory || !linked.Directory || !real.Directory || dangling.Directory || missing.Directory || !file.Resolves || file.Directory {
+			t.Errorf("Directory: %v %v %v %v %v %v", second.Directory, linked.Directory, real.Directory, dangling.Directory, missing.Directory, file.Directory)
 		}
 		if !second.LinksThrough(linked) || !second.LinksThrough(real) || linked.LinksThrough(second) || real.LinksThrough(linked) {
 			t.Error("LinksThrough follows the chain")
@@ -276,6 +279,17 @@ func TestDistroPathQueries(t *testing.T) {
 	}
 	if got := Canonical(unc(filepath.Join(link, "new/deeper"))); got != unc(filepath.Join(target, "new/deeper")) {
 		t.Errorf("Canonical = %q", got)
+	}
+	paths := []string{filepath.Join(link, "new/deeper"), target, filepath.Join(home, ".claude/../.claude/skills/shared"), filepath.Join(home, "missing/x")}
+	var mixed []string
+	for _, path := range paths {
+		mixed = append(mixed, unc(path), path)
+	}
+	all := CanonicalAll(mixed)
+	for i, path := range mixed {
+		if want := Canonical(path); all[i] != want {
+			t.Errorf("CanonicalAll[%d] = %q, Canonical(%q) = %q", i, all[i], path, want)
+		}
 	}
 	if !Inside(unc(home), unc(filepath.Join(link, "x"))) || Inside(unc(filepath.Join(home, ".claude")), unc(filepath.Join(link, "x"))) {
 		t.Error("Inside compares canonical paths")

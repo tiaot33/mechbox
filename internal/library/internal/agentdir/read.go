@@ -42,6 +42,7 @@ type FolderState struct {
 	Path       string
 	Exists     bool
 	Resolves   bool
+	Directory  bool
 	LinkTarget string
 	Files      []skillfile.File
 	NoModes    bool
@@ -210,5 +211,29 @@ func SameFolder(a, b string) bool {
 }
 
 func Canonical(path string) string {
-	return on(path).canonical(path)
+	return CanonicalAll([]string{path})[0]
+}
+
+func CanonicalAll(paths []string) []string {
+	canonical := make([]string, len(paths))
+	groups := map[string][]int{}
+	var order []string
+	for i, path := range paths {
+		key := on(path).key()
+		if _, ok := groups[key]; !ok {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], i)
+	}
+	for _, key := range order {
+		indexes := groups[key]
+		group := make([]string, len(indexes))
+		for i, index := range indexes {
+			group[i] = paths[index]
+		}
+		for i, path := range on(group[0]).canonicalAll(group) {
+			canonical[indexes[i]] = path
+		}
+	}
+	return canonical
 }

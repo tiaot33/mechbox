@@ -121,6 +121,14 @@ func nativeWithin(path, directory string) (bool, bool) {
 	}
 }
 
+func (n native) canonicalAll(paths []string) []string {
+	canonical := make([]string, len(paths))
+	for i, path := range paths {
+		canonical[i] = n.canonical(path)
+	}
+	return canonical
+}
+
 func (native) canonical(path string) string {
 	current, rest := filepath.Clean(path), ""
 	for {
@@ -145,7 +153,8 @@ func (native) inspect(ctx context.Context, folders []string, read *limits, visit
 		if err != nil && read != nil {
 			return fmt.Errorf("inspect target folder: %w", err)
 		}
-		state := FolderState{Path: folder, Exists: exists, Resolves: Resolves(folder), LinkTarget: LinkTarget(folder)}
+		resolved, err := native{}.stat(folder)
+		state := FolderState{Path: folder, Exists: exists, Resolves: err == nil, Directory: err == nil && resolved.dir, LinkTarget: LinkTarget(folder)}
 		for _, path := range LinkChain(folder) {
 			state.chain = append(state.chain, hop{path: path})
 		}

@@ -126,8 +126,7 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 	inspections := make([]SkillScopeInspection, len(skillScopes))
 	heads := make([]int64, len(skillScopes))
 	rootsMissing := map[string]bool{}
-	var folders, absent []string
-	var indexes, absentIndexes []int
+	var present, absent folderGroups
 	skills := map[SkillID]bool{}
 	for i, skillScope := range skillScopes {
 		inspections[i].SkillScope = skillScope
@@ -152,12 +151,10 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 		heads[i] = head
 		if missing {
 			inspections[i].Status = SkillScopeRootMissing
-			absent = append(absent, folder)
-			absentIndexes = append(absentIndexes, i)
+			absent.add(folder, i)
 			continue
 		}
-		folders = append(folders, folder)
-		indexes = append(indexes, i)
+		present.add(folder, i)
 	}
 	latests, err := l.store.SourceLatests(ctx)
 	if err != nil {
@@ -168,34 +165,37 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 		latest[SkillID(each.SkillID)] = each.Content
 	}
 	states := make([]agentdir.FolderState, len(skillScopes))
-	err = agentdir.ReadFolders(ctx, folders, maxFetchFiles, maxFetchSize, func(index int, state agentdir.FolderState) error {
-		i := indexes[index]
-		status, versionID, err := l.folderStatus(ctx, skillScopes[i].SkillID, heads[i], state)
-		if err != nil {
-			return err
-		}
-		inspections[i].Status, inspections[i].VersionID, inspections[i].LinkTarget = status, versionID, state.LinkTarget
-		if content, ok := latest[skillScopes[i].SkillID]; ok && status == SkillScopeModified && state.Err == nil {
-			sum, err := diskOf(state).sum(ctx, l.store, heads[i])
+	err = agentdir.ReadFolders(ctx, present.folders, maxFetchFiles, maxFetchSize, func(index int, state agentdir.FolderState) error {
+		for _, i := range present.indexes[index] {
+			status, versionID, err := l.folderStatus(ctx, skillScopes[i].SkillID, heads[i], state)
 			if err != nil {
 				return err
 			}
-			inspections[i].SourceLatest = sum == content
+			inspections[i].Status, inspections[i].VersionID, inspections[i].LinkTarget = status, versionID, state.LinkTarget
+			if content, ok := latest[skillScopes[i].SkillID]; ok && status == SkillScopeModified && state.Err == nil {
+				sum, err := diskOf(state).sum(ctx, l.store, heads[i])
+				if err != nil {
+					return err
+				}
+				inspections[i].SourceLatest = sum == content
+			}
+			states[i] = state
+			states[i].Files = nil
 		}
-		state.Files = nil
-		states[i] = state
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	absentStates, err := agentdir.StatFolders(ctx, absent)
+	absentStates, err := agentdir.StatFolders(ctx, absent.folders)
 	if err != nil {
 		return nil, err
 	}
 	for index, state := range absentStates {
-		states[absentIndexes[index]] = state
-		inspections[absentIndexes[index]].LinkTarget = state.LinkTarget
+		for _, i := range absent.indexes[index] {
+			states[i] = state
+			inspections[i].LinkTarget = state.LinkTarget
+		}
 	}
 	if len(skills) == 0 {
 		return inspections, nil
@@ -216,6 +216,26 @@ func (l *Library) inspectSkillScopes(ctx context.Context, operation string, skil
 		}
 	}
 	return inspections, nil
+}
+
+type folderGroups struct {
+	folders []string
+	indexes [][]int
+	at      map[string]int
+}
+
+func (g *folderGroups) add(folder string, index int) {
+	at, ok := g.at[folder]
+	if !ok {
+		if g.at == nil {
+			g.at = map[string]int{}
+		}
+		at = len(g.folders)
+		g.at[folder] = at
+		g.folders = append(g.folders, folder)
+		g.indexes = append(g.indexes, nil)
+	}
+	g.indexes[at] = append(g.indexes[at], index)
 }
 
 func (l *Library) installedFolder(ctx context.Context, id SkillID, target resolvedScope) (string, int64, error) {

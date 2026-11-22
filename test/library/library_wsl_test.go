@@ -3,7 +3,6 @@
 package library_test
 
 import (
-	"bytes"
 	"fmt"
 	"maps"
 	"os"
@@ -201,10 +200,7 @@ func TestWSLDistroProjects(t *testing.T) {
 func TestWSLDistroReadsManyFoldersInFewCommands(t *testing.T) {
 	lib, home := openWSLLibrary(t)
 	ctx := t.Context()
-	log := filepath.Join(t.TempDir(), "requests")
-	shell := filepath.Join(t.TempDir(), "sh")
-	writeFile(t, shell, []byte("#!/bin/sh\ntee -a '"+log+"' | sh\n"), 0o755)
-	platformtest.EmulateWSL(t, shell)
+	log := recordWSLCommands(t)
 	codex := library.GlobalScope(library.AgentCodex)
 	claude := library.GlobalScope(library.AgentClaudeCode)
 	add := func(from, to int) {
@@ -271,13 +267,280 @@ func TestWSLDistroReadsManyFoldersInFewCommands(t *testing.T) {
 	}
 }
 
+// recordWSLCommands 让充当发行版的 sh 把收到的每条命令追加进一个文件,返回这个文件。
+func recordWSLCommands(t *testing.T) string {
+	t.Helper()
+	log := filepath.Join(t.TempDir(), "requests")
+	shell := filepath.Join(t.TempDir(), "sh")
+	writeFile(t, shell, []byte("#!/bin/sh\ntee -a '"+log+"' | sh\n"), 0o755)
+	platformtest.EmulateWSL(t, shell)
+	return log
+}
+
 func wslCommands(t *testing.T, log string) int {
+	t.Helper()
+	return len(wslCommandsSince(t, log, 0))
+}
+
+// wslCommandsDuring 返回 run 执行期间往发行版发的每条命令(参数加脚本)。
+func wslCommandsDuring(t *testing.T, log string, run func()) []string {
+	t.Helper()
+	before := wslCommands(t, log)
+	run()
+	return wslCommandsSince(t, log, before)
+}
+
+func wslCommandsSince(t *testing.T, log string, skip int) []string {
 	t.Helper()
 	content, err := os.ReadFile(log)
 	if err != nil && !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
-	return bytes.Count(content, []byte("\nset --"))
+	var commands []string
+	for _, command := range strings.Split(string(content), "\nset --")[1:] {
+		// 每条命令末尾取输出长度时也有一句 set --,它不是一条新命令。
+		if !strings.HasPrefix(command, " $(wc -c") {
+			commands = append(commands, command)
+		}
+	}
+	return commands[min(skip, len(commands)):]
+}
+
+// 往发行版发的几种命令的脚本里各有一句别的脚本没有的,按它数命令。
+const (
+	wslListCommand      = `[ -f "$e/SKILL.md" ]`
+	wslCanonicalCommand = `rest=$(basename -- "$c")`
+	wslInspectCommand   = `printf 'irregular\0'`
+)
+
+func countWSLCommands(commands []string, script string) int {
+	count := 0
+	for _, command := range commands {
+		if strings.Contains(command, script) {
+			count++
+		}
+	}
+	return count
+}
+
+// 几个 Agent 共用 .agents/skills(其中一个经符号链接指过去的别的写法),登记了几个项目:列未纳管技能、同名技能时,
+// 规范化后相同的目录只列一次,规范化一次批量做完;每个作用域里的路径仍是它自己的写法。
+func TestWSLDistroListsSharedDirectoryOnce(t *testing.T) {
+	lib, home := openWSLLibrary(t)
+	ctx := t.Context()
+	log := recordWSLCommands(t)
+	sharing := []library.AgentCode{library.AgentCodex}
+	directories := map[library.AgentCode]string{library.AgentCodex: ".agents/skills"}
+	for i := range 3 {
+		agent, err := lib.AddAgent(ctx, library.CustomAgent{Name: fmt.Sprintf("Shared %d", i), GlobalDirectory: "~/.agents/skills", ProjectDirectory: ".agents/skills"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sharing = append(sharing, agent.Code)
+		directories[agent.Code] = ".agents/skills"
+	}
+	alias, err := lib.AddAgent(ctx, library.CustomAgent{Name: "Alias", GlobalDirectory: "~/.alias/skills", ProjectDirectory: ".alias/skills"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sharing = append(sharing, alias.Code)
+	directories[alias.Code] = ".alias/skills"
+	layout := func(root string) {
+		writeFile(t, filepath.Join(root, ".agents/skills/dup/SKILL.md"), []byte(skillDocument("dup", "v1")), 0o644)
+		if err := os.Symlink(".agents", filepath.Join(root, ".alias")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	layout(home)
+	var projects []library.RegisteredProject
+	for range 5 {
+		root, err := filepath.EvalSymlinks(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		layout(root)
+		project, err := lib.RegisterProject(ctx, wslPath(t, root))
+		if err != nil {
+			t.Fatal(err)
+		}
+		projects = append(projects, project)
+	}
+	scopeIn := func(agent library.AgentCode, project library.ProjectID) library.Scope {
+		if project == 0 {
+			return library.GlobalScope(agent)
+		}
+		return library.ProjectScope(agent, project)
+	}
+	folderIn := func(agent library.AgentCode, project *library.RegisteredProject) string {
+		root := home
+		if project != nil {
+			root = strings.TrimPrefix(strings.ReplaceAll(project.Path, `\`, "/"), "//wsl.localhost/"+t.Name())
+		}
+		return wslPath(t, filepath.Join(root, directories[agent], "dup"))
+	}
+	// 共用的 .agents/skills 在主目录和每个项目里各一个,Claude Code 的 .claude/skills 也各一个。
+	distinct := 2 * (1 + len(projects))
+
+	var unmanaged []library.UnmanagedSkill
+	commands := wslCommandsDuring(t, log, func() {
+		if unmanaged, err = lib.ListUnmanagedSkills(ctx); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if got := countWSLCommands(commands, wslListCommand); got != distinct {
+		t.Errorf("ListUnmanagedSkills listed %d directories, want %d", got, distinct)
+	}
+	// 一次给列出的目录规范化,一次给判断链接是否指向 Agent 目录外面。
+	if got := countWSLCommands(commands, wslCanonicalCommand); got != 2 {
+		t.Errorf("ListUnmanagedSkills ran %d canonical commands, want 2", got)
+	}
+	var want []string
+	for _, agent := range sharing {
+		want = append(want, folderIn(agent, nil))
+		for i := range projects {
+			want = append(want, folderIn(agent, &projects[i]))
+		}
+	}
+	var got []string
+	for _, skill := range unmanaged {
+		got = append(got, skill.Folder)
+		if skill.Scope.Agent == alias.Code && !slices.Contains(skill.SameFolder, scopeIn(library.AgentCodex, skill.Scope.ProjectID)) {
+			t.Errorf("%s: SameFolder = %v, want it to include Codex", skill.Folder, skill.SameFolder)
+		}
+		if skill.Scope.Agent == library.AgentCodex && !slices.Equal(skill.SameFolder, []library.Scope{scopeIn(alias.Code, skill.Scope.ProjectID)}) {
+			t.Errorf("%s: SameFolder = %v, want only the alias", skill.Folder, skill.SameFolder)
+		}
+	}
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("unmanaged folders = %q\nwant %q", got, want)
+	}
+
+	var same []library.SameNameSkill
+	commands = wslCommandsDuring(t, log, func() {
+		if same, err = lib.ListSameNameSkills(ctx); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if got := countWSLCommands(commands, wslListCommand); got != distinct {
+		t.Errorf("ListSameNameSkills listed %d directories, want %d", got, distinct)
+	}
+	if got := countWSLCommands(commands, wslCanonicalCommand); got != 1 {
+		t.Errorf("ListSameNameSkills ran %d canonical commands, want 1", got)
+	}
+	if len(same) != len(sharing)*len(projects) {
+		t.Fatalf("same-name skills = %+v", same)
+	}
+	for _, skill := range same {
+		project := projects[slices.IndexFunc(projects, func(p library.RegisteredProject) bool { return p.ID == skill.ProjectID })]
+		if skill.Global.Folder != folderIn(skill.Agent, nil) || skill.Project.Folder != folderIn(skill.Agent, &project) {
+			t.Errorf("same-name skill = %+v", skill)
+		}
+	}
+}
+
+// 70 多个 Agent 时:检测一条命令查完全部检测目录;巡检时几个 Agent 共用的同一个文件夹只读一次,每一处都给出状态。
+func TestWSLDistroDetectsAndInspectsManyAgentsInBatches(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	setTestHome(t, home)
+	t.Setenv("HOME", home)
+	log := recordWSLCommands(t)
+	path := filepath.Join(t.TempDir(), "library.db")
+	if err := openTestLibraryAt(t, path).Close(); err != nil {
+		t.Fatal(err)
+	}
+	const pool, sharing = 72, 10
+	detected := map[library.AgentCode]bool{library.AgentClaudeCode: false, library.AgentCodex: true}
+	writeFile(t, filepath.Join(home, ".codex/config.toml"), nil, 0o644)
+	for i := range pool {
+		code, detect := fmt.Sprintf("pool-%02d", i), fmt.Sprintf(".pool-%02d", i)
+		directory := detect + "/skills"
+		if i < sharing {
+			directory = ".agents/skills"
+		}
+		editLibraryFixture(t, path, `INSERT INTO agents(code, name, global_path, project_path, detect_path) VALUES (?, ?, ?, ?, ?)`, code, code, directory, directory, detect)
+		switch {
+		case i == 4:
+			if err := os.Symlink(".codex", filepath.Join(home, detect)); err != nil {
+				t.Fatal(err)
+			}
+			detected[library.AgentCode(code)] = true
+		case i%3 == 0:
+			if err := os.MkdirAll(filepath.Join(home, detect), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			detected[library.AgentCode(code)] = true
+		case i%3 == 1:
+			writeFile(t, filepath.Join(home, detect), nil, 0o644)
+			detected[library.AgentCode(code)] = false
+		default:
+			detected[library.AgentCode(code)] = false
+		}
+	}
+	lib := openTestLibraryAt(t, path)
+	ctx := t.Context()
+	if err := lib.SetWSLDistro(ctx, t.Name()); err != nil {
+		t.Fatal(err)
+	}
+
+	var agents []library.Agent
+	commands := wslCommandsDuring(t, log, func() {
+		if agents, err = lib.ListAgents(ctx); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if len(commands) != 1 {
+		t.Errorf("ListAgents ran %d commands, want 1", len(commands))
+	}
+	got := map[library.AgentCode]bool{}
+	for _, agent := range agents {
+		got[agent.Code] = agent.Detected
+	}
+	if !maps.Equal(got, detected) {
+		t.Fatalf("detected = %v\nwant %v", got, detected)
+	}
+
+	skill := fetchNamedSkill(t, lib, "shared")
+	if err := lib.Install(ctx, skill.ID, library.GlobalScope(library.AgentCodex), library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	var inspections []library.SkillScopeInspection
+	commands = wslCommandsDuring(t, log, func() {
+		if inspections, err = lib.InspectSkillScopes(ctx, library.SkillScopeFilter{}); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if len(inspections) != 1+sharing {
+		t.Fatalf("inspections = %+v", inspections)
+	}
+	for _, inspection := range inspections {
+		if inspection.Status != library.SkillScopeCurrent || inspection.Folder != wslPath(t, filepath.Join(home, ".agents/skills/shared")) {
+			t.Errorf("%s %s: %s", inspection.Scope.Agent, inspection.Folder, inspection.Status)
+		}
+	}
+	folder := "'" + filepath.Join(home, ".agents/skills/shared") + "'"
+	reads := 0
+	for _, command := range commands {
+		if strings.Contains(command, wslInspectCommand) && !strings.HasPrefix(command, " '-'") {
+			reads += strings.Count(command, folder)
+		}
+	}
+	if reads != 1 {
+		t.Errorf("InspectSkillScopes read the shared folder %d times, want 1", reads)
+	}
+
+	commands = wslCommandsDuring(t, log, func() {
+		if _, err := lib.ListSameNameSkills(ctx); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if got := countWSLCommands(commands, wslCanonicalCommand); got != 1 {
+		t.Errorf("ListSameNameSkills ran %d canonical commands, want 1", got)
+	}
 }
 
 func TestWSLDistroUnavailable(t *testing.T) {
