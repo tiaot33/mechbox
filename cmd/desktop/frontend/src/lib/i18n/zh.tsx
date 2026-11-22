@@ -791,7 +791,7 @@ export const zh = {
     sameAsLibrary: (name: string) => `和库里的「${name}」一样`,
     sourceLatestOf: (name: string) => `库里「${name}」的新版`,
     sourceLatestOfTitle: (name: string) =>
-      `这里是作者的新版，在 app 外更新过。点「更新」把库里的「${name}」换成这一版，之后这一份就和库里的一样，再入库只记下装在这里`,
+      `这里是作者的新版，在 app 外更新过。点「更新」把库里的「${name}」换成这一版，之后这一份就和库里的一样，自动记为装在这里`,
     statGlobal: "来自全局",
     statStale: "需重新安装",
     statEdited: "被手动改过",

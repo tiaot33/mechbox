@@ -829,7 +829,7 @@ export const en = {
     sameAsLibrary: (name: string) => `Same as “${name}” in the Library`,
     sourceLatestOf: (name: string) => `Newer version of “${name}”`,
     sourceLatestOfTitle: (name: string) =>
-      `This is the author’s newer version, updated outside the app. Click “Update” to bring “${name}” in the Library to this version; then this copy matches the Library, and fetching it only records where it is installed`,
+      `This is the author’s newer version, updated outside the app. Click “Update” to bring “${name}” in the Library to this version; then this copy matches the Library and is recorded as installed here`,
     statGlobal: "from global",
     statStale: "to reinstall",
     statEdited: "edited by hand",

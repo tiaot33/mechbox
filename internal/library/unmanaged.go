@@ -20,6 +20,7 @@ import (
 
 // UnmanagedSkill 是作用域的技能目录里一个不是库装的技能文件夹:这个作用域里没有安装记录用它。它可能是命令行工具
 // (如 npx skills)装的、手动拷进去的、用户自己写的,或者提交在项目仓库里的。库只列出它,不改动、不删除。
+// 和库里某个技能的某一版完全一致的文件夹列出时自动记为那个技能的安装,不再是未纳管技能(不自动纳入的几种见 SkillID)。
 type UnmanagedSkill struct {
 	Scope Scope `json:"scope"`
 	// Name 是文件夹名。
@@ -33,7 +34,8 @@ type UnmanagedSkill struct {
 	LinkTarget string `json:"link_target,omitempty"`
 	// LinkOutside 表示 LinkTarget 不在任何 Agent 的技能目录里(各 Agent 的全局目录与在各已登记项目里的技能目录),
 	// 例如技能作者把它链到自己的工作目录 ~/code/my-skills/foo,在那里改了 Agent 马上就能用上。入库后库第一次写这一处时
-	// 会把链接换成独立的一份,在原来的目录里改就不再影响这里;所以和在项目仓库里的一样默认不入库,界面写明它指向哪里。
+	// 会把链接换成独立的一份,在原来的目录里改就不再影响这里;所以和在项目仓库里的一样默认不入库,内容和库里一致也不自动纳入,
+	// 界面写明它指向哪里。
 	LinkOutside bool `json:"link_outside,omitzero"`
 	// InRepository 表示文件夹已提交在项目的 git 仓库里(在 HEAD 里),界面标明「在项目仓库里」。只出现在项目作用域;
 	// 项目不是 git 仓库、还没有提交或本机没有 git 时为 false。
@@ -51,7 +53,10 @@ type UnmanagedSkill struct {
 	// 和 InRepository 一样归项目仓库管。只出现在项目作用域。
 	InProjectLock bool `json:"in_project_lock,omitzero"`
 	// SkillID 不为 0 时,文件夹的内容(文件路径、内容与可执行位都相同,Windows 本机的目录只比路径与内容)和库里这个技能的某个版本完全一致,VersionID 是那个版本:
-	// 和当前版本一致的优先,其次是最新的旧版本。它就是库里的这个技能,只是这一处不是库装的,界面把它显示在这个技能下;
+	// 和当前版本一致的优先,其次是最新的旧版本。这样的文件夹列出时(ListUnmanagedSkills、PlanFetchUnmanaged)自动记为这个技能装在这里,
+	// 不再出现在结果里;留下的只有不自动纳入的几种:提交在项目仓库里的(InRepository)、记在 skills-lock.json 里的(InProjectLock)、
+	// 指向 Agent 目录以外的符号链接(LinkOutside),以及经目录的符号链接和别的作用域是同一个文件夹的(如 Claude Code 的整个技能目录
+	// 链到 Codex 的,记成两处安装后从一处卸载会删掉另一处)。它们就是库里的这个技能,只是这一处不是库装的,界面把它显示在这个技能下;
 	// 入库(FetchUnmanaged、FetchUnmanagedSkills)只给这个技能补记这一处安装,不论带不带来源、带的是哪个来源。
 	// 已经装在这个作用域的技能不算:一个技能在一个作用域只记一处安装。
 	SkillID   SkillID   `json:"skill_id,omitzero"`
@@ -106,20 +111,29 @@ func skillFileProblem(err error) *SkillFileProblem {
 // 这个作用域里有安装记录用它的(含共用目录的 Agent 装的,共用按 Agent 的目录设置判断,不跟随符号链接)是库装的,不列出;
 // 库装出去后被改过的也不在这里,巡检报为 modified。
 // 插件里的技能、企业托管目录、Codex 的 ADMIN / SYSTEM 技能和没有登记的项目都不在范围内。
-// 只读:不改库、不改磁盘。Agent 目录不存在、项目不在这台机器上时那个作用域没有结果;几个 Agent 共用一个目录时,
+// 不改磁盘。Agent 目录不存在、项目不在这台机器上时那个作用域没有结果;几个 Agent 共用一个目录时,
 // 每个 Agent 各列一条。结果按 Agent、作用域(全局在前,项目按 ID)、Name 排序。
 // 按内容认出它是库里的哪个技能、哪一版(SkillID、VersionID),或是库里哪个技能在来源里现在的那一版(SourceLatestOf);
 // 为此只读 SKILL.md 和库里某个版本相同、或技能名和有新版本的库里技能相同的那几个文件夹的全部内容。不联网。
+// 认出是库里的技能的,除 UnmanagedSkill.SkillID 列出的几种外,先自动纳入:记为这个技能直接装在这个作用域(和 FetchUnmanaged 补记的一样),
+// 结果里不再有它,之后巡检、更新、重新安装、回滚、卸载与移除技能都包括这一处。一个作用域里有几个文件夹和同一个技能一致时只记一处:
+// 文件夹名和 SKILL.md 里的 name 相同的优先,其次按文件夹名取第一个;几个 Agent 共用目录时只记一处,共用的 Agent 本来就算已装。
 func (l *Library) ListUnmanagedSkills(ctx context.Context) (skills []UnmanagedSkill, err error) {
-	ctx, unlock := l.sharedOperation(ctx)
+	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
-	found, err := l.unmanagedSkills(ctx, nil)
+	found, err := l.recognizedUnmanaged(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
-	if err := l.recognizeUnmanaged(ctx, found); err != nil {
+	adopted, err := l.adoptMatching(ctx, found)
+	if err != nil {
 		return nil, err
+	}
+	if adopted {
+		if found, err = l.recognizedUnmanaged(ctx, nil); err != nil {
+			return nil, err
+		}
 	}
 	skills = []UnmanagedSkill{}
 	for _, entry := range found {
@@ -130,7 +144,47 @@ func (l *Library) ListUnmanagedSkills(ctx context.Context) (skills []UnmanagedSk
 
 type unmanagedEntry struct {
 	UnmanagedSkill
-	found scopeFolder
+	found   scopeFolder
+	aliased bool
+}
+
+func (l *Library) recognizedUnmanaged(ctx context.Context, only map[Scope]bool) ([]unmanagedEntry, error) {
+	entries, err := l.unmanagedSkills(ctx, only)
+	if err != nil {
+		return nil, err
+	}
+	return entries, l.recognizeUnmanaged(ctx, entries)
+}
+
+func (l *Library) adoptMatching(ctx context.Context, entries []unmanagedEntry) (bool, error) {
+	var chosen []unmanagedEntry
+	for _, entry := range entries {
+		if entry.SkillID == 0 || entry.InRepository || entry.InProjectLock || entry.LinkOutside || entry.aliased {
+			continue
+		}
+		other := slices.IndexFunc(chosen, func(c unmanagedEntry) bool {
+			return c.SkillID == entry.SkillID && c.found.target.sharesFolderWith(entry.found.target)
+		})
+		switch {
+		case other < 0:
+			chosen = append(chosen, entry)
+		case entry.Name == skillName(entry.found.Folder) && chosen[other].Name != skillName(chosen[other].found.Folder):
+			chosen[other] = entry
+		}
+	}
+	if len(chosen) == 0 {
+		return false, nil
+	}
+	err := l.store.InTx(ctx, func(tx *store.Tx) error {
+		now := clockNow()
+		for _, entry := range chosen {
+			if err := tx.RecordFetchedSkillScope(ctx, int64(entry.SkillID), entry.found.target.Scope, entry.Name, now); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return err == nil, err
 }
 
 func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]unmanagedEntry, error) {
@@ -187,6 +241,7 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 		for _, other := range same.of(ctx, entry.found.target, entry.Folder) {
 			entries[i].SameFolder = append(entries[i].SameFolder, other.target.scope())
 		}
+		entries[i].aliased = same.aliased(entry.found)
 	}
 	return entries, nil
 }
@@ -253,6 +308,28 @@ func (s sameFolders) of(ctx context.Context, target resolvedScope, path string) 
 		same = append(same, other)
 	}
 	return same
+}
+
+func (s sameFolders) aliased(found scopeFolder) bool {
+	if found.Target != "" {
+		return false
+	}
+	real := ""
+	for i, other := range s.folders {
+		if other.Name != found.Name || other.Target != "" || other.target.sharesFolderWith(found.target) {
+			continue
+		}
+		if real == "" {
+			real = agentdir.Canonical(found.Path)
+		}
+		if s.real[i] == "" {
+			s.real[i] = agentdir.Canonical(other.Path)
+		}
+		if s.real[i] == real {
+			return true
+		}
+	}
+	return false
 }
 
 func (l *Library) recognizeUnmanaged(ctx context.Context, entries []unmanagedEntry) error {

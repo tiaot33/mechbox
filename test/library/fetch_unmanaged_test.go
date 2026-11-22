@@ -146,7 +146,7 @@ func TestFetchUnmanagedRealFolderAlsoRecordsTheLinkToIt(t *testing.T) {
 	if err := os.Symlink(filepath.Join("..", "..", ".agents", "skills", "pdf"), filepath.Join(claudeDirectory, "pdf")); err != nil {
 		t.Fatal(err)
 	}
-	// 内容一样、却是另一个文件夹的不算：它可能是用户故意留的一份，不自动交给 app 管。
+	// 内容一样、却是另一个文件夹的不连带记下：它可能是用户故意留的一份。
 	project, err := lib.RegisterProject(t.Context(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -156,10 +156,13 @@ func TestFetchUnmanagedRealFolderAlsoRecordsTheLinkToIt(t *testing.T) {
 	fetched := fetchUnmanaged(t, lib, codex, "pdf")
 	requireScopeStatus(t, lib, fetched.Skill.ID, codex, library.SkillScopeCurrent)
 	requireScopeStatus(t, lib, fetched.Skill.ID, claude, library.SkillScopeCurrent)
-	left, err := lib.ListUnmanagedSkills(t.Context())
-	if err != nil || len(left) != 1 || left[0].Scope.ProjectID != project.ID || left[0].SkillID != fetched.Skill.ID {
-		t.Fatalf("ListUnmanagedSkills() = %#v, %v, want only the separate copy, recognized as the skill", left, err)
+	inProject := library.ProjectScope(library.AgentClaudeCode, project.ID)
+	if inspections, err := lib.InspectSkillScopes(t.Context(), library.SkillScopeFilter{Scope: &inProject}); err != nil || len(inspections) != 0 {
+		t.Fatalf("InspectSkillScopes(project) = %#v, %v, want the separate copy not recorded with the fetch", inspections, err)
 	}
+	// 之后列出时它和库里的 pdf 一致,照自动纳入的规则记为装在项目里。
+	requireUnmanagedSkills(t, lib, nil)
+	requireScopeStatus(t, lib, fetched.Skill.ID, inProject, library.SkillScopeCurrent)
 }
 
 func TestFetchUnmanagedRecordsAnInstallWhenTheContentMatchesAVersion(t *testing.T) {

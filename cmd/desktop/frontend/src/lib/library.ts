@@ -111,7 +111,9 @@ function list<T>(call: Promise<T[] | null>): Promise<T[]> {
 // ---------- 快照 ----------
 
 async function readSnapshot(signal: AbortSignal): Promise<Snapshot> {
-  const [info, agents, projects, skills, collections, groups, groupInstalls, skillScopes, unmanaged, sameName, missingMentions, settings] = await Promise.all([
+  // 列出未纳管技能时，技能库先把和库里某一版一致的文件夹记为安装：先读它，安装记录、巡检与同名才把这几处算进去。
+  const unmanaged = await list(wails(signal, LibraryService.ListUnmanagedSkills()));
+  const [info, agents, projects, skills, collections, groups, groupInstalls, skillScopes, sameName, missingMentions, settings] = await Promise.all([
     wails(signal, LibraryService.Info()),
     list(wails(signal, LibraryService.ListAgents())),
     list(wails(signal, LibraryService.ListRegisteredProjects())),
@@ -120,7 +122,6 @@ async function readSnapshot(signal: AbortSignal): Promise<Snapshot> {
     list(wails(signal, LibraryService.ListGroups())),
     list(wails(signal, LibraryService.ListGroupInstalls())),
     list(wails(signal, LibraryService.InspectSkillScopes({}))),
-    list(wails(signal, LibraryService.ListUnmanagedSkills())),
     list(wails(signal, LibraryService.ListSameNameSkills())),
     // 提到关系只是提示：读不出来时按没有，不让整个主界面打不开。
     list(wails(signal, LibraryService.ListMissingMentions())).catch(() => []),

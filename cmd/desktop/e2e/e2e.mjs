@@ -99,8 +99,12 @@ async function settle() {
 }
 async function idle() {
   const frame = () => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
-  await frame();
-  await until(() => pendingCalls.size === 0, "绑定调用完成");
+  // 读快照分两批发出(先列未纳管技能，再读其余几项),两批之间有一刻没有调用：隔一帧再看一次，还是空的才算完成。
+  do {
+    await frame();
+    await until(() => pendingCalls.size === 0, "绑定调用完成");
+    await frame();
+  } while (pendingCalls.size > 0);
   await page.waitForFunction(() => !document.querySelector('.tb-crumb [data-slot="spinner"]'));
   await frame();
 }
@@ -1390,7 +1394,7 @@ await step("未纳管技能：作用域里列出不是库装的技能(符号链�
   assert(fs.lstatSync(link).isSymbolicLink() && fs.existsSync(path.join(projB, ".claude", "skills", "my-draft", "SKILL.md")), "磁盘上什么都没动");
 });
 
-await step("未纳管技能入库：磁盘不动，成为没有来源的技能;内容一致的只补记安装;项目仓库里的也能入库", async () => {
+await step("未纳管技能入库：磁盘不动，成为没有来源的技能;内容一致的自动记为安装;项目仓库里的也能入库", async () => {
   const real = path.join(HOME, ".agents", "skills", "npx-tool");
   const link = path.join(claudeGlobal, "npx-tool");
   const team = path.join(HOME, "code", "proj-b", ".claude", "skills", "team-skill", "SKILL.md");
@@ -1428,7 +1432,7 @@ await step("未纳管技能入库：磁盘不动，成为没有来源的技能;�
     const copy = page.locator('.in-use .skill-row[data-name="npx-tool"]');
     assert.equal(await copy.locator('[role="switch"][aria-checked="true"]').count(), 1, "Codex 里已经是装着的库里的技能");
     assert.equal(await copy.locator(".take-over").count(), 0, "不用再入库");
-    // 另一个文件夹、内容一样的副本不自动记下：显示成库里那个技能的一行，写明已在库里，行首是「入库」。
+    // 另一个文件夹、内容一样的副本入库时不连带记下，但它和库里的一样：app 看到它时自动记为装在那里，不用入库，文件夹原样不动。
     const separate = path.join(HOME, "code", "proj-b", ".agents", "skills", "npx-tool");
     fs.cpSync(real, separate, { recursive: true });
     try {
@@ -1436,11 +1440,12 @@ await step("未纳管技能入库：磁盘不动，成为没有来源的技能;�
       await settle();
       await selectScope("Codex", "proj-b");
       const twin = page.locator('.in-use .skill-row[data-name="npx-tool"]');
-      assert((await twin.locator(".identical-state").textContent()).includes("已在库里"), "写明它已经在库里");
-      await btn(twin, "入库").click();
-      await modal().locator('[data-slot="dialog-title"]', { hasText: "入库「npx-tool」" }).waitFor();
-      assert((await modal().textContent()).includes("不会多出一个技能"), "确认里说清只补记安装");
-      await btn(modal(), "取消").click();
+      assert.equal(await twin.locator('[role="switch"][aria-checked="true"]').count(), 1, "内容一致的副本自动记为装着");
+      assert.equal(await twin.locator(".take-over").count(), 0, "不用再入库");
+      assert.equal(await twin.locator(".identical-state").count(), 0, "不再写已在库里、待入库");
+      assert.equal(fs.readFileSync(path.join(separate, "SKILL.md"), "utf8"), before[1], "自动纳入不改文件夹");
+      await twin.locator('[role="switch"]').click();
+      await toast("已卸载「npx-tool」");
     } finally {
       fs.rmSync(separate, { recursive: true, force: true });
       await refocus();
@@ -3094,8 +3099,10 @@ await step("左栏一键折叠技能少的来源，点最后一行列出;设置�
   assert.equal(await fold.getAttribute("aria-checked"), "true", "设置页的开关和左栏是同一项");
   await page.locator(".settings .fold-below-row select").selectOption("4");
   await settle();
+  // 返回技能库时重读快照，左栏按重读到的设置折叠：等重读完再看。
   await page.locator(".titlebar button[title='返回技能库']").click();
   await page.waitForSelector(".a-list");
+  await settle();
   assert((await small.count()) === 0 && (await row("my-skills").count()) === 1 && (await row("delta.zip").count()) === 1, "没有一个集合够数时不折");
   await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
   await page.locator(".settings .fold-below-row select").selectOption("3");
@@ -3104,6 +3111,7 @@ await step("左栏一键折叠技能少的来源，点最后一行列出;设置�
   assert(await page.locator(".settings .fold-below-row select").isDisabled(), "关掉折叠后上限不可选");
   await page.locator(".titlebar button[title='返回技能库']").click();
   await page.waitForSelector(".a-list");
+  await settle();
   assert((await small.count()) === 0 && (await row("delta.zip").count()) === 1, "关掉后每个集合都列出");
 });
 

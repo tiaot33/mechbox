@@ -420,8 +420,8 @@ type PlannedUnmanagedSkill struct {
 	// 界面按它分组,认不出的单独一组。SkillID 不为 0 时为空。
 	SourceInput string `json:"source_input,omitempty"`
 	SourceRef   string `json:"source_ref,omitempty"`
-	// SkillID、VersionID、SourceLatestOf 同 UnmanagedSkill 的同名字段,按第一处认出。SkillID 不为 0 时它就是库里的这个技能:
-	// 入库只给它补记各处安装,界面把这些单独列成一组。SourceLatestOf 不为 0 时是那个技能在来源里现在的那一版,
+	// SkillID、VersionID、SourceLatestOf 同 UnmanagedSkill 的同名字段,按第一处认出。SkillID 不为 0 时它就是库里的这个技能,
+	// 只剩不自动纳入的那几种(见 UnmanagedSkill.SkillID):入库只给它补记各处安装,界面把这些单独列成一组。SourceLatestOf 不为 0 时是那个技能在来源里现在的那一版,
 	// 按来源入库会返回 AlreadyExists,所以默认不勾,界面引导用更新换上这一版。
 	SkillID        SkillID   `json:"skill_id,omitzero"`
 	VersionID      VersionID `json:"version_id,omitzero"`
@@ -450,10 +450,11 @@ type PlannedUnmanagedSkill struct {
 // PlanFetchUnmanaged 是整批入库前的确认:列出这几个作用域里不是库装的技能文件夹,内容一致的合成一条,标出同名冲突与默认勾选。
 // 第一次打开 app 时对各 Agent 的全局、登记一个项目之后对这个项目各 Agent 的作用域调用它,用户确认后交给 FetchUnmanagedSkills。
 // 技能文件夹的认法与 ListUnmanagedSkills 相同,并读出每个文件夹的全部内容比较。不记哪些作用域看过:之后什么时候调用都是现查。
-// 只读:不改库、不改磁盘。结果按 Name 排序,同名的按 ModifiedAt 从新到旧。
+// 计划之前先照 ListUnmanagedSkills 的规则自动纳入这几个作用域里和库里某一版一致的文件夹,它们不在计划里。
+// 不改磁盘。结果按 Name 排序,同名的按 ModifiedAt 从新到旧。
 // 错误:作用域不合法返回 InvalidArgument(Details.Field 指向对应字段),Agent、项目不存在返回 NotFound。
 func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanagedRequest) (plan []PlannedUnmanagedSkill, err error) {
-	ctx, unlock := l.sharedOperation(ctx)
+	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
 	defer func() { err = typedError(err) }()
 	const operation = "plan fetch unmanaged skills"
@@ -463,6 +464,13 @@ func (l *Library) PlanFetchUnmanaged(ctx context.Context, req PlanFetchUnmanaged
 			return nil, err
 		}
 		wanted[scope] = true
+	}
+	matching, err := l.recognizedUnmanaged(ctx, wanted)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := l.adoptMatching(ctx, matching); err != nil {
+		return nil, err
 	}
 	entries, err := l.unmanagedSkills(ctx, wanted)
 	if err != nil {
