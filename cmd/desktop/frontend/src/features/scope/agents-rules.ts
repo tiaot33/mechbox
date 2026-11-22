@@ -1,12 +1,15 @@
 // Agent(agents.tsx、agent-settings.tsx)里的判断：改目录时哪些已装的技能、组安装受影响要先问，移除 Agent 时哪些文件夹归它、
 // 哪些还有别的 Agent 在读，候选池怎么排、哪几个要标「已有 Agent 读这个目录」。
 // 不碰界面、不调技能库，单元测试见 agents-rules.test.ts。
-import type { Agent, AgentCode, AgentInput, Scope, SkillScopeInspection } from "@bindings/internal/library";
+import { MigrationOutcome, type Agent, type AgentCode, type AgentInput, type AgentMigration, type Scope, type SkillScopeInspection } from "@bindings/internal/library";
 import { detachedBy } from "@/lib/consent";
+import { messages } from "@/lib/i18n";
 import type { Snapshot } from "@/lib/library";
 import { folderPlaces } from "@/lib/installs";
 import { directoriesAt } from "@/lib/places";
-import { placeOf, type Place } from "@/lib/scope";
+import { shortPath } from "@/lib/paths";
+import { placeOf, projectName, skillName, type Place } from "@/lib/scope";
+import type { ResultRow } from "@/components/app/result-rows";
 
 // cleanPath 是比较目录时去掉开头的 ./ 和末尾的 /:写法不同的同一个目录不算改了。
 const cleanPath = (path: string) => path.replace(/^\.\//, "").replace(/\/+$/, "");
@@ -38,6 +41,21 @@ export function agentEdit(s: Snapshot, agent: Agent, input: AgentInput) {
 export function agentDelete(s: Snapshot, code: AgentCode) {
   const places = s.skillScopes.filter((p) => p.scope.agent === code);
   return { kept: places.filter((p) => p.shared_with?.length), own: places.filter((p) => !p.shared_with?.length) };
+}
+
+// migrationReport 是改目录并迁移之后要说的：rows 逐个列出没有原样搬过去的(新目录里已有别的同名文件夹而没迁移的，
+// 新目录里已经装着同一个技能、改认那一份的);listed 是要不要弹出结果列表：有没迁移的才弹，否则只提示迁移了几处;
+// migrated 是这个 Agent 在新目录照常算已装的处数(搬过去的、复制过去的、改认那一份的)。
+export function migrationReport(s: Snapshot, migrations: AgentMigration[]) {
+  const t = messages().actions;
+  const label = (m: AgentMigration) => `${skillName(s, m.skill_id)} · ${m.scope.project_id ? projectName(s, m.scope.project_id) : messages().model.global}`;
+  const skipped = migrations.filter((m) => m.outcome === MigrationOutcome.MigrationSkipped);
+  const already = migrations.filter((m) => m.outcome === MigrationOutcome.MigrationAlreadyInstalled);
+  const rows: ResultRow[] = [
+    ...skipped.map((m) => ({ label: label(m), outcome: t.notMigrated, tone: "warn" as const, reason: t.notMigratedReason(shortPath(s, m.to), shortPath(s, m.from)) })),
+    ...already.map((m) => ({ label: label(m), outcome: t.alreadyMigrated, tone: "plain" as const, reason: t.alreadyMigratedReason(shortPath(s, m.to), shortPath(s, m.from)) })),
+  ];
+  return { rows, listed: skipped.length > 0, migrated: migrations.length - skipped.length, skipped: skipped.length };
 }
 
 // ---------- 候选池 ----------

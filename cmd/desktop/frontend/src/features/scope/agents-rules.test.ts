@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AgentCode,
+  MigrationOutcome,
   ScopeKind,
   SkillScopeStatus,
   type Agent,
@@ -11,7 +12,7 @@ import {
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import type { Snapshot } from "@/lib/library";
-import { agentDelete, agentEdit, alreadyRead, detectedPicks, poolMatches, sortPool, undetected } from "./agents-rules";
+import { agentDelete, agentEdit, alreadyRead, detectedPicks, migrationReport, poolMatches, sortPool, undetected } from "./agents-rules";
 
 const mine = "my-agent" as AgentCode;
 const claude = AgentCode.AgentClaudeCode;
@@ -160,5 +161,31 @@ describe("设置页的「未检测到」", () => {
     expect(undetected(withDetect(true, ["/home/.mine"]))).toBe(false);
     expect(undetected(withDetect(false, []))).toBe(false);
     expect(undetected({ ...agent, detected: false } as Agent)).toBe(false);
+  });
+});
+
+describe("改目录并迁移之后", () => {
+  const s = { info: { home_dir: "/home" }, skills: [{ id: 1, name: "moved" }, { id: 2, name: "only-here" }, { id: 3, name: "blocked" }], projects: [] } as unknown as Snapshot;
+  const migration = (skill_id: number, outcome: MigrationOutcome) => ({
+    skill_id,
+    scope: global(mine),
+    outcome,
+    from: `/home/.mine/skills/s${skill_id}`,
+    to: `/home/.agents/skills/s${skill_id}`,
+  });
+  it("新目录里已经装着同一个技能的算迁移了，照常算已装，不弹结果列表", () => {
+    const r = migrationReport(s, [migration(1, MigrationOutcome.MigrationMoved), migration(2, MigrationOutcome.MigrationAlreadyInstalled)]);
+    expect(r).toMatchObject({ listed: false, migrated: 2, skipped: 0 });
+  });
+  it("有没迁移的才列出;已经装着的那处写明改认新目录里那一份，不说成没迁移", () => {
+    const r = migrationReport(s, [migration(2, MigrationOutcome.MigrationAlreadyInstalled), migration(3, MigrationOutcome.MigrationSkipped)]);
+    expect(r).toMatchObject({ listed: true, migrated: 1, skipped: 1 });
+    expect(r.rows.map((row) => [row.label, row.outcome, row.tone])).toEqual([
+      ["blocked · 全局", "没有迁移", "warn"],
+      ["only-here · 全局", "新目录里已装着", "plain"],
+    ]);
+    expect(r.rows[1].reason).toContain("~/.agents/skills/s2");
+    expect(r.rows[1].reason).toContain("照常算已装");
+    expect(r.rows[1].reason).not.toContain("不再算已装");
   });
 });

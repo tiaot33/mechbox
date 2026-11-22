@@ -388,17 +388,20 @@ export const en = {
       `${n === 1 ? "1 of these folders is" : `${n} of these folders are`} still used by other Agents and stay in the old directory for them: migrating copies them to the new directory; not migrating leaves them alone.`,
     migrate: "Migrate to the new directory",
     migrateDesc:
-      "Move the installed folders over as they are and keep the Group installs; where the new directory already has a folder with the same name, it isn't overwritten or moved—the old folder stays and is listed afterwards",
+      "Move the installed folders over as they are and keep the Group installs; where the new directory already has the same skill, this Agent uses that one; where it has a different folder with the same name, it isn't overwritten or moved—the old folder stays and is listed afterwards",
     noMigrate: "Don't migrate",
     noMigrateDesc: "Only change the directory; leave the folders in the old directory alone and drop this Agent's install records and Group installs there",
     save: "Save",
     agentSaved: (name: string) => `Saved Agent “${name}”`,
     notMigrated: "Not migrated",
     notMigratedReason: (to: string, from: string) =>
-      `The new directory already has a folder with the same name, or it's taken by another skill's install: ${to}\nThe old folder stays where it is: ${from}`,
+      `The new directory already has a different folder with the same name, or it's taken by another skill's install: ${to}\nThe old folder stays where it is: ${from}`,
+    alreadyMigrated: "Already in the new directory",
+    alreadyMigratedReason: (to: string, from: string) =>
+      `The new directory already has this skill (installed for another Agent): ${to}\nThis Agent now uses that one and still counts it as installed; the old folder stays where it is: ${from}`,
     migratedPartly: (migrated: number, skipped: number) =>
-      `Migrated ${count(migrated, "folder")}; ${skipped === 1 ? "the 1 below wasn't migrated, and this Agent no longer counts it" : `the ${skipped} below weren't migrated, and this Agent no longer counts them`} as installed there.`,
-    agentSavedMigrated: (name: string, n: number) => `Saved Agent “${name}” and migrated ${count(n, "folder")}`,
+      `Migrated ${count(migrated, "install")}; ${count(skipped, "install")} ${skipped === 1 ? "wasn't" : "weren't"} migrated, and this Agent no longer counts ${skipped === 1 ? "it" : "them"} as installed there.`,
+    agentSavedMigrated: (name: string, n: number) => `Saved Agent “${name}” and migrated ${count(n, "install")}`,
     readsTwice: (agents: string[], skill: string) =>
       `${and(agents)} also read this directory and already have ${skill} in another of their directories, so they'll see two copies`,
     staleLinks: (n: number) => `${count(n, "old link")} pointing to these folders will be deleted too:`,

@@ -3510,7 +3510,7 @@ await step("设置页 Agent 分区：显示勾选、手填添加 / 编辑迁移 
   await btn(modal(), "添加").click();
   await toast("已添加 Agent「My Agent」");
   await settle();
-  assert((await row("My Agent").locator('[data-slot="badge"]', { hasText: "未检测到" }).count()) === 1, "手填添加的 Agent 没有检测目录，应标未检测到");
+  assert((await row("My Agent").locator('[data-slot="badge"]', { hasText: "未检测到" }).count()) === 0, "手填添加的 Agent 没填检测目录是不检测，不应标未检测到");
   assert((await shownSwitch("My Agent").getAttribute("aria-checked")) === "true", "手填添加的 Agent 默认应显示");
   await back();
 
@@ -3528,6 +3528,9 @@ await step("设置页 Agent 分区：显示勾选、手填添加 / 编辑迁移 
   await modal().locator('[data-slot="input"]').nth(1).fill("~/.my-agent2/skills");
   await btn(modal(), "保存").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "改 Agent「My Agent」的目录" }).waitFor();
+  for (const skill of ["alpha", "gamma"]) {
+    assert((await modal().locator('[data-slot="list-row"]', { hasText: `${skill} · 全局` }).count()) === 1, `迁移确认框应列出受影响的 ${skill}`);
+  }
   await modal().locator('[data-slot="choice"]', { hasText: "迁移到新目录" }).click();
   await btn(modal(), "保存").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "已保存 Agent「My Agent」" }).waitFor();

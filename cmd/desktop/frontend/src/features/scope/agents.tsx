@@ -1,19 +1,17 @@
 // Agent:从候选池添加、手填添加、编辑(去掉的目录里装着技能时可选把它们搬到新的第 1 个目录)、移除(回到候选池)。
 import { LibraryService } from "@bindings/cmd/desktop";
-import { FolderPolicy, MigrationOutcome, type Agent, type AgentInput } from "@bindings/internal/library";
+import { FolderPolicy, type Agent, type AgentInput } from "@bindings/internal/library";
 import { detachedBy, discardedEdits, lostEdits } from "@/lib/consent";
 import { messages } from "@/lib/i18n";
 import { currentSnapshot, type LibraryError } from "@/lib/library";
 import { folderPlaces } from "@/lib/installs";
-import { projectName, skillName } from "@/lib/scope";
-import { shortPath } from "@/lib/paths";
 import { ui } from "@/lib/ui";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { DetachNotice, SharedFolders, StaleNotes } from "@/components/app/link-notes";
 import { runDiscardingEdits } from "@/components/app/discard-edits";
 import { showResults } from "@/components/app/results";
-import { agentDelete, agentEdit } from "./agents-rules";
+import { agentDelete, agentEdit, migrationReport } from "./agents-rules";
 
 // addAgentsFromPool 一次添加候选池里勾选的几个 Agent。
 export async function addAgentsFromPool(agents: Agent[]): Promise<boolean> {
@@ -46,12 +44,8 @@ export async function editAgent(agent: Agent, input: AgentInput, onInvalid: (err
       body: (
         <>
           <Hint>{t.editAgentHint(affected.length, groupInstalls)}</Hint>
-          {shared.length > 0 && (
-            <>
-              <Notice>{t.editAgentShared(shared.length)}</Notice>
-              <SharedFolders places={shared} />
-            </>
-          )}
+          {shared.length > 0 && <Notice>{t.editAgentShared(shared.length)}</Notice>}
+          {affected.length > 0 && <SharedFolders places={affected} />}
           <DetachNotice items={detached} when="move" prefix={t.ifMigrate} />
         </>
       ),
@@ -67,21 +61,11 @@ export async function editAgent(agent: Agent, input: AgentInput, onInvalid: (err
   const result = await ui.run(() => LibraryService.EditAgent(agent.code, input, { migrate }), { onError: onInvalid });
   if (!result) return false;
   const name = result.agent.name;
-  const migrations = result.migrations ?? [];
-  const skipped = migrations.filter((m) => m.outcome === MigrationOutcome.MigrationSkipped);
-  if (skipped.length) {
-    await showResults(
-      t.agentSaved(name),
-      skipped.map((m) => ({
-        label: `${skillName(s, m.skill_id)} · ${m.scope.project_id ? projectName(s, m.scope.project_id) : messages().model.global}`,
-        outcome: t.notMigrated,
-        tone: "warn" as const,
-        reason: t.notMigratedReason(shortPath(s, m.to), shortPath(s, m.from)),
-      })),
-      t.migratedPartly(migrations.length - skipped.length, skipped.length),
-    );
+  const report = migrationReport(s, result.migrations ?? []);
+  if (report.listed) {
+    await showResults(t.agentSaved(name), report.rows, t.migratedPartly(report.migrated, report.skipped));
   } else {
-    ui.toast(migrations.length ? t.agentSavedMigrated(name, migrations.length) : t.agentSaved(name));
+    ui.toast(report.migrated ? t.agentSavedMigrated(name, report.migrated) : t.agentSaved(name));
   }
   return true;
 }
