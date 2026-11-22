@@ -216,7 +216,7 @@ export function unmanagedRowState(
     library
       ? { text: t.sameAsLibrary(library.name), title: t.identicalHereTitle(library.name) }
       : newer
-        ? { text: t.sourceLatestOf(newer.name), title: t.sourceLatestOfTitle(newer.name) }
+        ? { text: t.sourceLatestOf(newer.name), title: t.sourceLatestOfTitle(newer.name, notTakenOver(skill)) }
         : headed
           ? undefined
           : { text: t.notInLibrary, title: t.notInLibraryTitle },

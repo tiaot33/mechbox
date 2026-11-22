@@ -437,7 +437,7 @@ export function UnmanagedRow({
             size="sm"
             variant="pill"
             className="update-to-latest"
-            title={t.sourceLatestOfTitle(newer.name)}
+            title={t.sourceLatestOfTitle(newer.name, notTakenOver(skill))}
             onClick={() => void openUpdate(newer.collection_id, { focus: newer.id })}
           >
             {t.update}

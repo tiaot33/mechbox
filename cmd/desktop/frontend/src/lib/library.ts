@@ -243,7 +243,8 @@ export function scopeDirectoryQuery(scope: ScopeKey | null, home: string | undef
 }
 
 // sameNameCopiesQuery 比较几个作用域里不是库装的技能文件夹的内容(整批入库的计划，见 PlanFetchUnmanaged),
-// 用来认出同名但内容不同的几份;作用域页只在别处有同名的未纳管技能时才查(见 lib/same-name 的 sameNameScopes)。只读，随写操作重读。
+// 用来认出同名但内容不同的几份;作用域页只在别处有同名的未纳管技能时才查(见 lib/same-name 的 sameNameScopes)。随写操作重读。
+// 技能库生成计划前先把和库里某一版一致的文件夹记为安装，所以它不是只读的。
 export function sameNameCopiesQuery(scopes: Scope[]) {
   return queryOptions({
     queryKey: ["same-name-copies", scopes.map(scopeKey).sort()],

@@ -249,6 +249,15 @@ describe("未纳管技能一行的状态", () => {
     expect(unmanagedRowState(s, unmanaged("pdf", at(claude))).alerts).toMatchObject([{ tone: "info", label: "库里有同名的", className: "library-twin" }]);
   });
 
+  it("作者的新版：更新后照常自动记为装在这里;归项目仓库管、指向 Agent 目录以外的不会自动纳入，说更新后要再入库", () => {
+    const s = snapshot({ skills: [skill(1, "pdf")] });
+    const title = (extra: Partial<UnmanagedSkill>) => unmanagedRowState(s, unmanaged("pdf", at(claude, 1), { source_latest_of: 1, ...extra })).state[0].title;
+    expect(title({})).toMatch(/自动记为装在这里$/);
+    expect(title({ in_repository: true })).toMatch(/再入库只记下装在这里$/);
+    expect(title({ in_project_lock: true })).toMatch(/再入库只记下装在这里$/);
+    expect(title({ link_outside: true })).toMatch(/再入库只记下装在这里$/);
+  });
+
   it("同一层的别处同名、内容不同的说出来", () => {
     const state = unmanagedRowState(snapshot({ unmanaged: [u] }), u, { copies: ["Codex · 全局"] });
     expect(state.alerts).toMatchObject([{ tone: "warn", label: "别处有同名的，内容不同" }]);

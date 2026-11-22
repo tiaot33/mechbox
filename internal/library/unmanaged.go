@@ -117,6 +117,8 @@ func skillFileProblem(err error) *SkillFileProblem {
 // 认出是库里的技能的,除 UnmanagedSkill.SkillID 列出的几种外,先自动纳入:记为这个技能直接装在这个作用域(和 FetchUnmanaged 补记的一样),
 // 结果里不再有它,之后巡检、更新、重新安装、回滚、卸载与移除技能都包括这一处。一个作用域里有几个文件夹和同一个技能一致时只记一处:
 // 文件夹名和 SKILL.md 里的 name 相同的优先,其次按文件夹名取第一个;几个 Agent 共用目录时只记一处,共用的 Agent 本来就算已装。
+// 存着 WSL 发行版([Library.WSLDistro])、全局目录却还在 Windows 本机时(启动时发行版打不开,或还没调用 [Library.SetWSLDistro] 换过去)
+// 只列出、不自动纳入:全局安装不分主目录,这时记下的安装换到发行版后都会是缺失。换过去之后照常纳入。
 func (l *Library) ListUnmanagedSkills(ctx context.Context) (skills []UnmanagedSkill, err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
@@ -155,6 +157,10 @@ func (l *Library) recognizedUnmanaged(ctx context.Context, only map[Scope]bool) 
 }
 
 func (l *Library) adoptMatching(ctx context.Context, entries []unmanagedEntry) (bool, error) {
+	chosenDistro, err := l.store.WSLDistro(ctx)
+	if err != nil || chosenDistro != l.distro {
+		return false, err
+	}
 	var chosen []unmanagedEntry
 	for _, entry := range entries {
 		if entry.SkillID == 0 || entry.InRepository || entry.InProjectLock || entry.LinkOutside {
@@ -173,7 +179,7 @@ func (l *Library) adoptMatching(ctx context.Context, entries []unmanagedEntry) (
 	if len(chosen) == 0 {
 		return false, nil
 	}
-	err := l.store.InTx(ctx, func(tx *store.Tx) error {
+	err = l.store.InTx(ctx, func(tx *store.Tx) error {
 		now := clockNow()
 		for _, entry := range chosen {
 			if err := tx.RecordFetchedSkillScope(ctx, int64(entry.SkillID), entry.found.target.Scope, entry.Name, now); err != nil {
