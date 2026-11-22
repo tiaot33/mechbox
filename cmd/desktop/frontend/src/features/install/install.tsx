@@ -20,7 +20,7 @@ import {
   type SkillScopeFilter,
 } from "@bindings/internal/library";
 import { messages, useT } from "@/lib/i18n";
-import { currentSnapshot, toLibraryError, useSnapshot, type LibraryError, type Snapshot } from "@/lib/library";
+import { currentSnapshot, toLibraryError, useSnapshot, type Snapshot } from "@/lib/library";
 import { mergeMissing, missingAt } from "@/lib/mentions";
 import { agentName, groupName, placeOf, projectName, skillName } from "@/lib/scope";
 import { agentNameIn, placeCount, scopeLabel } from "@/lib/places";
@@ -32,7 +32,7 @@ import { openDrawer } from "@/lib/view";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { DeleteNotes, SharedFolders } from "@/components/app/link-notes";
-import { showResults } from "@/components/app/results";
+import { runEach, showResults } from "@/components/app/results";
 import { memberRows, summarizeMembers } from "@/components/app/result-rows";
 import {
   asksBeforeUninstall,
@@ -266,19 +266,13 @@ async function installEach(items: InstallItem[], title: string, done: string): P
     overwrite = choice === "overwrite";
   }
   const steps = installSteps(s, plans, overwrite);
-  const errors: (LibraryError | null | undefined)[] = [];
-  await ui.run(async () => {
-    for (const [i, step] of steps.entries()) {
-      if ("skip" in step) continue;
-      try {
-        await LibraryService.Install(step.item.skill.id, step.item.scope, { overwrite: step.overwrite });
-        errors[i] = null;
-      } catch (e) {
-        errors[i] = toLibraryError(e);
-      }
-    }
-  }, { failed: () => installResults(s, plans, steps, errors).failed });
-  const { rows, placed, installed } = installResults(s, plans, steps, errors);
+  const results = await runEach(
+    steps,
+    (step) => ("skip" in step ? undefined : LibraryService.Install(step.item.skill.id, step.item.scope, { overwrite: step.overwrite })),
+    (results) => installResults(s, plans, steps, results).failed,
+  );
+  if (!results) return false;
+  const { rows, placed, installed } = installResults(s, plans, steps, results);
   if (installed < rows.length) {
     const rest = rows.length - installed;
     await showResults(title, rows, several ? t.installedPlaces(installed, rest) : t.installedSummary(installed, rest));
@@ -376,18 +370,13 @@ export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: st
     danger: true,
   });
   if (!ok) return false;
-  const errors: (LibraryError | null | undefined)[] = [];
-  await ui.run(async () => {
-    for (const [i, p] of direct.entries()) {
-      try {
-        await LibraryService.Uninstall(p.skill_id, p.scope);
-        errors[i] = null;
-      } catch (e) {
-        errors[i] = toLibraryError(e);
-      }
-    }
-  }, { failed: () => uninstalledPicked(s, picked, errors).failed });
-  const { rows, done } = uninstalledPicked(s, picked, errors);
+  const results = await runEach(
+    direct,
+    (p) => LibraryService.Uninstall(p.skill_id, p.scope),
+    (results) => uninstalledPicked(s, picked, results).failed,
+  );
+  if (!results) return false;
+  const { rows, done } = uninstalledPicked(s, picked, results);
   if (rows.length) await showResults(title, rows, t.uninstallPickedSummary(done, rows.length));
   else ui.toast(t.uninstalledPicked(done, where));
   return done > 0;

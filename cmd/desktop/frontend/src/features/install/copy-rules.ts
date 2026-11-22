@@ -19,7 +19,7 @@ import {
 import { copyable, copyDefaults, copyOverwrites, type CopyPlanned } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
-import type { LibraryError, Snapshot } from "@/lib/library";
+import type { Attempt, LibraryError, Snapshot } from "@/lib/library";
 import { errorOccupier, skillScopesIn } from "@/lib/installs";
 import { sortSkills } from "@/lib/pages";
 import { lastSegment } from "@/lib/paths";
@@ -264,14 +264,12 @@ export function copySteps(s: Snapshot, places: CopyPlace[], plans: Plans, checke
   });
 }
 
-// CopyOutcome 是一步执行的结果：组安装是逐个成员的结果，直接安装成功时为空;失败时是技能库错误。
-export type CopyOutcome = { results?: GroupMemberResult[] } | { error: LibraryError };
-
-// copyResults 归并照着装的结果:outcomes 与 steps 一一对应，跳过的和没做到的是 undefined。
+// copyResults 归并照着装的结果:outcomes 与 steps 一一对应(runEach 的结果):组安装做成的是逐个成员的结果，直接安装做成的是空列表;
+// 跳过的是 undefined。
 // installed 按"哪一处的哪个技能"算，同一个技能既随组又直接安装时只算一次;groups 是记下的组安装数;placed 是装上的各处。
 // 组安装里有不是库装的同名文件夹而没勾覆盖、被跳过的成员是用户自己选的跳过，不再列出;其余被跳过的成员照样列出原因。
 // 直接安装执行时才被同一批里先装的同名技能占上的，错误里有占着的那个，照样能点开。failed 是有失败的(顶栏画叉)。
-export function copyResults(s: Snapshot, steps: CopyStep[], outcomes: (CopyOutcome | undefined)[]) {
+export function copyResults(s: Snapshot, steps: CopyStep[], outcomes: readonly (Attempt<GroupMemberResult[]> | undefined)[]) {
   const t = messages().actions;
   const rows: ResultRow[] = [];
   const installed = new Set<string>();
@@ -297,7 +295,7 @@ export function copyResults(s: Snapshot, steps: CopyStep[], outcomes: (CopyOutco
       return;
     }
     groups++;
-    const results = o.results ?? [];
+    const results = o.value;
     for (const r of results) {
       if (r.outcome !== GroupMemberOutcome.MemberInstalled) continue;
       installed.add(`${scopeKey(step.scope)}:${r.skill_id}`);

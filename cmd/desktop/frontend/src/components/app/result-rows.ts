@@ -3,7 +3,7 @@
 import { GroupMemberOutcome, type GroupMemberResult, type ReinstallResult, type SkillID } from "@bindings/internal/library";
 import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
-import type { Snapshot } from "@/lib/library";
+import type { Attempt, Snapshot } from "@/lib/library";
 import type { Tone } from "@/lib/level";
 import { errorOccupier } from "@/lib/installs";
 import { scopeLabel } from "@/lib/places";
@@ -16,6 +16,11 @@ export interface ResultRow {
   tone: Tone;
   reason?: string;
   occupier?: SkillID;
+}
+
+// failedAttemptRows 是逐项调用(runEach)里失败的那几项，label 是第 i 项在结果里的名字;outcome 不给时写「失败」。
+export function failedAttemptRows(results: readonly (Attempt<unknown> | undefined)[], label: (i: number) => string, outcome = messages().actions.failed): ResultRow[] {
+  return results.flatMap((r, i) => (r && "error" in r ? [{ label: label(i), outcome, tone: "critical" as const, reason: describeError(r.error) }] : []));
 }
 
 function memberOutcome(outcome: string): { text: string; tone: ResultRow["tone"] } | undefined {

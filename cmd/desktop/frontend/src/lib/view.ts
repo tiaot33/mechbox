@@ -7,6 +7,7 @@ import { create } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import type { CollectionID, GroupID, ProjectID, Scope, Skill, SkillID } from "@bindings/internal/library";
 import { forgetLibraryCaches, queryClient, scopeDirectoryQuery, snapshotQuery, useLoadedSnapshot, type Snapshot } from "./library";
+import { forgetFoundSources } from "./found-sources";
 import { agentsIn } from "./places";
 import {
   pageListing,
@@ -184,10 +185,12 @@ export const doneRestoreScroll = () => set({ restoreScroll: null });
 
 // forgetLibrary 在拉回整库之后作废按旧库记下的一切，等界面按新库重读完：新库里同一个 ID 可能是另一个技能、集合、组或项目。
 // 界面状态回到初始(libraryState):技能详情关上(没保存的备注草稿随之丢掉),勾选清空，回到技能库页，
-// 左栏要跳到的那一节、要闪的那一行、关系图页的返回，以及按 ID 记下的展开与收起都作废;查询缓存见 forgetLibraryCaches。
+// 左栏要跳到的那一节、要闪的那一行、关系图页的返回，以及按 ID 记下的展开与收起都作废;
+// 在 skills.sh 上找到的来源见 forgetFoundSources,查询缓存见 forgetLibraryCaches。
 export function forgetLibrary(): Promise<void> {
   pickRound++;
   set(libraryState());
+  forgetFoundSources();
   return forgetLibraryCaches();
 }
 

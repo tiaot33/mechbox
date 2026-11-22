@@ -3,7 +3,7 @@
 import { GroupMemberOutcome, type CollectionID, type GroupID, type GroupMemberResult, type SkillID, type SkillScopeInspection } from "@bindings/internal/library";
 import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
-import type { LibraryError, Snapshot } from "@/lib/library";
+import type { Attempt, Snapshot } from "@/lib/library";
 import { scopeKey, skillName } from "@/lib/scope";
 import { memberRows, placedBy, type ResultRow } from "@/components/app/result-rows";
 
@@ -25,22 +25,22 @@ export function groupOnly(s: Snapshot, groupID: GroupID, members: SkillID[]): Sk
   );
 }
 
-// AddedToGroup 是把一个技能加入组的结果:results 是随组安装到各作用域的逐个结果;没加成时是 error。
-export type AddedToGroup = { id: SkillID; results: GroupMemberResult[]; error?: LibraryError };
-
-// addedToGroup 归并逐个加入组的结果(outcomes 按 ids 的先后):all 是都加入了、也没有作用域被跳过，只提示一句;
+// addedToGroup 归并逐个加入组的结果:results 与 ids 一一对应(runEach 的结果),加成的是随组安装到各作用域的逐个结果。
+// all 是都加入了、也没有作用域被跳过，只提示一句;
 // 否则逐个列出 rows:失败的写原因，有组安装的列出各作用域的结果，没有组安装的写已加入。skipped 是有作用域被跳过，
 // added 是加入了几个，placed 是随组安装装上的各处。
-export function addedToGroup(s: Snapshot, ids: SkillID[], outcomes: AddedToGroup[]) {
+export function addedToGroup(s: Snapshot, ids: SkillID[], results: readonly (Attempt<GroupMemberResult[]> | undefined)[]) {
   const t = messages().actions;
-  const added = outcomes.filter((o) => !o.error);
-  const skipped = added.some((o) => o.results.some((r) => r.outcome === GroupMemberOutcome.MemberSkipped));
-  const rows = outcomes.flatMap((o): ResultRow[] => {
-    if (o.error) return [{ label: skillName(s, o.id), outcome: t.failed, tone: "critical", reason: describeError(o.error) }];
-    if (o.results.length) return memberRows(s, o.results);
-    return [{ label: skillName(s, o.id), outcome: t.memberAdded, tone: "plain" }];
+  const added = results.flatMap((r) => (r && "value" in r ? [r.value] : []));
+  const skipped = added.some((members) => members.some((r) => r.outcome === GroupMemberOutcome.MemberSkipped));
+  const rows = ids.flatMap((id, i): ResultRow[] => {
+    const r = results[i];
+    if (!r) return [];
+    if ("error" in r) return [{ label: skillName(s, id), outcome: t.failed, tone: "critical", reason: describeError(r.error) }];
+    if (r.value.length) return memberRows(s, r.value);
+    return [{ label: skillName(s, id), outcome: t.memberAdded, tone: "plain" }];
   });
-  return { all: added.length === ids.length && !skipped, skipped, added: added.length, placed: added.flatMap((o) => placedBy(o.results)), rows };
+  return { all: added.length === ids.length && !skipped, skipped, added: added.length, placed: added.flatMap(placedBy), rows };
 }
 
 // missingFromGroup 是集合里还不在组里的技能：集合拖到组上、右键"加入组"时加入的就是这些;为空时说"都已在组里"。

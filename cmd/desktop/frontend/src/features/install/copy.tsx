@@ -19,13 +19,14 @@ import { agentNameIn, scopeLabel } from "@/lib/places";
 import { shortPath } from "@/lib/paths";
 import { sourceLabel } from "@/lib/source";
 import { Modal, ui } from "@/lib/ui";
+import { toggled } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Notice } from "@/components/ui/notice";
-import { showResults } from "@/components/app/results";
+import { runEach, showResults } from "@/components/app/results";
 import { toastInstalled } from "./install";
 import { occupied } from "./install-rules";
 import {
@@ -46,7 +47,6 @@ import {
   togglePlace as toggledPlace,
   uncopiedProjectUnmanaged,
   uncopiedUnmanaged,
-  type CopyOutcome,
   type CopyPlace,
   type Planned,
   type Plans,
@@ -172,12 +172,6 @@ function CopyDialog({ s, kind, close }: { s: Snapshot; kind: CopyKind; close: ()
     };
   }, [kind, from]);
 
-  const toggle = (set: Set<string>, key: string) => {
-    const next = new Set(set);
-    if (next.has(key)) next.delete(key);
-    else next.add(key);
-    return next;
-  };
   const { skills: skillCount, groups: groupCount } = checkedCounts(checked);
   // edited、newer 只说勾上的项里会装过来的技能(见 comingNotes)。
   const { edited, newer } = comingNotes(places, checked);
@@ -227,8 +221,8 @@ function CopyDialog({ s, kind, close }: { s: Snapshot; kind: CopyKind; close: ()
             plans={plans}
             checked={checked}
             overwrite={overwrite}
-            onToggle={(key) => setChecked((set) => toggle(set, key))}
-            onOverwrite={(key) => setOverwrite((set) => toggle(set, key))}
+            onToggle={(key) => setChecked((set) => toggled(set, key))}
+            onOverwrite={(key) => setOverwrite((set) => toggled(set, key))}
             onTogglePlace={togglePlace}
           />
         ))}
@@ -447,26 +441,13 @@ async function runCopy(
 ) {
   const t = messages().copy;
   const steps = copySteps(s, places, plans, checked, overwrite);
-  const outcomes: (CopyOutcome | undefined)[] = [];
-  await ui.run(
-    async () => {
-      for (const [i, step] of steps.entries()) {
-        if ("skip" in step) continue;
-        try {
-          if ("group" in step) {
-            outcomes[i] = { results: (await LibraryService.InstallGroup(step.group.id, step.scope, { overwrite: step.overwrite })) ?? [] };
-          } else {
-            await LibraryService.Install(step.skill.id, step.scope, { overwrite: step.overwrite });
-            outcomes[i] = {};
-          }
-        } catch (e) {
-          outcomes[i] = { error: toLibraryError(e) };
-        }
-      }
-    },
-    { failed: () => copyResults(s, steps, outcomes).failed },
-  );
-  const { rows, installed, groups, placed } = copyResults(s, steps, outcomes);
+  const results = await runEach(steps, (step) => {
+    if ("skip" in step) return undefined;
+    if ("group" in step) return LibraryService.InstallGroup(step.group.id, step.scope, { overwrite: step.overwrite }).then((r) => r ?? []);
+    return LibraryService.Install(step.skill.id, step.scope, { overwrite: step.overwrite }).then(() => []);
+  });
+  if (!results) return;
+  const { rows, installed, groups, placed } = copyResults(s, steps, results);
   // 装好后的提示和别处安装一样，写出装上的技能在那里找不到的被提到技能。
   if (rows.length) {
     await showResults(t.resultsTitle(fromName, toName), rows, t.summary(installed, rows.length));

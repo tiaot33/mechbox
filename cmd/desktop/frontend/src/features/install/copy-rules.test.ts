@@ -167,7 +167,7 @@ describe("照着装的结果怎么归并", () => {
   ];
 
   it("同一个技能既随组又直接安装时只算一次;有同名文件夹而没勾覆盖、被跳过的成员是用户选的，不再列出", () => {
-    const r = copyResults(s, steps(false), [{ results: groupResults }, {}, {}]);
+    const r = copyResults(s, steps(false), [{ value: groupResults }, { value: [] }, { value: [] }]);
     expect(r.installed).toBe(2);
     expect(r.groups).toBe(1);
     expect(r.rows.map((x) => x.label)).toEqual(["s3 → Claude Code · 全局"]);
@@ -176,12 +176,12 @@ describe("照着装的结果怎么归并", () => {
   });
 
   it("勾了覆盖还被跳过的成员照样列出", () => {
-    const r = copyResults(s, steps(true), [{ results: groupResults }, {}, {}]);
+    const r = copyResults(s, steps(true), [{ value: groupResults }, { value: [] }, { value: [] }]);
     expect(r.rows.map((x) => x.label)).toEqual(["s2 → Claude Code · 全局", "s3 → Claude Code · 全局"]);
   });
 
   it("失败的写明原因、顶栏画叉;执行时才被占上的直接安装能点开占着的那个，组安装失败不记组安装数", () => {
-    const r = copyResults(s, steps(false), [{ error: err(ErrorCode.Permission) }, { error: err(ErrorCode.FailedPrecondition, { skill_id: 3 }) }, {}]);
+    const r = copyResults(s, steps(false), [{ error: err(ErrorCode.Permission) }, { error: err(ErrorCode.FailedPrecondition, { skill_id: 3 }) }, { value: [] }]);
     expect(r.rows.map((x) => [x.label, x.outcome, x.occupier])).toEqual([
       [c.groupFailed("g5", "Claude Code · 全局"), a.failed, undefined],
       ["s1 → Claude Code · 全局", a.failed, 3],

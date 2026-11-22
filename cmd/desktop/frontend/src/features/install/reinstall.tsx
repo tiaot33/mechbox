@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
 import {
-  ErrorCode,
   ReinstallOutcome,
   SkillScopeStatus,
   type SkillScopeFilter,
@@ -11,9 +10,8 @@ import {
 } from "@bindings/internal/library";
 import { toggled } from "@/lib/utils";
 import { overwriteKey, placeKey, planReinstall, reinstallsNothing, reinstallTargets, type MissingChoice, type ReinstallChoices } from "@/lib/consent";
-import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
-import { currentSnapshot, toLibraryError, useSnapshot } from "@/lib/library";
+import { currentSnapshot, useSnapshot } from "@/lib/library";
 import { agentName, groupName, skillName } from "@/lib/scope";
 import { canInstall, folderKey, linkNote } from "@/lib/installs";
 import { eachPlace, placeCount, placeNames, scopeLabel, sharedWithNote } from "@/lib/places";
@@ -23,8 +21,8 @@ import { Button } from "@/components/ui/button";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Segmented } from "@/components/ui/segmented";
 import { Notice } from "@/components/ui/notice";
-import { showResults } from "@/components/app/results";
-import { failedRow, type ResultRow } from "@/components/app/result-rows";
+import { eachCall, showResults } from "@/components/app/results";
+import { failedRow, failedAttemptRows } from "@/components/app/result-rows";
 import { confirmLinkWrites } from "@/components/app/link-notes";
 
 // reinstall 把 filter 范围内不是当前版本的各处换成当前版本。先现查状态：快照可能已落后于磁盘，
@@ -63,19 +61,9 @@ export async function reinstall(filter: SkillScopeFilter, what: string) {
   if (requests.length && !(await confirmLinkWrites(inspected ?? [], written, t.reinstallTitle(what), t.reinstall, explained))) return;
   const done = await ui.run(async () => {
     const results = requests.length ? ((await LibraryService.Reinstall(requests)) ?? []) : [];
-    const rows: ResultRow[] = [];
-    let uninstalled = 0;
-    for (const p of uninstalls) {
-      try {
-        await LibraryService.Uninstall(p.skill_id, p.scope);
-        uninstalled++;
-      } catch (e) {
-        const err = toLibraryError(e);
-        if (err.code === ErrorCode.Canceled) throw e;
-        rows.push({ label: `${skillName(s, p.skill_id)} · ${scopeLabel(s, p.scope)}`, outcome: t.notUninstalled, tone: "critical", reason: describeError(err) });
-      }
-    }
-    return { results, rows, uninstalled };
+    const removed = await eachCall(uninstalls, (p) => LibraryService.Uninstall(p.skill_id, p.scope));
+    const rows = failedAttemptRows(removed, (i) => `${skillName(s, uninstalls[i].skill_id)} · ${scopeLabel(s, uninstalls[i].scope)}`, t.notUninstalled);
+    return { results, rows, uninstalled: removed.length - rows.length };
   }, { failed: (d) => d.rows.length > 0 || d.results.some((r) => r.outcome === ReinstallOutcome.ReinstallFailed) });
   if (!done) return;
   const failed = eachPlace(s, done.results.filter((r) => r.outcome === ReinstallOutcome.ReinstallFailed));
