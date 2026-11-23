@@ -3615,7 +3615,7 @@ await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认
   await sidebarHidesSync("清空后回到未配置，侧栏不再显示同步");
 });
 
-await step("设置页 Agent 分区：显示勾选、手填添加 / 编辑迁移 / 移除 Agent、共用目录卸载", async () => {
+await step("设置页 Agent 分区：显示勾选、手填添加(改了出错的那一项报错就不再显示) / 编辑迁移 / 移除 Agent、共用目录卸载", async () => {
   const agents = () => page.locator('.settings [data-slot="card"]', { has: page.locator('[data-slot="card-title"]', { hasText: /^Agent$/ }) });
   const row = (name) => agents().locator(".set-row", { hasText: name });
   const shownSwitch = (name) => row(name).locator('[role="switch"]');
@@ -3691,12 +3691,44 @@ await step("设置页 Agent 分区：显示勾选、手填添加 / 编辑迁移 
   await shownSwitch("Claude Code").click();
   await settle();
 
-  // 手填添加：全局技能目录必须在用户主目录里面。
+  // 手填添加：名称要填，全局技能目录必须在用户主目录里面。改了出错的那一项，那一项的报错立刻不再显示，别的项的报错还在。
   await addAgentByHand(agents());
-  await fillAgent("My Agent", "/opt/my-agent/skills", ".my-agent/skills");
+  await fillAgent("", "/opt/my-agent/skills", ".my-agent/skills");
+  const fieldError = (text, field = modal()) => field.locator('[data-slot="field-error"]', { hasText: text });
   await btn(modal(), "添加").click();
-  assert((await modal().locator('[data-slot="field-error"]', { hasText: "用户主目录里面" }).count()) === 1, "主目录外的全局目录应被拦下");
-  await modal().locator('[data-slot="input"]').nth(1).fill("~/.my-agent/skills");
+  assert((await fieldError("填写名称").count()) === 1, "没填名称应被拦下");
+  assert((await fieldError("用户主目录里面").count()) === 1, "主目录外的全局目录应被拦下");
+  await modal().locator('[data-slot="input"]').nth(0).fill("My Agent");
+  await fieldError("填写名称").waitFor({ state: "detached" });
+  assert((await fieldError("用户主目录里面").count()) === 1, "只改名称，全局目录的报错应还在");
+  // 报错写出了 /opt/my-agent/skills 这一行：添加空行、填别的行、去掉别的行都不算改了它，报错还在。
+  const globalDirs = modal().locator(".agent-directories.global_directories");
+  await globalDirs.locator(".add-directory").click();
+  assert((await fieldError("用户主目录里面").count()) === 1, "添加一个空行不应清掉报错");
+  await globalDirs.locator('[data-slot="input"]').nth(1).fill("~/.my-agent-extra/skills");
+  assert((await fieldError("用户主目录里面").count()) === 1, "改了别的行，写出那一行的报错应还在");
+  await globalDirs.locator(".remove-directory").nth(1).click();
+  assert((await fieldError("用户主目录里面").count()) === 1, "去掉别的行，写出那一行的报错应还在");
+  await globalDirs.locator('[data-slot="input"]').first().fill("~/.my-agent/skills");
+  await fieldError("用户主目录里面").waitFor({ state: "detached" });
+  // 项目里的技能目录一个在另一个里面：去掉多出来的那一行，报错不再显示。
+  const projectDirs = modal().locator(".agent-directories.project_directories");
+  await projectDirs.locator(".add-directory").click();
+  await projectDirs.locator('[data-slot="input"]').nth(1).fill(".my-agent/skills/more");
+  await btn(modal(), "添加").click();
+  assert((await fieldError("一个在另一个里面", projectDirs).count()) === 1, "项目里一个目录在另一个里面应被拦下");
+  await projectDirs.locator(".remove-directory").nth(1).click();
+  await fieldError("一个在另一个里面", projectDirs).waitFor({ state: "detached" });
+  // 经符号链接才算同一个的全局目录界面查不出，由技能库按字段报在全局技能目录下面;去掉那一行，报错同样不再显示。
+  fs.mkdirSync(`${HOME}/.my-agent/skills`, { recursive: true });
+  fs.symlinkSync(`${HOME}/.my-agent`, `${HOME}/.my-agent-link`);
+  await globalDirs.locator(".add-directory").click();
+  await globalDirs.locator('[data-slot="input"]').nth(1).fill("~/.my-agent-link/skills");
+  await btn(modal(), "添加").click();
+  await fieldError("一个在另一个里面", globalDirs).waitFor();
+  await globalDirs.locator(".remove-directory").nth(1).click();
+  await fieldError("一个在另一个里面", globalDirs).waitFor({ state: "detached" });
+  fs.rmSync(`${HOME}/.my-agent-link`);
   await btn(modal(), "添加").click();
   await toast("已添加 Agent「My Agent」");
   await settle();
@@ -3979,7 +4011,7 @@ await step("添加 Agent：候选池检测到的置顶、能搜索、勾选添�
   await back();
 });
 
-await step("目录输入框能从下拉里选也能自己填;恢复默认先说清改哪些、移除哪些手填 Agent,确认后收录的换回内置值、手填的移除且不回候选池", async () => {
+await step("目录输入框能从下拉里选也能自己填(填进去后那组目录的报错不再显示);恢复默认先说清改哪些、移除哪些手填 Agent,确认后收录的换回内置值、手填的移除且不回候选池", async () => {
   const agents = () => section("Agent");
   const row = (name) => agents().locator(".set-row", { hasText: name });
   const menu = () => page.locator(".directory-menu");
@@ -4008,6 +4040,14 @@ await step("目录输入框能从下拉里选也能自己填;恢复默认先说�
   await modal().locator('[data-slot="input"]').nth(0).fill("Hand Agent");
   await modal().locator('.agent-directories.global_directories [data-slot="input"]').first().fill("~/.hand/skills");
   const project = modal().locator(".agent-directories.project_directories");
+  // 项目目录没填时点添加报错;从下拉里填进一个，报错不再显示。
+  await btn(modal(), "添加").click();
+  const projectRequired = project.locator('[data-slot="field-error"]', { hasText: "填写项目里的技能目录" });
+  await projectRequired.waitFor();
+  await project.locator(".directory-options").first().click();
+  await menu().locator(".directory-option").filter({ hasText: /^\.claude\/skills$/ }).dispatchEvent("mousedown");
+  await menu().waitFor({ state: "detached" });
+  await projectRequired.waitFor({ state: "detached" });
   await project.locator('[data-slot="input"]').first().fill(".clau");
   await menu().waitFor();
   assert.deepEqual(await menu().locator(".directory-option").allTextContents(), [".claude/skills"], "输入时按文字过滤");

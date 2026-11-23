@@ -54,6 +54,20 @@ export function agentFieldError(err: LibraryError): string {
   return err.details?.paths?.length ? messages().agents.directoriesOverlap : describeError(err);
 }
 
+// AgentFieldError 是表单里一项下面的报错:input 是报错里写出的那一行(去掉首尾空白),整项的报错(没填、重复或一个在另一个里面、技能库报的)没有。
+export type AgentFieldError = { text: string; input?: string };
+
+// keepsFieldError 是一项改了之后它的报错还要不要显示:before、after 是这一项改前改后的各行(名称是一行)。
+// 去掉空白与空行后没变(添加或去掉空行、重新选回原来的目录、只敲空格)时保留;报错写出了某一行的，只有那一行被改掉或去掉才不再显示;
+// 其余的改了就不再显示，改得对不对，再点保存时重新检查。
+export function keepsFieldError(error: AgentFieldError, before: string[], after: string[]): boolean {
+  const filled = (rows: string[]) => rows.map((r) => r.trim()).filter(Boolean);
+  const now = filled(after);
+  const was = filled(before);
+  if (now.length === was.length && now.every((r, i) => r === was[i])) return true;
+  return error.input !== undefined && now.includes(error.input);
+}
+
 // agentEdit 是编辑 Agent 时受影响的:affected 是这个 Agent 所在目录被去掉的那几处安装(含因共用目录而算已装的;
 // 所在目录还在新列表里的磁盘不动，不算);groupInstalls 是原来的第 1 个目录被去掉的层级里它的组安装数。
 // asks 是要不要先问是否迁移;shared 是其中还有别的 Agent 在读的(那份文件夹留在旧目录);detached 是迁移时别处的符号链接
