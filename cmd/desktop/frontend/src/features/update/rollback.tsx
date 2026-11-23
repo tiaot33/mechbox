@@ -15,7 +15,8 @@ import {
   type UpdateRecord,
   type UpdateRecordID,
 } from "@bindings/internal/library";
-import { linkWrites, placeKey } from "@/lib/consent";
+import { linkWrites } from "@/lib/consent";
+import { placeKey } from "@/lib/installs";
 import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";

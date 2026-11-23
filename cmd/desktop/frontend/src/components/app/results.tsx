@@ -1,5 +1,5 @@
 // 写操作的结果列表：组安装、加入组、重新安装等逐条返回结果时，列出每一条的结论，被跳过或失败的写明原因。
-// 结果行怎么写(ResultRow、memberRows 等)在 result-rows.ts,是不碰界面的纯函数，流程里的判断也用它们归并结果。
+// 结果行怎么写(ResultRow、memberRows 等)在 lib/result-rows.ts,是不碰界面的纯函数，流程里的判断也用它们归并结果。
 import { ErrorCode } from "@bindings/internal/library";
 import { messages } from "@/lib/i18n";
 import { toLibraryError, type Attempt } from "@/lib/library";
@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
-import type { ResultRow } from "./result-rows";
+import type { ResultRow } from "@/lib/result-rows";
 
 export function showResults(title: string, rows: ResultRow[], note?: string) {
   const t = messages().actions;

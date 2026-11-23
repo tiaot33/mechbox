@@ -1,4 +1,4 @@
-// 组：勾选的技能里加入、移出哪些，一并卸载会删哪些文件夹，逐个加入组之后怎么汇报，集合加入组时加入哪些技能。
+// 组：勾选的技能里加入、移出哪些，一并卸载会删哪些文件夹，逐个加入组之后怎么汇报。
 import { describe, expect, it } from "vitest";
 import {
   AgentCode,
@@ -9,7 +9,6 @@ import {
   SkillScopeStatus,
   SourceType,
   type Agent,
-  type Collection,
   type Group,
   type GroupInstall,
   type GroupMemberResult,
@@ -20,7 +19,7 @@ import {
 } from "@bindings/internal/library";
 import { messages } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
-import { addReadsTwice, addedToGroup, groupOnly, inGroup, missingFromGroup, notInGroup } from "./group-rules";
+import { addReadsTwice, addedToGroup, groupOnly, inGroup, notInGroup } from "./group-rules";
 
 const claude = AgentCode.AgentClaudeCode;
 const codex = AgentCode.AgentCodex;
@@ -146,21 +145,6 @@ describe("同名的几个技能一起加入组", () => {
   it("库里没有同名的技能不多写", () => {
     const r = addedToGroup(snapshot(), [1], [{ value: [result(1, GroupMemberOutcome.MemberSkipped)] }]);
     expect(r.rows[0].detail).toBeUndefined();
-  });
-});
-
-describe("missingFromGroup", () => {
-  const collection = (id: number, label: string, skills: number[] = []) => ({ id, skills, source: { type: SourceType.SourceGitHub, label } }) as Collection;
-  const group = (id: number, members: number[] = []) => ({ id, name: `g${id}`, members }) as Group;
-  const s = snapshot({ collections: [collection(1, "a/a", [10, 11, 12]), collection(2, "b/b")], groups: [group(7, [11])] });
-
-  it("是集合里还不在组里的技能", () => {
-    expect(missingFromGroup(s, 1, 7)).toEqual([10, 12]);
-  });
-
-  it("集合为空或都已在组里时为空", () => {
-    expect(missingFromGroup(s, 2, 7)).toEqual([]);
-    expect(missingFromGroup(snapshot({ collections: [collection(1, "a/a", [11])], groups: [group(7, [11])] }), 1, 7)).toEqual([]);
   });
 });
 

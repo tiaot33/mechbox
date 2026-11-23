@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CancellablePromise } from "@wailsio/runtime";
 import type { ReinstallResult } from "@bindings/internal/library";
-import { placeKey } from "@/lib/consent";
+import { placeKey } from "@/lib/installs";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
 import { confirmLinkedRequests } from "@/components/app/link-notes";
-import { placeAgain } from "./update";
+import { placeAgain } from "./run";
 import { retryBatches, retryRequests, rollbackOffer, stillFailed, type UpdateOutcome } from "./update-rules";
 import { rollbackUpdate } from "./rollback";
 

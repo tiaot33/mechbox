@@ -1,4 +1,4 @@
-// 写操作结果列表里的一行(results.tsx 的 showResults 列出它们):组安装、加入组的逐个成员，重新安装失败的条目。
+// 写操作结果列表里的一行(components/app/results.tsx 的 showResults 列出它们):组安装、加入组的逐个成员，重新安装失败的条目。
 // 不碰界面、不调技能库，流程里的判断(features/ 下的 *-rules.ts)也用它们归并结果。
 import { ErrorCode, GroupMemberOutcome, type GroupMemberResult, type ReinstallResult, type SkillID } from "@bindings/internal/library";
 import { describeError, occupiedReason } from "@/lib/errors";

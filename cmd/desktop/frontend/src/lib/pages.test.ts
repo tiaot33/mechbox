@@ -10,7 +10,7 @@ import {
   type UnmanagedSkill,
 } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { pageListing, pageSkills, pickRange, projectAgents, projectSkillCount, scopeHereCount, sortSkills, type Arrange } from "./pages";
+import { pageListing, pageSkills, pickRange, projectAgents, projectScopes, projectSkillCount, scopeHereCount, sortSkills, type Arrange } from "./pages";
 
 const collection = (id: number, label: string, skills: number[] = []) => ({ id, skills, source: { type: SourceType.SourceGitHub, label } }) as Collection;
 const snapshot = (s: Partial<Snapshot>) =>
@@ -139,6 +139,12 @@ describe("projectAgents", () => {
     expect(agents[0].skills.map((x) => x.name)).toEqual(["beta"]);
     expect(agents[0].unmanaged.map((u) => u.name)).toEqual(["mine"]);
     expect(agents[0].all).toBe(2);
+  });
+
+  it("项目里装了技能的作用域和各节一一对应：共用目录的是代表的作用域，没装技能的项目没有", () => {
+    expect(projectScopes(s, 1).map((sc) => sc.agent)).toEqual(["claude-code", "codex"]);
+    expect(projectScopes(s, 1).every((sc) => sc.project_id === 1)).toBe(true);
+    expect(projectScopes(s, 3)).toEqual([]);
   });
 
   it("右栏和项目页标题的数字：几个 Agent 都装了的只算一个，不是 app 装的也算", () => {

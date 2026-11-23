@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { ScopeKind, SkillFileProblemKind, SkillScopeStatus, type Skill, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { extraCopy, fetchable, folderNotes, handOverNote, identicalsOf, identicalState, skillFileProblemText } from "./unmanaged";
+import { extraCopy, fetchable, folderNotes, repoMark, handOverNote, identicalsOf, identicalState, skillFileProblemText } from "./unmanaged";
 
 const where = (agent: string, project_id?: number) =>
   project_id ? { kind: ScopeKind.ScopeProject, agent, project_id } : { kind: ScopeKind.ScopeGlobal, agent };
@@ -18,6 +18,14 @@ describe("folderNotes", () => {
     expect(folderNotes({ ...plain, link_outside: true, link_target: "/home/me/code/x" }, "/home/me")[0].text).toBe("链到 ~/code/x");
     expect(notes[1].title).toContain("/home/code/x");
     expect(folderNotes({ ...plain, in_project_lock: true }).map((x) => x.text)).toEqual(["记在 skills-lock.json 里"]);
+  });
+});
+
+describe("repoMark", () => {
+  it("归项目仓库管的只标一条：提交在仓库里的优先，其次是记在 skills-lock.json 里", () => {
+    expect(repoMark({ in_repository: true, in_project_lock: true })).toBe("repository");
+    expect(repoMark({ in_project_lock: true })).toBe("lock");
+    expect(repoMark({})).toBeUndefined();
   });
 });
 

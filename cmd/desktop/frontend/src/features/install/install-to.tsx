@@ -4,7 +4,7 @@ import { useState } from "react";
 import type { Agent, AgentCode, Scope, SkillID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { currentSnapshot, reloadLibrary, useSnapshot } from "@/lib/library";
-import { agentNameIn, agentShown, agentsUsedIn, mergeAgentsExcept } from "@/lib/places";
+import { agentNameIn, installAgentsIn } from "@/lib/places";
 import { parseScope, placeOf, projectName, scopeKey, scopeOf, type Place } from "@/lib/scope";
 import { skillScopeIn } from "@/lib/installs";
 import type { Page } from "@/lib/pages";
@@ -27,8 +27,7 @@ export function useInstallTarget(available: (scope: Scope) => boolean, initial: 
   const s = useSnapshot();
   const [place, setPlaceState] = useState<Place>(initial.place ?? 0);
   const [picked, setPicked] = useState<AgentCode[] | null>(null);
-  const used = agentsUsedIn(s, place);
-  const rest = mergeAgentsExcept(s, place, s.agents.filter((a) => agentShown(s.agentsShown, a)), used);
+  const { used, rest } = installAgentsIn(s, place);
   const can = (code: AgentCode) => available(scopeOf(code, place));
   const options = [...used, ...rest];
   const defaults = [...used.map((a) => a.code), ...(place === (initial.place ?? 0) && initial.agent ? [initial.agent] : [])];

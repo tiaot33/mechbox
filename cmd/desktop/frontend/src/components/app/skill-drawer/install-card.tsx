@@ -5,14 +5,15 @@ import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { ui } from "@/lib/ui";
 import { identicalsOf, identicalState, notTakenOver } from "@/lib/unmanaged";
-import { folderPresent, editedHere, needsReinstall, needsRepair, skillScopeIn, skillScopeStatus, skillScopesOf } from "@/lib/installs";
+import { folderPresent, editedHere, needsReinstall, needsRepair, skillScopeIn, skillScopeStatus, skillScopesOf, sourceLatestHere } from "@/lib/installs";
 import { eachPlace, scopeLabel } from "@/lib/places";
 import { placeOf, projectName, scopeKey } from "@/lib/scope";
 import { shortPath } from "@/lib/paths";
 import { installSkill, installSkillTo, uninstallSkill } from "@/features/install/install";
 import { AgentPicker, PlaceSelect, useInstallTarget } from "@/features/install/install-to";
 import { reinstall } from "@/features/install/reinstall";
-import { openUpdate, updateFromScope } from "@/features/update/update";
+import { openUpdate } from "@/features/update/update-dialog";
+import { updateFromScope } from "@/features/update/scope-update-dialog";
 import { fetchUnmanaged } from "@/features/fetch/fetch-unmanaged";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -54,7 +55,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
           </thead>
           <tbody>
             {installed.map((p) => {
-              const st = skillScopeStatus(p.status, p.source_latest);
+              const st = skillScopeStatus(p);
               const toggle = () => (p.direct ? uninstallSkill(id, p.scope) : installSkill(id, p.scope));
               return (
                 <tr key={scopeKey(p.scope)}>
@@ -111,8 +112,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
                       </Badge>
                       <PlaceActions
                         actions={[
-                          p.status === SkillScopeStatus.SkillScopeModified &&
-                            p.source_latest && { label: d.updateToLatest, title: d.updateToLatestHint, onSelect: () => void openUpdate(skill.collection_id, { focus: id }) },
+                          sourceLatestHere(p) && { label: d.updateToLatest, title: d.updateToLatestHint, onSelect: () => void openUpdate(skill.collection_id, { focus: id }) },
                           editedHere(p) && { label: d.updateFromHere, title: d.updateFromHereHint, className: "place-update-from-here", onSelect: () => updateFromScope(skill, p.scope) },
                           needsReinstall(p) && { label: d.reinstall, className: "place-reinstall", onSelect: () => reinstall({ skill_id: id, scope: p.scope }, scopeLabel(s, p.scope)) },
                         ]}
@@ -158,7 +158,7 @@ export function InstallCard({ skill }: { skill: Skill }) {
                   <td>
                     <div className="flex min-w-0 items-center gap-1">
                       {state.stale && (
-                        <Badge tone={skillScopeStatus(SkillScopeStatus.SkillScopeStale).tone}>{skillScopeStatus(SkillScopeStatus.SkillScopeStale).label}</Badge>
+                        <Badge tone={skillScopeStatus({ status: SkillScopeStatus.SkillScopeStale }).tone}>{skillScopeStatus({ status: SkillScopeStatus.SkillScopeStale }).label}</Badge>
                       )}
                       {/* 提交在项目仓库里、指向 Agent 目录以外的默认不入库：按钮是普通的灰底，不推用户去入库。 */}
                       {!here && (

@@ -21,7 +21,7 @@ import {
   type UpdateRecord,
   type UpdateResult,
 } from "@bindings/internal/library";
-import { placeKey } from "@/lib/consent";
+import { placeKey } from "@/lib/installs";
 import type { LibraryError, Snapshot } from "@/lib/library";
 import {
   currentRecord,

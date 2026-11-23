@@ -10,8 +10,9 @@ import { collectionSkills, revisionSummary, revisionText, shortRevision, sourceL
 import { sourceChanges, sourceState, updatableCollections } from "@/lib/source-state";
 import { knownRisks, ReadRetries, rememberPlanRisks, snapshotRiskKey } from "@/lib/plan-risks";
 import { useBusy, useUI } from "@/lib/ui";
-import { riskSummary } from "@/features/update/risks";
-import { openUpdate, updateWithDefaults } from "@/features/update/update";
+import { riskSummary } from "@/lib/risks";
+import { openUpdate } from "@/features/update/update-dialog";
+import { updateWithDefaults } from "@/features/update/update";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

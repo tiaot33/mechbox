@@ -1,6 +1,7 @@
 // 一次确认入库未纳管技能时列表里的行：按来源分组的一条、同名冲突里的一份，以及改来源链接。
 import type { PlannedUnmanagedSkill } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
+import { repoMark } from "@/lib/unmanaged";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ListRow } from "@/components/ui/list";
@@ -88,8 +89,8 @@ export function PlannedRow({
         <label title={p.description || undefined}>
           <input type="checkbox" className="shrink-0 accent-primary" checked={picked} onChange={onToggle} />
           <b className="fetch-unmanaged-name shrink-0 font-semibold whitespace-nowrap">{p.name}</b>
-          {p.in_repository && <Badge tone="info">{t.inRepository}</Badge>}
-          {!p.in_repository && p.in_project_lock && (
+          {repoMark(p) === "repository" && <Badge tone="info">{t.inRepository}</Badge>}
+          {repoMark(p) === "lock" && (
             <Badge tone="info" title={t.inLockTitle}>
               {t.inLock}
             </Badge>
@@ -150,8 +151,8 @@ export function ConflictRow({
         <label title={p.description || undefined}>
           <input type="radio" name={`conflict-${group}`} className="shrink-0 accent-primary" checked={picked} onChange={onPick} />
           <span className="min-w-0 truncate">{agents}</span>
-          {p.in_repository && <Badge tone="info">{t.inRepository}</Badge>}
-          {!p.in_repository && p.in_project_lock && <Badge tone="info">{t.inLock}</Badge>}
+          {repoMark(p) === "repository" && <Badge tone="info">{t.inRepository}</Badge>}
+          {repoMark(p) === "lock" && <Badge tone="info">{t.inLock}</Badge>}
           {p.link_outside && <OutsideBadge planned={p} home={home} />}
           {!!p.skill_id && (
             <Badge className="fetch-unmanaged-in-library" title={t.inLibraryNote}>

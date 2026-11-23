@@ -8,12 +8,25 @@ import {
   type SkillScopeFilter,
   type SkillScopeInspection,
 } from "@bindings/internal/library";
-import { toggled } from "@/lib/utils";
-import { overwriteKey, placeKey, planReinstall, reinstallsNothing, reinstallTargets, staleLinksOf, type MissingChoice, type ReinstallChoices } from "@/lib/consent";
+import {
+  chooseMissing,
+  missingChoice,
+  missingFolders,
+  noReinstallChoices,
+  overwriteCount,
+  overwriting,
+  planReinstall,
+  putBackAll,
+  reinstallsNothing,
+  reinstallTargets,
+  staleLinksOf,
+  toggleOverwrite,
+  type ReinstallChoices,
+} from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, useSnapshot } from "@/lib/library";
 import { agentName, groupName, skillName } from "@/lib/scope";
-import { canInstall, folderKey, linkNote } from "@/lib/installs";
+import { canInstall, linkNote, placeKey, sourceLatestHere } from "@/lib/installs";
 import { eachPlace, placeCount, placeNames, scopeLabel, sharedWithNote } from "@/lib/places";
 import { shortPath, wslTitle } from "@/lib/paths";
 import { Modal, ui } from "@/lib/ui";
@@ -22,7 +35,7 @@ import { ListBox, ListRow } from "@/components/ui/list";
 import { Segmented } from "@/components/ui/segmented";
 import { Notice } from "@/components/ui/notice";
 import { eachCall, showResults } from "@/components/app/results";
-import { failedRow, failedAttemptRows } from "@/components/app/result-rows";
+import { failedRow, failedAttemptRows } from "@/lib/result-rows";
 import { confirmLinkWrites } from "@/components/app/link-notes";
 
 // reinstall 把 filter 范围内不是当前版本的各处换成当前版本。先现查状态：快照可能已落后于磁盘，
@@ -44,7 +57,7 @@ export async function reinstall(filter: SkillScopeFilter | SkillScopeFilter[], w
     ui.toast(off ? t.offMachineSkipped(what, off) : t.allCurrent(what));
     return;
   }
-  let chosen: ReinstallChoices = { overwrite: new Set(), missing: new Map() };
+  let chosen = noReinstallChoices;
   if (modified.length || missing.length) {
     const picked = await ui.open<ReinstallChoices>((close) => (
       <ReinstallDialog modified={modified} missing={missing} nothing={(chosen) => reinstallsNothing(targets, single, chosen)} close={close} />
@@ -79,6 +92,7 @@ export async function reinstall(filter: SkillScopeFilter | SkillScopeFilter[], w
 
 // ReinstallDialog 在重新安装前问用户两类地方：文件夹不在了的(不动、装回去还是卸载，默认不动)与被改过的(勾选的才覆盖，默认都不覆盖)。
 // 这样选下去什么都不会做时(nothing,和真正执行时同一份计算，见 consent 的 reinstallsNothing),确认按钮点不了。
+// 选择怎么记见 consent 的 ReinstallChoices,这里只经那几个函数读、改。
 function ReinstallDialog({
   modified,
   missing,
@@ -92,12 +106,10 @@ function ReinstallDialog({
 }) {
   const s = useSnapshot();
   const t = useT();
-  const [overwrite, setOverwrite] = useState<Set<string>>(new Set());
-  const [choices, setChoices] = useState<Map<string, MissingChoice>>(new Map());
-  const folders = [...new Map(missing.map((p) => [folderKey(p), missing.filter((x) => folderKey(x) === folderKey(p))])).entries()];
-  const choose = (key: string, value: MissingChoice) => setChoices((prev) => new Map(prev).set(key, value));
-  const toggle = (key: string) => setOverwrite((prev) => toggled(prev, key));
-  const nothing = nothingFor({ overwrite, missing: choices });
+  const [chosen, setChosen] = useState<ReinstallChoices>(noReinstallChoices);
+  const folders = missingFolders(missing);
+  const overwrites = overwriteCount(chosen);
+  const nothing = nothingFor(chosen);
   return (
     <Modal
       title={missing.length ? t.actions.reinstallConfirmTitle : t.actions.modifiedTitle}
@@ -105,20 +117,20 @@ function ReinstallDialog({
       footer={
         <>
           {folders.length > 0 && (
-            <Button className="mr-auto" onClick={() => setChoices(new Map(folders.map(([key]) => [key, "putBack"])))}>
+            <Button className="mr-auto" onClick={() => setChosen((c) => putBackAll(c, missing))}>
               {t.actions.putBackAll}
             </Button>
           )}
           <Button onClick={() => close()}>{t.common.cancel}</Button>
           <Button
             className="reinstall-confirm"
-            variant={overwrite.size ? "destructive" : "primary"}
+            variant={overwrites ? "destructive" : "primary"}
             disabled={nothing}
             title={nothing ? t.actions.reinstallNothingPicked : undefined}
-            onClick={() => close({ overwrite, missing: choices })}
+            onClick={() => close(chosen)}
             autoFocus={!nothing}
           >
-            {missing.length ? t.common.ok : overwrite.size ? t.actions.reinstallOverwrite(overwrite.size) : t.actions.reinstall}
+            {missing.length ? t.common.ok : overwrites ? t.actions.reinstallOverwrite(overwrites) : t.actions.reinstall}
           </Button>
         </>
       }
@@ -127,12 +139,12 @@ function ReinstallDialog({
         <>
           <Notice alert>{t.actions.missingNotice(folders.length)}</Notice>
           <ListBox>
-            {folders.map(([key, places]) => {
+            {folders.map((places) => {
               const p = places[0];
               const groups = [...new Set(places.flatMap((x) => x.groups ?? []))];
               const shared = sharedWithNote(s, p);
               return (
-                <ListRow key={key} compact>
+                <ListRow key={placeKey(p)} compact>
                   <div className="min-w-0 grow">
                     <div>
                       {t.actions.missingPlace(skillName(s, p.skill_id), placeNames(s, places))}
@@ -154,8 +166,8 @@ function ReinstallDialog({
                   </div>
                   <Segmented
                     className="shrink-0"
-                    value={choices.get(key) ?? "keep"}
-                    onChange={(value) => choose(key, value)}
+                    value={missingChoice(chosen, p)}
+                    onChange={(value) => setChosen((c) => chooseMissing(c, p, value))}
                     options={[
                       { value: "keep", label: t.actions.leaveAlone },
                       { value: "putBack", label: t.actions.putBack },
@@ -173,11 +185,11 @@ function ReinstallDialog({
           <Notice alert>{t.actions.modifiedNotice}</Notice>
           <ListBox>
             {eachPlace(s, modified).map((p) => {
-              const key = overwriteKey(p);
+              const on = overwriting(chosen, p);
               return (
-                <ListRow key={key} asChild compact clickable selected={overwrite.has(key)}>
+                <ListRow key={placeKey(p)} asChild compact clickable selected={on}>
                   <label>
-                    <input type="checkbox" className="shrink-0 accent-primary" checked={overwrite.has(key)} onChange={() => toggle(key)} />
+                    <input type="checkbox" className="shrink-0 accent-primary" checked={on} onChange={() => setChosen((c) => toggleOverwrite(c, p))} />
                     <div className="min-w-0 grow">
                       <div>
                         {skillName(s, p.skill_id)} · {scopeLabel(s, p.scope)}
@@ -186,7 +198,7 @@ function ReinstallDialog({
                         {shortPath(s, p.folder)}
                       </div>
                       {p.link_target && <div className="text-caption break-all text-muted-foreground">{linkNote(s, p.link_target)}</div>}
-                      {p.source_latest && <div className="reinstall-source-latest text-caption text-foreground">{t.actions.reinstallSourceLatest}</div>}
+                      {sourceLatestHere(p) && <div className="reinstall-source-latest text-caption text-foreground">{t.actions.reinstallSourceLatest}</div>}
                     </div>
                   </label>
                 </ListRow>

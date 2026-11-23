@@ -25,7 +25,7 @@ import { doneFlash, doneFresh, openDrawer, toggleDrawer, useView } from "@/lib/v
 import { fetchUnmanaged } from "@/features/fetch/fetch-unmanaged";
 import { installSkill, uninstallSkill } from "@/features/install/install";
 import { invocationNote, type Note } from "@/lib/agent-settings";
-import { openUpdate } from "@/features/update/update";
+import { openUpdate } from "@/features/update/update-dialog";
 import { AlertIcon, Badge, MarkIcon, type Alert } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch, SwitchMark } from "@/components/ui/switch";

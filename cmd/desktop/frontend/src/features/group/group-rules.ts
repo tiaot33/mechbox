@@ -3,7 +3,6 @@
 import {
   GroupMemberOutcome,
   InstallPlanStatus,
-  type CollectionID,
   type GroupID,
   type GroupMemberResult,
   type InstallPlan,
@@ -14,9 +13,9 @@ import {
 import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
 import type { Attempt, Snapshot } from "@/lib/library";
+import { readsTwiceNotes } from "@/lib/installs";
 import { scopeKey, skillName } from "@/lib/scope";
-import { memberRows, placedBy, twinDetail, type ResultRow } from "@/components/app/result-rows";
-import { readsTwiceNotes } from "@/features/install/install-rules";
+import { memberRows, placedBy, twinDetail, type ResultRow } from "@/lib/result-rows";
 import { scopeLabel } from "@/lib/places";
 
 // notInGroup 是勾选的技能里还不在组里的(要加入的),inGroup 是在组里的(要移出的)。
@@ -53,12 +52,6 @@ export function addedToGroup(s: Snapshot, ids: SkillID[], results: readonly (Att
     return [{ label: skillName(s, id), detail: twinDetail(s, id), outcome: t.memberAdded, tone: "plain" }];
   });
   return { all: added.length === ids.length && !skipped, skipped, added: added.length, placed: added.flatMap(placedBy), rows };
-}
-
-// missingFromGroup 是集合里还不在组里的技能：集合拖到组上、右键"加入组"时加入的就是这些;为空时说"都已在组里"。
-export function missingFromGroup(s: Snapshot, collectionID: CollectionID, groupID: GroupID): SkillID[] {
-  const members = new Set(s.groups.find((g) => g.id === groupID)?.members ?? []);
-  return (s.collections.find((c) => c.id === collectionID)?.skills ?? []).filter((id) => !members.has(id));
 }
 
 // addReadsTwice 是把技能加入组之前要提示的「会读到两份」(#378:加入组时照装，事先提示):对这个组已组安装的各处取了安装计划，

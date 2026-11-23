@@ -19,10 +19,12 @@ import { formatDate } from "@/lib/content";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { queryClient, toLibraryError, useSnapshot, updateHistoryQuery, versionQuery } from "@/lib/library";
+import { placeKey } from "@/lib/installs";
 import { eachPlace, placeCount, scopeLabel } from "@/lib/places";
 import { shortRevision } from "@/lib/source";
-import { Modal, useUI } from "@/lib/ui";
-import { openUpdate, placeAgain } from "./update";
+import { Modal, ui, useUI } from "@/lib/ui";
+import { openUpdate } from "./update-dialog";
+import { placeAgain } from "./run";
 import { RollbackDialog, rollbackOutcome } from "./rollback";
 import { putBack } from "./rollback-rules";
 import { compareVersions } from "./version-compare";
@@ -46,7 +48,12 @@ function kindText(kind: string): string {
   return known[kind] ?? kind;
 }
 
-export function UpdateHistory({ filter, title, onClose }: { filter: UpdateHistoryFilter; title: string; onClose: () => void }) {
+// openHistory 打开集合的历史(按集合)或某个技能的历史(按技能:哪几次更新改过它)。
+export function openHistory(filter: UpdateHistoryFilter, title: string) {
+  return ui.open((close) => <UpdateHistory filter={filter} title={title} onClose={() => close()} />);
+}
+
+function UpdateHistory({ filter, title, onClose }: { filter: UpdateHistoryFilter; title: string; onClose: () => void }) {
   const t = useT().history;
   // 读取失败和确实没有记录分开说：失败时给出原因和重试，不显示成"没有记录"。回滚、重试之后随写操作重读。
   const q = useQuery(updateHistoryQuery(filter));
@@ -236,7 +243,7 @@ function Places({ record }: { record: UpdateRecord }) {
       </Summary>
       <div className="mt-1 flex flex-col gap-0.5">
         {eachPlace(s, installs).map((i) => (
-          <div key={`${i.skill_id}|${i.scope.agent}|${i.scope.project_id ?? 0}`} className="flex items-center gap-2 text-caption">
+          <div key={placeKey(i)} className="flex items-center gap-2 text-caption">
             <span className="min-w-0 truncate">
               {name(i)} · {scopeLabel(s, i.scope)}
             </span>

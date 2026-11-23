@@ -1,79 +1,19 @@
-// 更新的公共流程(issue #131):对一个集合生成更新计划(PlanUpdate),按勾选一次完成更新和重新安装(Update)。
-// 更新计划弹窗、更新列表里的"更新"(按默认勾选直接执行)、"全部更新"、本地目录来源的"重新读取"
-// 与用目录里的修改更新(PlanUpdateFromScope,issue #185)都走这里;完成后的汇报见 report.tsx。
-// 默认勾哪些技能、哪些地方见 lib/consent.ts。
-import type { CancellablePromise } from "@wailsio/runtime";
+// 不打开更新计划直接做的更新(issue #131):更新页的"更新"(按默认勾选直接执行)、"全部更新",本地目录来源的"重新读取"。
+// 执行一次更新见 run.ts;更新计划、用目录里的修改更新与更新历史的弹窗各自在 update-dialog.tsx、scope-update-dialog.tsx、update-history.tsx 里打开;
+// 完成后的汇报见 report.tsx。默认勾哪些技能、哪些地方见 lib/consent.ts。
 import { LibraryService } from "@bindings/cmd/desktop";
-import {
-  ReinstallOutcome,
-  type CollectionID,
-  type ReinstallRequest,
-  type ReinstallResult,
-  type Scope,
-  type Skill,
-  type SkillID,
-  type SkillScopeInspection,
-  type UpdateHistoryFilter,
-  type UpdatePlan,
-  type UpdateRecordID,
-} from "@bindings/internal/library";
-import { defaultInstallOn, defaultSkills, placeKey, refreshRequests, updateInstalls } from "@/lib/consent";
+import type { CollectionID, ReinstallResult, Skill } from "@bindings/internal/library";
+import { defaultInstallOn, defaultSkills, refreshRequests } from "@/lib/consent";
+import { placeKey } from "@/lib/installs";
 import { messages } from "@/lib/i18n";
 import { currentSnapshot } from "@/lib/library";
-import { isLocal, collectionName } from "@/lib/source";
+import { collectionName } from "@/lib/source";
 import { ui } from "@/lib/ui";
 import { confirmLinkWrites } from "@/components/app/link-notes";
-import { ScopeUpdateDialog } from "./scope-update-dialog";
-import { UpdateDialog } from "./update-dialog";
-import { UpdateHistory } from "./update-history";
+import { openUpdate } from "./update-dialog";
 import { reportUpdates } from "./report";
-import {
-  currentRecord,
-  directoryReread,
-  failedOnly,
-  movedSince,
-  refreshOutcome,
-  rereadChange,
-  splitByRecord,
-  stalePlan,
-  updateOutcome,
-  type UpdateOutcome,
-} from "./update-rules";
-
-// runUpdate 按更新计划执行一次更新：库先换(全成或全不成),勾选的地方再逐处换。
-// 计划生成后来源或库变了时返回 "conflict",由调用方让用户重新看计划;其他失败已提示错误，返回 undefined。
-export async function runUpdate(
-  plan: UpdatePlan,
-  label: string,
-  checked: Set<SkillID>,
-  installOn: (p: SkillScopeInspection) => boolean,
-  from?: string,
-  confirmLinks = false, // 不经更新计划弹窗的快捷更新：写到符号链接相关的地方前先确认
-): Promise<UpdateOutcome | "conflict" | undefined> {
-  const s = currentSnapshot();
-  const picked = updateInstalls(plan, checked, installOn);
-  const { places, written, requests } = picked;
-  if (confirmLinks && !(await confirmLinkWrites(places, written, messages().update.confirmTitle(label), messages().update.update))) return undefined;
-  let conflict = false;
-  const result = await ui.run(() => LibraryService.Update({ plan: plan.id, skills: [...checked], installs: requests }), {
-    label: from ? messages().update.fromScopeLabel(from, label) : isLocal(plan.source) ? messages().update.rereadLabel(label) : messages().update.updateLabel([label]),
-    onError: (err) => (conflict = stalePlan(err)),
-    failed: (r) => (r.installs ?? []).some((x) => x.outcome === ReinstallOutcome.ReinstallFailed),
-  });
-  if (conflict) return "conflict";
-  if (!result) return undefined;
-  return updateOutcome(s, plan, label, checked, picked, result, from);
-}
-
-// placeAgain 把这几处换成当前版本:record 不为 0 时结果算进那次更新(回滚时一起装回去),否则是普通的重新安装。
-// 返回与 requests 一一对应的结果;调用失败(含取消)时返回 undefined。
-export function placeAgain(record: UpdateRecordID, requests: ReinstallRequest[], track?: (call: CancellablePromise<ReinstallResult[] | null>) => void) {
-  return ui.run(() => {
-    const call = record ? LibraryService.RetryUpdateInstalls(record, requests) : LibraryService.Reinstall(requests);
-    track?.(call);
-    return call;
-  }, { failed: (r) => failedOnly(r).length > 0, label: messages().update.retryLabel });
-}
+import { placeAgain, runUpdate } from "./run";
+import { currentRecord, directoryReread, movedSince, refreshOutcome, rereadChange, splitByRecord, type UpdateOutcome } from "./update-rules";
 
 // updateWithDefaults 不打开更新计划，按默认勾选更新这些集合，最后一起汇报。改名、删除和会换掉用户修改的更新要在更新计划里由用户回答，这里不动。
 // 读来源、更新、换装出去的地方算一件事(ui.flow):一个都没更新(都没有能直接更新的，或在确认里取消了)时不画对勾，
@@ -199,23 +139,4 @@ async function refreshInstalls(skill: Skill): Promise<UpdateOutcome | undefined>
     results.push(...r);
   }
   return refreshOutcome(s, skill, record, kept, results, plain);
-}
-
-// updateFromScope 打开"用这里的修改更新":把巡检为被手动改过的那一处的内容作为技能的新版本，并换到勾选的其他地方。
-export function updateFromScope(skill: Skill, scope: Scope) {
-  return ui.open((close) => <ScopeUpdateDialog skill={skill} scope={scope} onClose={() => close()} />);
-}
-
-// openUpdate 打开集合的更新计划。从技能发起时传 focus:默认只勾这一个，其余折叠;
-// 从跳过记录找回时传 select:默认勾上那几个。
-export function openUpdate(collectionID: CollectionID, opts: { focus?: SkillID; select?: SkillID[] } = {}) {
-  const s = currentSnapshot();
-  if (!s.collections.some((c) => c.id === collectionID)) return;
-  return ui.open((close) => <UpdateDialog collectionID={collectionID} focus={opts.focus} select={opts.select} onClose={() => close()} />);
-}
-
-
-// openHistory 打开集合的历史(按集合)或某个技能的历史(按技能:哪几次更新改过它)。
-export function openHistory(filter: UpdateHistoryFilter, title: string) {
-  return ui.open((close) => <UpdateHistory filter={filter} title={title} onClose={() => close()} />);
 }

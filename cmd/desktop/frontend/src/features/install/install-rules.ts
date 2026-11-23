@@ -22,9 +22,9 @@ import type { Attempt, LibraryError, Snapshot } from "@/lib/library";
 import { installable, missingNames } from "@/lib/mentions";
 import { errorOccupier, folderKey, folderPlaces, occupierOf, skillScopeIn, placesAt } from "@/lib/installs";
 import { placeOf, scopeKey, skillName } from "@/lib/scope";
-import { agentNameIn, eachPlace, scopeLabel, sharedWithNote } from "@/lib/places";
+import { eachPlace, scopeLabel, sharedWithNote } from "@/lib/places";
 import { shortPath } from "@/lib/paths";
-import { placedBy, type ResultRow } from "@/components/app/result-rows";
+import { placedBy, type ResultRow } from "@/lib/result-rows";
 
 // occupied 是被占用、装不上的一处:reason 说明原因，同名的另一个技能(或这个技能的另一个作用域)已装在那个文件夹，用来源区分是哪一个;
 // occupier 是占着的另一个技能，界面上能点开它(见 occupierOf)。
@@ -85,19 +85,6 @@ export function readInstallPlans(s: Snapshot, items: InstallItem[], reads: PlanR
     return [];
   });
   return { several, label, planned, untracked: planned.filter((x) => x.plan.status === InstallPlanStatus.InstallUntracked), unread };
-}
-
-// readsTwiceNotes 是装上之后会让别的 Agent 读到两份的说明(见 InstallPlan.reads_twice):它们也读要装进的目录，又已经在自己的另一个目录装着这个技能。
-// 一处一行，label 给出时写在前面(装到几处时写出是哪一处);没有时为空。照样能装，安装前提示。
-export function readsTwiceNotes(s: Snapshot, plans: readonly { plan: InstallPlan; label?: string }[]): string[] {
-  const t = messages().actions;
-  return plans.flatMap(({ plan, label }) => {
-    const scopes = plan.reads_twice ?? [];
-    if (!scopes.length) return [];
-    const names = [...new Set(scopes.map((sc) => agentNameIn(s, sc.agent, placeOf(sc))))];
-    const note = t.readsTwice(names, plan.name);
-    return [label ? `${label}：${note}` : note];
-  });
 }
 
 // InstallStep 是逐处安装的一步:skip 是不装、直接写进结果的一行(被别的技能占用，或有同名文件夹而用户选了跳过);

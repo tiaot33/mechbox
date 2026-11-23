@@ -15,10 +15,9 @@ import { createGroup, deleteGroup, renameGroup } from "@/features/group/group";
 import { useCollectionDrop, useDnD, useGroupDrop } from "./dnd";
 import { pressKeys } from "@/lib/keys";
 import { useT } from "@/lib/i18n";
-import { collectionSkills, foldCollections, isLocal, sourceKindLabel, sourceLabel } from "@/lib/source";
+import { collectionSkills, foldCollections, isDefaultOrder, isLocal, sourceKindLabel, sourceLabel } from "@/lib/source";
 import { todoSkills } from "@/lib/source-state";
 import { sectionKey, type Page } from "@/lib/pages";
-import { isDefaultOrder } from "@/features/order/order-rules";
 import { useUI } from "@/lib/ui";
 import { cn, toggled } from "@/lib/utils";
 import {

@@ -3,7 +3,8 @@
 // 删掉被手动改过的文件夹前说出是哪几处，修改会跟着丢掉;确认之后才被改过的见 delete-check.tsx。
 import { LibraryService } from "@bindings/cmd/desktop";
 import type { Scope, SkillID, SkillScopeInspection } from "@bindings/internal/library";
-import { copiesLeft, detachedBy, linkWrites, lostEdits, placeKey, staleLinksOf, type Detached } from "@/lib/consent";
+import { copiesLeft, detachedBy, linkWrites, lostEdits, staleLinksOf, type Detached } from "@/lib/consent";
+import { placeKey } from "@/lib/installs";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { agentName, projectName, skillName } from "@/lib/scope";

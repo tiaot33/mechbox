@@ -26,7 +26,7 @@ import { mergeMissing, missingAt } from "@/lib/mentions";
 import { agentName, groupName, placeOf, projectName, scopeKey, skillName } from "@/lib/scope";
 import { agentNameIn, placeCount, scopeLabel } from "@/lib/places";
 import { collectionSkills, sourceLabel } from "@/lib/source";
-import { folderPlaces, groupInstallsIn } from "@/lib/installs";
+import { folderPlaces, groupInstallsIn, readsTwiceNotes } from "@/lib/installs";
 import { shortPath } from "@/lib/paths";
 import { ui } from "@/lib/ui";
 import { openDrawer } from "@/lib/view";
@@ -35,7 +35,7 @@ import { Notice } from "@/components/ui/notice";
 import { DeleteNotes, SharedFolders } from "@/components/app/link-notes";
 import { runDeleting } from "@/components/app/delete-check";
 import { runEach, showResults } from "@/components/app/results";
-import { memberRows, summarizeMembers } from "@/components/app/result-rows";
+import { memberRows, summarizeMembers } from "@/lib/result-rows";
 import {
   asksBeforeUninstall,
   groupInstalled,
@@ -46,7 +46,6 @@ import {
   notDirectIn,
   occupied,
   readInstallPlans,
-  readsTwiceNotes,
   skippedPicked,
   uninstallGroupPlaces,
   uninstallPicked,

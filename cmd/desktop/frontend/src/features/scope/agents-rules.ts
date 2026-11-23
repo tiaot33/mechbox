@@ -20,7 +20,7 @@ import { folderPlaces } from "@/lib/installs";
 import { directoriesAt } from "@/lib/places";
 import { shortPath, windowsHome } from "@/lib/paths";
 import { agentName, placeOf, projectName, scopeKey, skillName, type Place } from "@/lib/scope";
-import type { ResultRow } from "@/components/app/result-rows";
+import type { ResultRow } from "@/lib/result-rows";
 
 // cleanPath 是比较目录时去掉开头的 ./ 和末尾的 /(Windows 上也去掉 .\ 和末尾的 \):写法不同的同一个目录不算改了。
 const cleanPath = (path: string) => path.replace(/^\.[\\/]/, "").replace(/[\\/]+$/, "");

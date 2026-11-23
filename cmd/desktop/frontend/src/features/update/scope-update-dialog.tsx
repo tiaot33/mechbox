@@ -1,20 +1,19 @@
 // 用目录里的修改更新(issue #185):对巡检为被手动改过的那一处，把那里的内容作为技能在库里的新版本，并换到勾选的其他地方。
-// 和从来源更新是同一种更新(流程见 update.tsx):一次确认先换库、再逐处重新安装，留下记录、能回滚。
+// 和从来源更新是同一种更新(执行见 run.ts):一次确认先换库、再逐处重新安装，留下记录、能回滚。
 // 其他地方默认全勾，用户改过的地方默认不勾，项目不在这台机器上的不能勾。
 import { useEffect, useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
 import type { Scope, Skill, UpdatePlan } from "@bindings/internal/library";
-import { chosenInstallOn } from "@/lib/consent";
+import { chosenInstallOn, noInstallChoices, toggleInstallOn, type InstallChoices } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { changedFiles } from "@/lib/diff";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, type LibraryError } from "@/lib/library";
-import { folderKey } from "@/lib/installs";
 import { placeNames, scopeLabel } from "@/lib/places";
-import { Modal, useBusy, useUI } from "@/lib/ui";
+import { Modal, ui, useBusy, useUI } from "@/lib/ui";
 import { reportUpdates } from "./report";
 import { RiskList } from "./plan-sections";
-import { runUpdate } from "./update";
+import { runUpdate } from "./run";
 import { sameFolderAsSource, stalePlan } from "./update-rules";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
@@ -25,7 +24,12 @@ import { SkillDiff } from "./skill-diff";
 
 const sectionClass = "mt-1 text-body font-semibold";
 
-export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; scope: Scope; onClose: () => void }) {
+// updateFromScope 打开"用这里的修改更新":把巡检为被手动改过的那一处的内容作为技能的新版本，并换到勾选的其他地方。
+export function updateFromScope(skill: Skill, scope: Scope) {
+  return ui.open((close) => <ScopeUpdateDialog skill={skill} scope={scope} onClose={() => close()} />);
+}
+
+function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; scope: Scope; onClose: () => void }) {
   const s = useSnapshot();
   const ui = useUI();
   const busy = useBusy();
@@ -35,7 +39,7 @@ export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; sco
   const [generation, setGeneration] = useState(0);
   const [plan, setPlan] = useState<UpdatePlan | null>(null);
   const [failed, setFailed] = useState<LibraryError | null>(null);
-  const [installChoice, setInstallChoice] = useState<Map<string, boolean>>(new Map());
+  const [installChoices, setInstallChoices] = useState<InstallChoices>(noInstallChoices);
   const [path, setPath] = useState("");
   const [conflict, setConflict] = useState(false);
   const [working, setWorking] = useState(false);
@@ -54,7 +58,7 @@ export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; sco
       if (cancelled || !p) return;
       const item = p.skills?.[0];
       setPlan(p);
-      setInstallChoice(new Map());
+      setInstallChoices(noInstallChoices);
       setConflict(false);
       setPath(item?.risks?.[0]?.path ?? changedFiles(item?.diff)[0]?.path ?? "");
     });
@@ -95,8 +99,7 @@ export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; sco
   // 计划里不列的其他地方和取内容的这一处是同一个文件夹(共用目录，或符号链接指向同一个文件夹):内容已经是这份修改。
   const same = sameFolderAsSource(s, skill.id, scope, places);
   const risks = item.risks ?? [];
-  // 几个 Agent 共用一个文件夹时只能一起换，勾选按"技能 + 文件夹"算。
-  const installOn = chosenInstallOn(installChoice);
+  const installOn = chosenInstallOn(installChoices);
   const locked = working || busy;
 
   const onStale = (err: LibraryError) => {
@@ -151,7 +154,7 @@ export function ScopeUpdateDialog({ skill, scope, onClose }: { skill: Skill; sco
             places={places}
             name={() => skill.name}
             on={installOn}
-            onToggle={(p) => setInstallChoice((m) => new Map(m).set(folderKey(p), !installOn(p)))}
+            onToggle={(p) => setInstallChoices((c) => toggleInstallOn(c, p))}
             modified={t.modifiedHere}
           />
           <Hint>{t.uncheckedNote}</Hint>

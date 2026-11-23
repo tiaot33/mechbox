@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { AgentCode, ScopeKind, SkillScopeStatus, type Agent, type RegisteredProject, type Scope, type SkillScopeInspection } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { agentsIn, eachPlace, mergedScope, mergedScopeKey, placeCount, placeNames, sameMergedScope, scopeCount, sharedWithNote } from "./places";
+import { agentsIn, eachPlace, installAgentsIn, mergedScope, mergedScopeKey, placeCount, placeNames, sameMergedScope, scopeCount, sharedWithNote } from "./places";
 
 const claude = AgentCode.AgentClaudeCode;
 const codex = AgentCode.AgentCodex;
@@ -155,5 +155,23 @@ describe("右栏列哪些 Agent", () => {
     } as unknown as Snapshot;
     expect(agentsIn(both, 0).open.map((x) => x.code)).toEqual([codex]);
     expect(placeNames(both, [at(cursor)])).toEqual(["Codex · 全局"]);
+  });
+});
+
+describe("安装到…列哪些 Agent", () => {
+  const installed = (agent: AgentCode, project_id = 0) =>
+    ({ skill_id: 1, scope: at(agent, project_id), folder: "f", direct: true, status: SkillScopeStatus.SkillScopeCurrent }) as SkillScopeInspection;
+
+  it("在这里装有技能的在前，其余勾选显示的接在后面;读同一个目录、合成一处的不重复列", () => {
+    const used = { ...s, skillScopes: [installed(cursor, 1)] } as unknown as Snapshot;
+    const r = installAgentsIn(used, 1);
+    expect(r.used.map((a) => a.code)).toEqual([codex]);
+    expect(r.rest.map((a) => a.code)).toEqual([claude]);
+    expect(installAgentsIn(used, 0)).toEqual({ used: [], rest: s.agents });
+  });
+
+  it("没勾选显示的不列在其余里", () => {
+    const hidden = { ...s, agentsShown: { [claude]: false }, skillScopes: [] } as unknown as Snapshot;
+    expect(installAgentsIn(hidden, 0).rest.map((a) => a.code)).toEqual([codex, cursor]);
   });
 });

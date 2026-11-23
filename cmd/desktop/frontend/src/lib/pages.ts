@@ -229,14 +229,28 @@ export interface ProjectAgent {
   all: number;
 }
 
-// projectAgents 是项目页按 Agent 分的节：项目里装有技能(库装的或未纳管的)的 Agent,按 Agent 列表顺序;
-// 搜索时只留有结果的节。来自全局的不算，项目页只列装在项目里的。
+// projectAgentsIn 是项目里装有技能(库装的或未纳管的)的 Agent,按 Agent 列表顺序;共用一个目录的几个合成一处(代表的 Agent)。
+// 来自全局的不算。
+function projectAgentsIn(s: Snapshot, project: ProjectID): Agent[] {
+  const inProject = (p: { scope: Scope }, a: Agent) => p.scope.agent === a.code && placeOf(p.scope) === project;
+  const used = s.agents.filter((a) => s.skillScopes.some((p) => inProject(p, a)) || s.unmanaged.some((u) => inProject(u, a)));
+  return mergeAgents(s, project, used).filter((a) => {
+    const key = scopeKey(scopeOf(a.code, project));
+    return placesIn(s, key).length > 0 || unmanagedIn(s, key).length > 0;
+  });
+}
+
+// projectScopes 是项目里装了技能(库装的或未纳管的)的作用域，和项目页的各节一一对应(合成一处的是代表的作用域);
+// 勾选后的操作栏「从这个项目卸载」就在这几处卸载。
+export function projectScopes(s: Snapshot, project: ProjectID): Scope[] {
+  return projectAgentsIn(s, project).map((a) => scopeOf(a.code, project));
+}
+
+// projectAgents 是项目页按 Agent 分的节：项目里装有技能的 Agent(见 projectAgentsIn)各一节;搜索时只留有结果的节。
 export function projectAgents(s: Snapshot, project: ProjectID, search: string): ProjectAgent[] {
   const hit = (x: { name: string; description?: string }) => matches(search, x);
   const byName = (a: { name: string }, b: { name: string }) => collator.compare(a.name, b.name);
-  const inProject = (p: { scope: Scope }, a: Agent) => p.scope.agent === a.code && placeOf(p.scope) === project;
-  const used = s.agents.filter((a) => s.skillScopes.some((p) => inProject(p, a)) || s.unmanaged.some((u) => inProject(u, a)));
-  return mergeAgents(s, project, used)
+  return projectAgentsIn(s, project)
     .map((agent) => {
       const key = scopeKey(scopeOf(agent.code, project));
       const split = splitIdentical(unmanagedIn(s, key));

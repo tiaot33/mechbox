@@ -3,17 +3,20 @@ import { describe, expect, it } from "vitest";
 import {
   AgentCode,
   ErrorCode,
+  InstallPlanStatus,
   ScopeKind,
   SkillScopeStatus,
   SourceType,
   type Agent,
   type Group,
   type GroupInstall,
+  type InstallPlan,
   type RegisteredProject,
   type Scope,
   type Skill,
   type SkillScopeInspection,
 } from "@bindings/internal/library";
+import { messages } from "./i18n";
 import type { Snapshot } from "./library";
 import {
   editedHere,
@@ -28,7 +31,10 @@ import {
   reinstallAlerts,
   reinstallLevel,
   placesIn,
+  readsTwiceNotes,
   skillCount,
+  skillScopeStatus,
+  sourceLatestHere,
 } from "./installs";
 import { scopeKey } from "./scope";
 
@@ -145,6 +151,18 @@ describe("被手动改过是用户自己的修改", () => {
     expect(reinstallLevel([place(SkillScopeStatus.SkillScopeModified), place(SkillScopeStatus.SkillScopeMissing)])).toBe("critical");
   });
 
+  it("被改过的分两种：用户自己改的、在 app 外更新到了作者新版的，各只算一种;状态的写法跟着分开", () => {
+    const edited = place(SkillScopeStatus.SkillScopeModified);
+    const latest = place(SkillScopeStatus.SkillScopeModified, true);
+    expect([edited, latest].map(editedHere)).toEqual([true, false]);
+    expect([edited, latest].map(sourceLatestHere)).toEqual([false, true]);
+    // 只在被改过时才可能是作者新版。
+    expect(sourceLatestHere(place(SkillScopeStatus.SkillScopeCurrent, true))).toBe(false);
+    expect(skillScopeStatus(latest).tone).toBe("update");
+    expect(skillScopeStatus(edited).tone).toBe("info");
+    expect(skillScopeStatus({ status: SkillScopeStatus.SkillScopeStale }).tone).toBe("warn");
+  });
+
   it("技能库页的一行：说明里不写「要重新安装」，写可以用这里的修改更新", () => {
     const [alert] = reinstallAlerts(s, 1);
     expect(alert.tone).toBe("info");
@@ -237,5 +255,23 @@ describe("groupStateIn", () => {
   it("合成一处里几个 Agent 各有一条组安装时都列出来，关掉时一起撤", () => {
     const both = snapshot({ ...s, groupInstalls: [...s.groupInstalls, { group_id: 5, scope: where("amp", 7) } as GroupInstall] });
     expect(groupInstallsIn(both, group, "amp@7").map((x) => x.agent).sort()).toEqual(["amp", AgentCode.AgentCodex]);
+  });
+});
+
+describe("装上之后会读到两份", () => {
+  const t = messages().actions;
+  const agents = [
+    { code: AgentCode.AgentClaudeCode, name: "Claude Code", global_directories: ["/home/.claude/skills"], project_directories: [".claude/skills"] },
+    { code: AgentCode.AgentCodex, name: "Codex", global_directories: ["/home/.codex/skills"], project_directories: [".codex/skills"] },
+  ] as Agent[];
+  const plan = (extra: Partial<InstallPlan> = {}) => ({ status: InstallPlanStatus.InstallReady, name: "s1", folder: "/home/.claude/skills/s1", ...extra }) as InstallPlan;
+
+  it("写出也读这个目录、已经在别的目录装着它的 Agent;装到几处时写出是哪一处", () => {
+    const s = snapshot({ agents });
+    const twice = plan({ reads_twice: [where(AgentCode.AgentCodex) as Scope] });
+    expect(readsTwiceNotes(s, [{ plan: twice }])).toEqual([t.readsTwice(["Codex"], "s1")]);
+    expect(readsTwiceNotes(s, [{ plan: twice, label: "s1 · Claude Code · 全局" }, { plan: plan() }])).toEqual([
+      `s1 · Claude Code · 全局：${t.readsTwice(["Codex"], "s1")}`,
+    ]);
   });
 });

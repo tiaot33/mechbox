@@ -213,7 +213,7 @@ export function mergeAgents(s: AgentList, place: Place, agents: Agent[]): Agent[
 }
 
 // mergeAgentsExcept 是某个地方还没列出的 Agent:合成一处一个，和 listed 里某一处合成一处的去掉。
-export function mergeAgentsExcept(s: AgentList, place: Place, agents: Agent[], listed: Agent[]): Agent[] {
+function mergeAgentsExcept(s: AgentList, place: Place, agents: Agent[], listed: Agent[]): Agent[] {
   return mergeAgents(s, place, agents).filter((a) => !listed.some((o) => sameFolderAt(s, o.code, a.code, place)));
 }
 
@@ -234,4 +234,11 @@ export function agentsIn(s: Snapshot, place: Place): { open: Agent[]; folded: Ag
   const open = mergeAgents(s, place, s.agents.filter((a) => used.includes(a) || (a.detected && agentShown(s.agentsShown, a))));
   const folded = s.agents.filter((a) => !open.includes(a) && agentShown(s.agentsShown, a));
   return { open, folded: mergeAgentsExcept(s, place, folded, open) };
+}
+
+// installAgentsIn 是「安装到…」在某个地方列哪些 Agent:used 是在这里装有技能的(见 agentsUsedIn),排在前面;
+// rest 是其余勾选显示的，合成一处一个，和 used 里某一处合成一处的不再列。
+export function installAgentsIn(s: Snapshot, place: Place): { used: Agent[]; rest: Agent[] } {
+  const used = agentsUsedIn(s, place);
+  return { used, rest: mergeAgentsExcept(s, place, s.agents.filter((a) => agentShown(s.agentsShown, a)), used) };
 }
