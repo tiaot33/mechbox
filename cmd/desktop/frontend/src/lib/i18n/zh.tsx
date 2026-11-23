@@ -189,6 +189,8 @@ export const zh = {
     losesEdits: (n: number) => `下面 ${n} 处被手动改过：卸载会删掉文件夹，这些修改会跟着丢掉、找不回来。`,
     justEditedTitle: "有技能文件夹刚被改过",
     justEdited: (n: number) => `刚才确认之后，下面 ${n} 处又被手动改过，所以还什么都没删。删掉文件夹，这些修改会跟着丢掉、找不回来。`,
+    justLinkedTitle: "有指向要删的文件夹的链接刚出现",
+    justLinked: (n: number) => `刚才确认之后，别的技能目录里又出现了下面 ${n} 个指向要删的文件夹的旧链接，所以还什么都没删。继续删的话，它们会一并删掉。`,
     deleteAnyway: "仍然删掉",
     uninstalled: (name: string, scope: string) => `已卸载「${name}」在 ${scope} 的直接安装`,
     onlyViaGroup: "这个技能只随组安装，没有直接安装可卸载；请在对应的组上卸载",

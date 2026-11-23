@@ -1,7 +1,7 @@
 // 已登记项目：登记、改位置、注销(注销时可选一并卸载装在项目里的技能)。
 import { LibraryService } from "@bindings/cmd/desktop";
 import { FolderPolicy, type RegisteredProject } from "@bindings/internal/library";
-import { detachedBy, discardedEdits, lostEdits } from "@/lib/consent";
+import { detachedBy, deleteConsent, lostEdits } from "@/lib/consent";
 import { messages } from "@/lib/i18n";
 import { currentSnapshot } from "@/lib/library";
 import { projectName } from "@/lib/scope";
@@ -10,7 +10,7 @@ import { ui } from "@/lib/ui";
 import { Hint } from "@/components/ui/field";
 import { DetachNotice, StaleNotes } from "@/components/app/link-notes";
 import { unregisterDeletes } from "./projects-rules";
-import { runDiscardingEdits } from "@/components/app/discard-edits";
+import { runDeleting } from "@/components/app/discard-edits";
 import { offerProject } from "@/features/fetch/fetch-unmanaged-all";
 
 // registerProject 登记项目;登记之后把用户带到这个项目里不是库装的技能，一次确认全部入库。
@@ -36,7 +36,7 @@ export async function relocateProject(project: RegisteredProject, path: string):
 }
 
 // unregisterProject 注销项目。删掉的文件夹里哪几处被手动改过，按界面上已经读到的状态说;
-// 确认之后才被改过的，技能库删之前核对出来再问一次(runDiscardingEdits)。
+// 确认之后才被改过的，技能库删之前核对出来再问一次(runDeleting)。
 export async function unregisterProject(project: RegisteredProject) {
   const s = currentSnapshot();
   const { places } = unregisterDeletes(s, project.id);
@@ -67,7 +67,7 @@ export async function unregisterProject(project: RegisteredProject) {
   });
   if (!choice) return;
   const policy = choice === FolderPolicy.Keep ? FolderPolicy.Keep : FolderPolicy.Remove;
-  await runDiscardingEdits(discardedEdits(places), (discard) => LibraryService.UnregisterProject(project.id, { folders: policy, discard_edits: discard }), {
+  await runDeleting(deleteConsent(places), (consent) => LibraryService.UnregisterProject(project.id, { folders: policy, ...consent }), {
     success: t.unregistered,
   });
 }

@@ -34,7 +34,8 @@ import {
   detachedBy,
   linkWrites,
   copiesLeft,
-  discardedEdits,
+  agreedAfter,
+  deleteConsent,
   lostEdits,
   staleLinksOf,
   overwriteKey,
@@ -327,11 +328,16 @@ describe("删掉文件夹之前说明会丢的修改", () => {
     expect(lostEdits([a, b])).toEqual([a]);
   });
 
-  it("交给技能库放过的就是确认里说过修改会丢的那几个文件夹", () => {
+  it("交给技能库放过的就是确认里说过修改会丢的那几个文件夹，和会一并删掉的旧链接", () => {
     const edited = place(1, global(claude), SkillScopeStatus.SkillScopeModified);
-    const current = place(2, global(claude), SkillScopeStatus.SkillScopeCurrent);
+    const current = place(2, global(claude), SkillScopeStatus.SkillScopeCurrent, { stale_links: ["/home/.cursor/skills/s2"] });
     const shared = { ...place(1, global(codex), SkillScopeStatus.SkillScopeModified), folder: edited.folder };
-    expect(discardedEdits([edited, current, shared])).toEqual([edited.folder]);
+    expect(deleteConsent([edited, current, shared])).toEqual({ discard_edits: [edited.folder], delete_links: ["/home/.cursor/skills/s2"] });
+  });
+
+  it("确认之后才改过的文件夹、才出现的旧链接，再同意后加进交给技能库的", () => {
+    const consent = { discard_edits: ["/a"], delete_links: ["/l1"] };
+    expect(agreedAfter(consent, ["/b"], ["/l2"])).toEqual({ discard_edits: ["/a", "/b"], delete_links: ["/l1", "/l2"] });
   });
 });
 

@@ -194,6 +194,9 @@ export const en = {
     justEditedTitle: "Skill folders were just edited",
     justEdited: (n: number) =>
       `${n === 1 ? "The place below was" : `The ${n} places below were`} edited by hand after you confirmed, so nothing has been deleted yet. Deleting ${n === 1 ? "the folder" : "the folders"} loses those edits for good.`,
+    justLinkedTitle: "Links to the folders just appeared",
+    justLinked: (n: number) =>
+      `After you confirmed, ${n === 1 ? "the old link below" : `the ${n} old links below`} pointing to the folders to delete appeared in another skills directory, so nothing has been deleted yet. If you go on, ${n === 1 ? "it is" : "they are"} deleted too.`,
     deleteAnyway: "Delete anyway",
     uninstalled: (name: string, scope: string) => `Removed the direct install of “${name}” in ${scope}`,
     onlyViaGroup: "This skill is only installed through a Group, so there's no direct install to uninstall. Uninstall it on the Group instead",

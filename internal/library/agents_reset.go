@@ -56,10 +56,12 @@ type ResetAgentsPlan struct {
 }
 
 // ResetAgentsOptions 是 ResetAgents 的选项,只管 ResetAgentsPlan.Removable 里的文件夹,含义同 DeleteAgentOptions:
-// Folders 默认(零值或 Remove)删除,显式 Keep 保留;DiscardEdits 是确认时告诉用户被改过、修改会丢掉的文件夹。
+// Folders 默认(零值或 Remove)删除,显式 Keep 保留;DiscardEdits 是确认时告诉用户被改过、修改会丢掉的文件夹,
+// DeleteLinks 是确认时告诉用户会一并删掉的旧链接。
 type ResetAgentsOptions struct {
 	Folders      FolderPolicy `json:"folders"`
 	DiscardEdits []string     `json:"discard_edits,omitempty"`
+	DeleteLinks  []string     `json:"delete_links,omitempty"`
 }
 
 // ResetAgentsResult 是 ResetAgents 的结果,各项按代码(技能 ID、作用域)排序。
@@ -164,7 +166,7 @@ func (l *Library) ResetAgents(ctx context.Context, opts ResetAgentsOptions) (res
 			}
 		}
 	}
-	deleted, err := l.deleteAgents(ctx, operation, batch.removed, DeleteAgentOptions{Folders: opts.Folders, DiscardEdits: opts.DiscardEdits}, pooled)
+	deleted, err := l.deleteAgents(ctx, operation, batch.removed, DeleteAgentOptions{Folders: opts.Folders, DiscardEdits: opts.DiscardEdits, DeleteLinks: opts.DeleteLinks}, pooled)
 	if err != nil {
 		return ResetAgentsResult{}, err
 	}

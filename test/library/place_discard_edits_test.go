@@ -34,7 +34,7 @@ func newDiscardEditsFixture(t *testing.T, scopeOf func(f *discardEditsFixture) l
 		t.Fatal(err)
 	}
 	f.project = project
-	f.agent, err = lib.AddAgent(ctx, library.AgentInput{Name: "Mine", GlobalDirectories: []string{"~/.mine/skills"}, ProjectDirectories: []string{".mine/skills"}})
+	f.agent, err = lib.AddAgent(ctx, library.AgentInput{Name: "Mine", GlobalDirectories: []string{"~/.mine/skills", "~/.mine/links"}, ProjectDirectories: []string{".mine/skills", ".mine/links"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,52 +89,64 @@ func (f *discardEditsFixture) requireFolders(t *testing.T, present bool) {
 	}
 }
 
-func TestDeletingFoldersRefusesEditsTheConfirmationDidNotMention(t *testing.T) {
-	t.Parallel()
+// confirmation 是确认框里告诉用户的:修改会丢掉的文件夹(DiscardEdits)与会一并删掉的旧链接(DeleteLinks)。
+type confirmation struct {
+	edits []string
+	links []string
+}
+
+type deletingCase struct {
+	name     string
+	scope    func(f *discardEditsFixture) library.Scope
+	viaGroup bool
+	run      func(ctx context.Context, f *discardEditsFixture, confirmed confirmation) error
+}
+
+// deletingCases 是会删技能文件夹的各个操作,都删 f.scope 里 f.skill 的文件夹。
+func deletingCases() []deletingCase {
 	project := func(f *discardEditsFixture) library.Scope {
-		return library.ProjectScope(library.AgentClaudeCode, f.project.ID)
+		return library.ProjectScope(f.agent.Code, f.project.ID)
 	}
 	mine := func(f *discardEditsFixture) library.Scope { return library.GlobalScope(f.agent.Code) }
-	cases := []struct {
-		name     string
-		scope    func(f *discardEditsFixture) library.Scope
-		viaGroup bool
-		run      func(ctx context.Context, f *discardEditsFixture, discard []string) error
-	}{
-		{"Uninstall", project, false, func(ctx context.Context, f *discardEditsFixture, discard []string) error {
-			return f.lib.Uninstall(ctx, f.skill.ID, f.scope, library.UninstallOptions{DiscardEdits: discard})
+	return []deletingCase{
+		{"Uninstall", project, false, func(ctx context.Context, f *discardEditsFixture, confirmed confirmation) error {
+			return f.lib.Uninstall(ctx, f.skill.ID, f.scope, library.UninstallOptions{DiscardEdits: confirmed.edits, DeleteLinks: confirmed.links})
 		}},
-		{"UninstallSkills", project, false, func(ctx context.Context, f *discardEditsFixture, discard []string) error {
+		{"UninstallSkills", project, false, func(ctx context.Context, f *discardEditsFixture, confirmed confirmation) error {
 			places := []library.SkillInScope{{SkillID: f.other.ID, Scope: f.scope}, {SkillID: f.skill.ID, Scope: f.scope}}
-			return f.lib.UninstallSkills(ctx, places, library.UninstallOptions{DiscardEdits: discard})
+			return f.lib.UninstallSkills(ctx, places, library.UninstallOptions{DiscardEdits: confirmed.edits, DeleteLinks: confirmed.links})
 		}},
-		{"UninstallGroup", project, true, func(ctx context.Context, f *discardEditsFixture, discard []string) error {
-			return f.lib.UninstallGroup(ctx, f.group.ID, f.scope, library.UninstallOptions{DiscardEdits: discard})
+		{"UninstallGroup", project, true, func(ctx context.Context, f *discardEditsFixture, confirmed confirmation) error {
+			return f.lib.UninstallGroup(ctx, f.group.ID, f.scope, library.UninstallOptions{DiscardEdits: confirmed.edits, DeleteLinks: confirmed.links})
 		}},
-		{"RemoveSkill", project, false, func(ctx context.Context, f *discardEditsFixture, discard []string) error {
-			return f.lib.RemoveSkill(ctx, f.skill.ID, library.RemoveSkillOptions{DiscardEdits: discard})
+		{"RemoveSkill", project, false, func(ctx context.Context, f *discardEditsFixture, confirmed confirmation) error {
+			return f.lib.RemoveSkill(ctx, f.skill.ID, library.RemoveSkillOptions{DiscardEdits: confirmed.edits, DeleteLinks: confirmed.links})
 		}},
-		{"RemoveSkills", project, false, func(ctx context.Context, f *discardEditsFixture, discard []string) error {
-			return f.lib.RemoveSkills(ctx, []library.SkillID{f.other.ID, f.skill.ID}, library.RemoveSkillOptions{DiscardEdits: discard})
+		{"RemoveSkills", project, false, func(ctx context.Context, f *discardEditsFixture, confirmed confirmation) error {
+			return f.lib.RemoveSkills(ctx, []library.SkillID{f.other.ID, f.skill.ID}, library.RemoveSkillOptions{DiscardEdits: confirmed.edits, DeleteLinks: confirmed.links})
 		}},
-		{"RemoveSkillFromGroup", project, true, func(ctx context.Context, f *discardEditsFixture, discard []string) error {
-			return f.lib.RemoveSkillFromGroup(ctx, f.group.ID, f.skill.ID, library.RemoveFromGroupOptions{IfNoOtherInstall: library.UninstallMember, DiscardEdits: discard})
+		{"RemoveSkillFromGroup", project, true, func(ctx context.Context, f *discardEditsFixture, confirmed confirmation) error {
+			return f.lib.RemoveSkillFromGroup(ctx, f.group.ID, f.skill.ID, library.RemoveFromGroupOptions{IfNoOtherInstall: library.UninstallMember, DiscardEdits: confirmed.edits, DeleteLinks: confirmed.links})
 		}},
-		{"RemoveSkillsFromGroup", project, true, func(ctx context.Context, f *discardEditsFixture, discard []string) error {
-			return f.lib.RemoveSkillsFromGroup(ctx, f.group.ID, []library.SkillID{f.other.ID, f.skill.ID}, library.RemoveFromGroupOptions{IfNoOtherInstall: library.UninstallMember, DiscardEdits: discard})
+		{"RemoveSkillsFromGroup", project, true, func(ctx context.Context, f *discardEditsFixture, confirmed confirmation) error {
+			return f.lib.RemoveSkillsFromGroup(ctx, f.group.ID, []library.SkillID{f.other.ID, f.skill.ID}, library.RemoveFromGroupOptions{IfNoOtherInstall: library.UninstallMember, DiscardEdits: confirmed.edits, DeleteLinks: confirmed.links})
 		}},
-		{"DeleteGroup", project, true, func(ctx context.Context, f *discardEditsFixture, discard []string) error {
-			return f.lib.DeleteGroup(ctx, f.group.ID, library.DeleteGroupOptions{IfNoOtherInstall: library.UninstallMember, DiscardEdits: discard})
+		{"DeleteGroup", project, true, func(ctx context.Context, f *discardEditsFixture, confirmed confirmation) error {
+			return f.lib.DeleteGroup(ctx, f.group.ID, library.DeleteGroupOptions{IfNoOtherInstall: library.UninstallMember, DiscardEdits: confirmed.edits, DeleteLinks: confirmed.links})
 		}},
-		{"UnregisterProject", project, false, func(ctx context.Context, f *discardEditsFixture, discard []string) error {
-			return f.lib.UnregisterProject(ctx, f.project.ID, library.UnregisterProjectOptions{DiscardEdits: discard})
+		{"UnregisterProject", project, false, func(ctx context.Context, f *discardEditsFixture, confirmed confirmation) error {
+			return f.lib.UnregisterProject(ctx, f.project.ID, library.UnregisterProjectOptions{DiscardEdits: confirmed.edits, DeleteLinks: confirmed.links})
 		}},
-		{"DeleteAgent", mine, false, func(ctx context.Context, f *discardEditsFixture, discard []string) error {
-			_, err := f.lib.DeleteAgent(ctx, f.agent.Code, library.DeleteAgentOptions{DiscardEdits: discard})
+		{"DeleteAgent", mine, false, func(ctx context.Context, f *discardEditsFixture, confirmed confirmation) error {
+			_, err := f.lib.DeleteAgent(ctx, f.agent.Code, library.DeleteAgentOptions{DiscardEdits: confirmed.edits, DeleteLinks: confirmed.links})
 			return err
 		}},
 	}
-	for _, tc := range cases {
+}
+
+func TestDeletingFoldersRefusesEditsTheConfirmationDidNotMention(t *testing.T) {
+	t.Parallel()
+	for _, tc := range deletingCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := t.Context()
 			f := newDiscardEditsFixture(t, tc.scope, tc.viaGroup)
@@ -142,7 +154,7 @@ func TestDeletingFoldersRefusesEditsTheConfirmationDidNotMention(t *testing.T) {
 			f.edit(t)
 
 			// 确认时没说这一处被改过:整次不做,文件夹、修改与安装记录都还在,错误里写出是哪个文件夹。
-			err := tc.run(ctx, f, nil)
+			err := tc.run(ctx, f, confirmation{})
 			requireErrorDetails(t, err, library.Conflict, library.ErrorDetails{Paths: []string{f.folder}})
 			f.requireEdited(t)
 			if _, err := os.Stat(f.another); err != nil {
@@ -153,11 +165,51 @@ func TestDeletingFoldersRefusesEditsTheConfirmationDidNotMention(t *testing.T) {
 			}
 
 			// 用户同意丢掉这一处的修改后照常删。
-			if err := tc.run(ctx, f, []string{f.folder}); err != nil {
+			if err := tc.run(ctx, f, confirmation{edits: []string{f.folder}}); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := os.Lstat(f.folder); !os.IsNotExist(err) {
 				t.Fatalf("edited folder after confirming = %v; want removed", err)
+			}
+		})
+	}
+}
+
+// 确认框打开时还没有、确认之后才出现的旧链接(读这一处的 Agent 在别的技能目录里指向要删的文件夹的符号链接):
+// 确认时没列出,整次不做,错误里写出是哪个链接;用户再同意删掉它后照常删,链接一并删掉。
+func TestDeletingFoldersRefusesStaleLinksTheConfirmationDidNotList(t *testing.T) {
+	t.Parallel()
+	for _, tc := range deletingCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			f := newDiscardEditsFixture(t, tc.scope, tc.viaGroup)
+			before := listSkillScopes(t, f.lib)
+			links := filepath.Join(filepath.Dir(filepath.Dir(f.folder)), "links")
+			if err := os.MkdirAll(links, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			link := filepath.Join(links, f.skill.Name)
+			if err := os.Symlink(f.folder, link); err != nil {
+				t.Fatal(err)
+			}
+
+			err := tc.run(ctx, f, confirmation{})
+			requireErrorDetails(t, err, library.Conflict, library.ErrorDetails{Links: []string{link}})
+			f.requireFolders(t, true)
+			if _, err := os.Lstat(link); err != nil {
+				t.Fatalf("link after the refused call: %v; want it kept", err)
+			}
+			if after := listSkillScopes(t, f.lib); !reflect.DeepEqual(withoutCreatedAt(after), withoutCreatedAt(before)) {
+				t.Fatalf("skill scopes after the refused call = %#v; want unchanged %#v", after, before)
+			}
+
+			if err := tc.run(ctx, f, confirmation{links: []string{link}}); err != nil {
+				t.Fatal(err)
+			}
+			for _, path := range []string{f.folder, link} {
+				if _, err := os.Lstat(path); !os.IsNotExist(err) {
+					t.Fatalf("%s after confirming = %v; want removed", path, err)
+				}
 			}
 		})
 	}

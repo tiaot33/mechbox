@@ -24,6 +24,10 @@ type UninstallOptions struct {
 	// 有被改过的(SkillScopeModified,不算 SkillScopeInspection.SourceLatest,也不算是符号链接的那一处,删的只是链接)却不在这里,
 	// 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
 	DiscardEdits []string `json:"discard_edits,omitempty"`
+	// DeleteLinks 是确认时告诉用户会随文件夹一并删掉的旧链接(SkillScopeInspection.StaleLinks)。动磁盘之前现找这次要一并删的旧链接:
+	// 有不在这里的(确认之后才出现的),整次返回 Conflict(Details.Links 为这几个链接),一个都不删;可以和 Details.Paths 同时出现。
+	// 不删文件夹时不核对。
+	DeleteLinks []string `json:"delete_links,omitempty"`
 }
 
 // InstallPlanStatus 是安装前,一个技能在所选作用域的情况。和执行时的判定一致,与是否同意覆盖无关。
@@ -265,7 +269,7 @@ func (l *Library) Install(ctx context.Context, id SkillID, scope Scope, opts Ins
 // 文件夹随之删除,它们都不再算已装;只有组安装还留着其中某一处时文件夹才留下。删掉文件夹时,认这一处的 Agent
 // 在自己别的技能目录里指向它、又没有安装记录的同名符号链接一并删掉(SkillScopeInspection.StaleLinks)。
 // 删之前核对文件夹有没有被改过:确认框按界面上已有的巡检结果说明哪几处的修改会丢掉,把它们放进 opts.DiscardEdits;
-// 确认之后才被改过的,返回 Conflict,不删(见 UninstallOptions)。
+// 确认之后才被改过的,返回 Conflict,不删(见 UninstallOptions);一并删掉的旧链接同样要列在 opts.DeleteLinks 里。
 // 要删的文件夹(或链接)被这个技能装出去的其他地方用符号链接指着时(SkillScopeInspection.LinkedBy),先给那几处换上
 // 独立的一份(它们当时读到的内容),它们照常装着,再删;确认前据此说明。
 func (l *Library) Uninstall(ctx context.Context, id SkillID, scope Scope, opts UninstallOptions) (err error) {
@@ -336,7 +340,7 @@ func (l *Library) uninstall(ctx context.Context, operation string, places []Skil
 				removals = append(removals, place.removals(links[i])...)
 			}
 		}
-		return l.removeFolders(ctx, tx, &change, operation, removals, opts.DiscardEdits)
+		return l.removeFolders(ctx, tx, &change, operation, removals, confirmed{edits: opts.DiscardEdits, links: opts.DeleteLinks})
 	})
 }
 
@@ -505,7 +509,7 @@ func (l *Library) UninstallGroup(ctx context.Context, groupID GroupID, scope Sco
 		if err != nil {
 			return err
 		}
-		return l.removeFolders(ctx, tx, &change, "uninstall group", removals, opts.DiscardEdits)
+		return l.removeFolders(ctx, tx, &change, "uninstall group", removals, confirmed{edits: opts.DiscardEdits, links: opts.DeleteLinks})
 	})
 }
 

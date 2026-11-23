@@ -223,9 +223,24 @@ export function copiesLeft(deleted: SkillScopeInspection[]): { place: SkillScope
   });
 }
 
-// discardedEdits 是确认里说过修改会丢掉的那几个文件夹(和 lostEdits 列出的是同一份),交给技能库的 DiscardEdits:
-// 技能库删之前只放过这几个，其余确认之后才被改过的一个都不删，再问一次。选了保留文件夹时技能库不删、也不核对。
-export const discardedEdits = (deleted: SkillScopeInspection[]): string[] => lostEdits(deleted).map((p) => p.folder);
+// DeleteConsent 是确认里说过、交给技能库的两样：修改会丢掉的文件夹(discard_edits,和 lostEdits 列出的是同一份)与会一并删掉的旧链接
+// (delete_links,和 staleLinksOf 列出的是同一份)。技能库删之前只放过这些，确认之后才被改过的文件夹、才出现的旧链接一个都不删，再问一次。
+// 选了保留文件夹时技能库不删、也不核对。
+export type DeleteConsent = { discard_edits: string[]; delete_links: string[] };
+
+// deleteConsent 是删掉 deleted 这几处的文件夹时，确认里说过的(见 DeleteConsent)。
+export const deleteConsent = (deleted: SkillScopeInspection[]): DeleteConsent => ({
+  discard_edits: lostEdits(deleted).map((p) => p.folder),
+  delete_links: staleLinksOf(deleted),
+});
+
+// NOTHING_TO_DELETE 是不删文件夹时交给技能库的：没什么要说的。
+export const NOTHING_TO_DELETE: DeleteConsent = { discard_edits: [], delete_links: [] };
+
+// agreedAfter 是技能库删之前核对出确认之后的变化(edited 是才被改过的文件夹，links 是才出现的旧链接)、用户再同意之后交给技能库的。
+export function agreedAfter(consent: DeleteConsent, edited: string[], links: string[]): DeleteConsent {
+  return { discard_edits: [...consent.discard_edits, ...edited], delete_links: [...consent.delete_links, ...links] };
+}
 
 // ---------- 入库预览 ----------
 

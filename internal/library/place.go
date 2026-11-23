@@ -34,9 +34,15 @@ func (l *Library) applyChange(ctx context.Context, change *agentdir.Change, reco
 type removal struct {
 	skillID SkillID
 	folder  string
+	link    bool
 }
 
-func (l *Library) removeFolders(ctx context.Context, tx *store.Tx, change *agentdir.Change, operation string, removals []removal, discard []string) error {
+type confirmed struct {
+	edits []string
+	links []string
+}
+
+func (l *Library) removeFolders(ctx context.Context, tx *store.Tx, change *agentdir.Change, operation string, removals []removal, confirmed confirmed) error {
 	var unique []removal
 	for _, item := range removals {
 		if !slices.ContainsFunc(unique, func(other removal) bool { return other.folder == item.folder }) {
@@ -47,9 +53,15 @@ func (l *Library) removeFolders(ctx context.Context, tx *store.Tx, change *agent
 	if err != nil {
 		return err
 	}
-	unconfirmed := slices.DeleteFunc(edited, func(folder string) bool { return slices.Contains(discard, folder) })
-	if len(unconfirmed) > 0 {
-		return &Error{Code: Conflict, Message: operation + ": skill folders to delete were edited and not confirmed", Details: ErrorDetails{Paths: unconfirmed}}
+	unconfirmed := slices.DeleteFunc(edited, func(folder string) bool { return slices.Contains(confirmed.edits, folder) })
+	var unlisted []string
+	for _, item := range unique {
+		if item.link && !slices.Contains(confirmed.links, item.folder) {
+			unlisted = append(unlisted, item.folder)
+		}
+	}
+	if len(unconfirmed) > 0 || len(unlisted) > 0 {
+		return &Error{Code: Conflict, Message: operation + ": skill folders to delete were edited or links to delete appeared, and not confirmed", Details: ErrorDetails{Paths: unconfirmed, Links: unlisted}}
 	}
 	for _, item := range unique {
 		change.Remove(item.folder)
@@ -425,7 +437,7 @@ func (l *Library) placeRemovals(ctx context.Context, places []installedPlace) ([
 func (p installedPlace) removals(links []string) []removal {
 	removals := []removal{{skillID: p.skillID, folder: p.folder()}}
 	for _, link := range links {
-		removals = append(removals, removal{skillID: p.skillID, folder: link})
+		removals = append(removals, removal{skillID: p.skillID, folder: link, link: true})
 	}
 	return removals
 }

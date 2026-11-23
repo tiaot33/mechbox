@@ -115,6 +115,10 @@ type DeleteAgentOptions struct {
 	// 有被改过的(SkillScopeModified,不算 SkillScopeInspection.SourceLatest,也不算是符号链接的那一处,删的只是链接)却不在这里,
 	// 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
 	DiscardEdits []string `json:"discard_edits,omitempty"`
+	// DeleteLinks 是确认时告诉用户会随文件夹一并删掉的旧链接(SkillScopeInspection.StaleLinks)。动磁盘之前现找这次要一并删的旧链接:
+	// 有不在这里的(确认之后才出现的),整次返回 Conflict(Details.Links 为这几个链接),一个都不删;可以和 Details.Paths 同时出现。
+	// 不删文件夹时不核对。
+	DeleteLinks []string `json:"delete_links,omitempty"`
 }
 
 // DeleteAgentResult 是 DeleteAgent 的结果。
@@ -627,7 +631,7 @@ func (l *Library) deleteAgents(ctx context.Context, operation string, codes []Ag
 	var change agentdir.Change
 	defer func() { err = errors.Join(err, change.Rollback()) }()
 	err = l.applyChange(ctx, &change, func(tx *store.Tx) error {
-		if err := l.removeFolders(ctx, tx, &change, operation, removals, opts.DiscardEdits); err != nil {
+		if err := l.removeFolders(ctx, tx, &change, operation, removals, confirmed{edits: opts.DiscardEdits, links: opts.DeleteLinks}); err != nil {
 			return err
 		}
 		for _, install := range groupInstalls {
