@@ -563,3 +563,20 @@ func TestDistroListAllListsEveryDirectoryInOneCommandAndStopsWhenCancelled(t *te
 		t.Errorf("ListAll returned %v after being cancelled at 300ms", took)
 	}
 }
+
+func TestDistroCanonicalStopsAtTheRootWhenNothingResolves(t *testing.T) {
+	home := npxLayout(t)
+	shims := t.TempDir()
+	write(t, filepath.Join(shims, "readlink"), "#!/bin/sh\nexit 1\n", 0o755)
+	shell := filepath.Join(t.TempDir(), "sh")
+	base := cmp.Or(os.Getenv("AGENTDIR_TEST_SHELL"), "sh")
+	write(t, shell, "#!/bin/sh\n{ echo 'cd() { return 1; }'; cat; } | PATH='"+shims+"':$PATH "+base+"\n", 0o755)
+	defer wsl.Emulate(shell)()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	path := filepath.Join(home, ".claude/skills")
+	canonical, err := CanonicalAll(ctx, []string{unc(path)})
+	if err != nil || canonical[0] != unc(path) {
+		t.Fatalf("CanonicalAll with nothing resolving = %q, %v; want %q", canonical, err, unc(path))
+	}
+}

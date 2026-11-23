@@ -51,6 +51,10 @@ fi`
 			break
 		fi
 		case $c in
+		/)
+			r=/
+			break
+			;;
 		*/*) ;;
 		*)
 			r=$c
