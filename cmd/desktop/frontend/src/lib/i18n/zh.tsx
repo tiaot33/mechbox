@@ -145,7 +145,8 @@ export const zh = {
     unknownSource: "未知来源",
     library: "技能库",
     updates: "更新",
-    agentsGlobal: (names: string[]) => `${names.join("、")} 全局`,
+    // agentsGlobal 是「装在哪」里全局的那一段：几个 Agent 的名字(列宽不够时只截这一段)和其后的层级。
+    agentsGlobal: (names: string[]) => ({ agents: names.join("、"), level: "全局" }),
     projectCount: (n: number) => `${n} 个项目`,
     listSeparator: "、",
   },

@@ -144,7 +144,7 @@ export const en = {
     unknownSource: "Unknown Source",
     library: "Library",
     updates: "Updates",
-    agentsGlobal: (names: string[]) => `${and(names)} global`,
+    agentsGlobal: (names: string[]) => ({ agents: and(names), level: "global" }),
     projectCount: (n: number) => count(n, "project"),
     listSeparator: ", ",
   },

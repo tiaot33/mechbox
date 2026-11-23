@@ -326,15 +326,20 @@ function useFlash(id: SkillID, scope: ScopeKey | undefined) {
 }
 
 // Where 是技能库页的"装在哪":常见的情况只有两个字，例外才多写;有地方要重新安装时字用主要档(原因在名字后面的提醒图标里),
-// 装着的用次要档，不抢技能名的注意力。
+// 装着的用次要档，不抢技能名的注意力。列宽不够时先截 Agent 的名字，「全局」和项目名留到最后才截。
 function Where({ skill }: { skill: Skill }) {
   const t = useT().list;
   const w = installedSummary(useSnapshot(), skill.id);
   return (
-    <span className="skill-where flex min-w-0 items-center text-caption" title={w.title || undefined}>
-      <span className={cn("truncate", w.bad ? "text-foreground" : w.text ? "text-foreground-secondary" : "text-muted-foreground")}>
-        {w.text || t.notInstalled}
-      </span>
+    <span
+      className={cn(
+        "skill-where flex min-w-0 items-center gap-[0.3em] text-caption",
+        w.bad ? "text-foreground" : w.text ? "text-foreground-secondary" : "text-muted-foreground",
+      )}
+      title={w.title || undefined}
+    >
+      {w.agents && <span className="min-w-0 truncate">{w.agents}</span>}
+      <span className="min-w-0 shrink-[0.001] truncate">{w.level || t.notInstalled}</span>
     </span>
   );
 }
