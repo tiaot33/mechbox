@@ -326,15 +326,22 @@ function useFlash(id: SkillID, scope: ScopeKey | undefined) {
 }
 
 // Where 是技能库页的"装在哪":常见的情况只有两个字，例外才多写;有地方要重新安装时字用主要档(原因在名字后面的提醒图标里),
-// 装着的用次要档，不抢技能名的注意力。
+// 装着的用次要档，不抢技能名的注意力。列宽不够时先截 Agent 的名字，「全局」和项目名留到最后才截。
 function Where({ skill }: { skill: Skill }) {
   const t = useT().list;
   const w = installedSummary(useSnapshot(), skill.id);
   return (
-    <span className="skill-where flex min-w-0 items-center text-caption" title={w.title || undefined}>
-      <span className={cn("truncate", w.bad ? "text-foreground" : w.text ? "text-foreground-secondary" : "text-muted-foreground")}>
-        {w.text || t.notInstalled}
-      </span>
+    <span
+      className={cn(
+        "skill-where flex min-w-0 items-center gap-[0.3em] overflow-hidden text-caption",
+        w.bad ? "text-foreground" : w.text ? "text-foreground-secondary" : "text-muted-foreground",
+      )}
+      title={w.title || undefined}
+    >
+      {/* 只有名字一段收缩:「全局」和项目名不缩，比整列(减去两段间距)还长时才截;两段之间的空格不占位(间距由 gap 给),读屏和复制时有它。 */}
+      {w.agents && <span className="min-w-0 truncate">{w.agents}</span>}
+      {w.agents && " "}
+      <span className={cn("shrink-0 truncate", w.agents ? "max-w-[calc(100%-0.3em)]" : "max-w-full")}>{w.level || t.notInstalled}</span>
     </span>
   );
 }

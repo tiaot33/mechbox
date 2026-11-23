@@ -161,6 +161,13 @@ export interface AgentMigration {
      * 新目录里的技能文件夹
      */
     "to": string;
+
+    /**
+     * InstalledFor 只在 MigrationAlreadyInstalled 时可能不为空:新目录那一份是库为同一层级哪几个其他 Agent 装的(它们在那里有直接安装或组安装,
+     * 只因共用目录才算已装的不算),按代码排序。为空时那一份没有安装记录,只是内容和库里这个技能的某一版一致,
+     * 如上一次迁移时留在原处的旧文件夹、手动放进去的文件夹。
+     */
+    "installed_for"?: AgentCode[] | null;
 }
 
 /**

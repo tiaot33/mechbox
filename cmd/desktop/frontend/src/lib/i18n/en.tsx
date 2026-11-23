@@ -144,7 +144,7 @@ export const en = {
     unknownSource: "Unknown Source",
     library: "Library",
     updates: "Updates",
-    agentsGlobal: (names: string[]) => `${and(names)} global`,
+    agentsGlobal: (names: string[]) => ({ agents: and(names), level: "global" }),
     projectCount: (n: number) => count(n, "project"),
     listSeparator: ", ",
   },
@@ -406,8 +406,11 @@ export const en = {
     notMigratedReason: (to: string, from: string) =>
       `The new directory already has a different folder with the same name, or it's taken by another skill's install: ${to}\nThe old folder stays where it is: ${from}`,
     alreadyMigrated: "Already in the new directory",
-    alreadyMigratedReason: (to: string, from: string) =>
-      `The new directory already has this skill (installed for another Agent): ${to}\nThis Agent now uses that one and still counts it as installed; the old folder stays where it is: ${from}`,
+    alreadyMigratedReason: (to: string, from: string, agents: string[]) =>
+      (agents.length
+        ? `The new directory already has this skill (installed for ${and(agents)}): ${to}`
+        : `The new directory already has this skill, matching a version of it in the library: ${to}`) +
+      `\nThis Agent now uses that one and still counts it as installed; the old folder stays where it is: ${from}`,
     migratedPartly: (migrated: number, skipped: number) =>
       `Migrated ${count(migrated, "install")}${skipped ? `; ${count(skipped, "install")} ${skipped === 1 ? "wasn't" : "weren't"} migrated, and this Agent no longer counts ${skipped === 1 ? "it" : "them"} as installed there` : ""}.`,
     agentSavedMigrated: (name: string, n: number) => `Saved Agent “${name}” and migrated ${count(n, "install")}`,

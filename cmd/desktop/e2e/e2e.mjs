@@ -1333,6 +1333,35 @@ await step("作用域页上面那块的节只有装在这里的;点项目打开�
   await selectScope("Claude Code", "proj-a");
 });
 
+// 「装在哪」分成 Agent 名字和其后的「全局」、项目两段：列很窄时先把名字缩没，再截「全局」和项目名;只装在项目里的一行也截断，不溢出到旁边的列。
+await step("技能库页「装在哪」列很窄时：先截 Agent 名字，留住「全局」和项目名，不溢出到旁边的列", async () => {
+  await clearScope();
+  await settle();
+  const rows = await page.evaluate(() =>
+    [...document.querySelectorAll(".skill-where")].map((where) => {
+      const spans = [...where.querySelectorAll(":scope > span")];
+      const level = spans[spans.length - 1];
+      const at = (width) => {
+        where.style.flex = "none";
+        where.style.width = `${width}px`;
+        const inside = level.getBoundingClientRect().right <= where.getBoundingClientRect().right + 0.5;
+        const whole = level.scrollWidth <= level.clientWidth + 0.5;
+        return { inside, whole };
+      };
+      const roomy = at(level.scrollWidth + 12);
+      const tight = at(8);
+      where.style.flex = where.style.width = "";
+      return { text: where.textContent, agents: spans.length > 1, roomy, tight };
+    }),
+  );
+  assert(rows.some((r) => r.agents && r.text.includes(" 全局")), `应有一行写 Agent 名字和「全局」:${JSON.stringify(rows)}`);
+  for (const r of rows) {
+    assert(r.tight.inside, `列很窄时也不溢出:${r.text}`);
+    if (r.agents) assert(r.roomy.whole, `只够放下「全局」和项目时，名字缩没、它们完整显示:${r.text}`);
+  }
+  await selectScope("Claude Code", "proj-a");
+});
+
 // ============ 未纳管技能 ============
 group("unmanaged", ["install"]);
 await step("未纳管技能：作用域里列出不是库装的技能(符号链接、项目仓库里的),只能在 Finder 中显示", async () => {

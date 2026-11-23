@@ -163,6 +163,20 @@ describe("installedSummary", () => {
     });
     expect(installedSummary(s, 1).text).toBe("CLAUDE-CODE、CODEX、CURSOR 全局、web");
   });
+
+  it("分成 Agent 名字和其后的「全局」、项目两段：列宽不够时只截名字，看得出是全局还是哪个项目", () => {
+    const agents = ["claude-code", "codex"].map((code) => ({ code, name: code.toUpperCase(), detected: true }) as Agent);
+    const base = { agents, projects: [{ id: 2, name: "web" }, { id: 3, name: "api" }] as RegisteredProject[], skills: [skill(1, "s1", "o/r")] };
+    expect(installedSummary(snapshot({ ...base, skillScopes: [installed(1, "claude-code"), installed(1, "codex"), installed(1, "codex", 2)] }), 1)).toMatchObject({
+      agents: "CLAUDE-CODE、CODEX",
+      level: "全局、web",
+    });
+    expect(installedSummary(snapshot({ ...base, skillScopes: [installed(1, "codex", 2), installed(1, "codex", 3)] }), 1)).toMatchObject({
+      agents: "",
+      level: "2 个项目",
+      text: "2 个项目",
+    });
+  });
 });
 
 describe("装不上时占着文件夹的同名技能", () => {

@@ -76,28 +76,34 @@ export interface InstalledWhere {
   total: number;
 }
 
-export function installedWhere(s: Snapshot, skillID: number): InstalledWhere {
-  const places = placeNames(s, skillScopesOf(s, skillID));
+// placed 是写操作刚装上、s 里还没有的几处，一起算上。
+export function installedWhere(s: Snapshot, skillID: number, placed: readonly Scope[] = []): InstalledWhere {
+  const known = skillScopesOf(s, skillID);
+  const places = placeNames(s, [...known, ...placed.filter((x) => !known.some((p) => scopeKey(p.scope) === scopeKey(x)))]);
   return { places: places.slice(0, 2), total: places.length };
 }
 
 // installedSummary 是技能库页上一行的"装在哪":全局写出装在哪几个 Agent(按 Agent 列表的先后，后面跟"全局"),
-// 项目只有一个时写项目名，多个时写个数。没装在任何地方时 text 为空。title 逐处列出;bad 表示有地方真要重新安装(needsRepair)。
-export function installedSummary(s: Snapshot, skillID: SkillID): { text: string; title: string; bad: boolean } {
+// 项目只有一个时写项目名，多个时写个数。没装在任何地方时 text 为空。text 分成两段:agents 是全局那几个 Agent 的名字,
+// level 是其后的「全局」和项目;列宽不够时只截 agents,level 总看得出是全局还是哪个项目。title 逐处列出;
+// bad 表示有地方真要重新安装(needsRepair)。
+export function installedSummary(s: Snapshot, skillID: SkillID): { text: string; agents: string; level: string; title: string; bad: boolean } {
   const m = messages().model;
   // 只因共用目录被动算出已装、又被关掉显示的 Agent 不写;合成一处的几个 Agent 写一次(名字按 placeNames 的规则)。
   const places = skillScopesOf(s, skillID).filter((p) => !p.shared_only || agentShown(s.agentsShown, s.agents.find((a) => a.code === p.scope.agent) ?? ({ code: p.scope.agent } as Agent)));
   const order = (p: SkillScopeInspection) => s.agents.findIndex((a) => a.code === p.scope.agent);
   const globals = eachPlace(s, places.filter((p) => !placeOf(p.scope)).sort((a, b) => order(a) - order(b))).map((p) => placeAgentNames(s, p));
   const projects = [...new Set(places.map((p) => placeOf(p.scope)).filter(Boolean))];
-  const text = [
-    !globals.length ? "" : m.agentsGlobal(globals),
+  const global = globals.length ? m.agentsGlobal(globals) : undefined;
+  const level = [
+    global?.level ?? "",
     !projects.length ? "" : projects.length === 1 ? projectName(s, projects[0]) : m.projectCount(projects.length),
   ]
     .filter(Boolean)
     .join(m.listSeparator);
+  const agents = global?.agents ?? "";
   const title = placeNames(s, places).join("\n");
-  return { text, title, bad: places.some(needsRepair) };
+  return { text: [agents, level].filter(Boolean).join(" "), agents, level, title, bad: places.some(needsRepair) };
 }
 
 // ---------- 一处和库里的当前版本一不一样 ----------

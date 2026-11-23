@@ -96,6 +96,10 @@ type AgentMigration struct {
 	Outcome MigrationOutcome `json:"outcome"`
 	From    string           `json:"from"` // 旧目录里的技能文件夹
 	To      string           `json:"to"`   // 新目录里的技能文件夹
+	// InstalledFor 只在 MigrationAlreadyInstalled 时可能不为空:新目录那一份是库为同一层级哪几个其他 Agent 装的(它们在那里有直接安装或组安装,
+	// 只因共用目录才算已装的不算),按代码排序。为空时那一份没有安装记录,只是内容和库里这个技能的某一版一致,
+	// 如上一次迁移时留在原处的旧文件夹、手动放进去的文件夹。
+	InstalledFor []AgentCode `json:"installed_for,omitempty"`
 }
 
 // EditAgentResult 是 EditAgent 的结果。
@@ -363,12 +367,12 @@ func (l *Library) editAgent(ctx context.Context, operation string, code AgentCod
 			}
 			continue
 		}
-		folder, recorded, already, err := l.sameSkillInDestination(ctx, code, item, destination, migration.To)
+		folder, installedFor, recorded, already, err := l.sameSkillInDestination(ctx, code, item, destination, migration.To)
 		if err != nil {
 			return EditAgentResult{}, err
 		}
 		if already {
-			migration.To, migration.Outcome = agentdir.FolderPath(destination.directory, folder), MigrationAlreadyInstalled
+			migration.To, migration.Outcome, migration.InstalledFor = agentdir.FolderPath(destination.directory, folder), MigrationAlreadyInstalled, installedFor
 			if item.own != nil {
 				dropped = append(dropped, item.own.ID)
 			}
@@ -482,11 +486,11 @@ func migrationDestination(item agentInstall, row store.Agent) resolvedScope {
 	return item.place.target.in(row.Paths(item.project())[0])
 }
 
-func (l *Library) sameSkillInDestination(ctx context.Context, code AgentCode, item agentInstall, destination resolvedScope, target string) (folder string, recorded, found bool, err error) {
+func (l *Library) sameSkillInDestination(ctx context.Context, code AgentCode, item agentInstall, destination resolvedScope, target string) (folder string, installedFor []AgentCode, recorded, found bool, err error) {
 	want, old := agentdir.Canonical(destination.directory), agentdir.Canonical(item.Folder)
 	installed, err := l.listSkillScopes(ctx, item.SkillID, nil)
 	if err != nil {
-		return "", false, false, err
+		return "", nil, false, false, err
 	}
 	for _, other := range installed {
 		if other.Scope.Agent == code || other.Scope.ProjectID != item.Scope.ProjectID ||
@@ -494,19 +498,29 @@ func (l *Library) sameSkillInDestination(ctx context.Context, code AgentCode, it
 			continue
 		}
 		exists, err := agentdir.Exists(other.Folder)
-		if err != nil || exists {
-			return agentdir.FolderName(other.Folder), true, exists, err
+		if err != nil {
+			return "", nil, false, false, err
 		}
+		if !exists {
+			continue
+		}
+		for _, same := range installed {
+			if same.Scope.Agent != code && !same.SharedOnly && same.Scope.ProjectID == item.Scope.ProjectID && same.Folder == other.Folder {
+				installedFor = append(installedFor, same.Scope.Agent)
+			}
+		}
+		slices.Sort(installedFor)
+		return agentdir.FolderName(other.Folder), slices.Compact(installedFor), true, true, nil
 	}
 	if claimant, err := l.targetClaimant(ctx, item.SkillID, agentdir.FolderName(target), destination); err != nil || claimant != nil {
-		return "", false, false, err
+		return "", nil, false, false, err
 	}
 	state, err := agentdir.ReadFolder(ctx, target, maxFetchFiles, maxFetchSize)
 	if err != nil || !state.Directory {
-		return "", false, false, nil
+		return "", nil, false, false, nil
 	}
 	matched, _, err := matchingSkill(ctx, l.store, diskOf(state))
-	return agentdir.FolderName(target), false, SkillID(matched) == item.SkillID, err
+	return agentdir.FolderName(target), nil, false, SkillID(matched) == item.SkillID, err
 }
 
 func (l *Library) migrationBlocked(ctx context.Context, code AgentCode, installs []agentInstall, removed func(agentInstall) bool, id SkillID, name string, destination resolvedScope, planned map[string]bool) (bool, error) {
