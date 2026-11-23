@@ -47,10 +47,13 @@ import { ReleaseCheck } from "@/features/release/release";
 export function GeneralSection({
   settings,
   save,
+  onSwitchDistro,
   onRetryDistro,
 }: {
   settings: Settings;
   save: (change: Partial<Settings>) => void;
+  // onSwitchDistro 是在「全局目录」里选了另一个位置：库里记着全局安装时先确认再保存，取消时不保存，下拉框留在原来的选择。
+  onSwitchDistro: (distro: string) => void;
   onRetryDistro: () => void;
 }) {
   const { settings: t, paths } = useT();
@@ -140,7 +143,7 @@ export function GeneralSection({
         <NativeSelect
           className="shrink-0 max-w-[180px]"
           value={settings.wsl_distro ?? ""}
-          onChange={(e) => save({ wsl_distro: e.target.value })}
+          onChange={(e) => onSwitchDistro(e.target.value)}
         >
           <option value="">{t.windowsHome}</option>
           {[...new Set([...distros, ...(settings.wsl_distro ? [settings.wsl_distro] : [])])].map((d) => (

@@ -1,7 +1,8 @@
 // 设置页：替换主界面的三栏，左边是分区目录，右边按分区排开。
 // 检查技能更新与通用是应用设置，存在数据库的 config 表里(app.*),随推送、拉回走，改了立即保存、生效;
 // 拉回后 Go 端换成拉回来的设置并发 settings-reloaded 事件，这里随之重读。
-// 通用里的网络代理与全局目录(Windows 上装了 WSL 时才出现)只属于这台机器，拉回不变;网络代理切换模式立即生效、手动地址点保存生效;改了全局目录后重读快照，界面换成新的全局目录。
+// 通用里的网络代理与全局目录(Windows 上装了 WSL 时才出现)只属于这台机器，拉回不变;网络代理切换模式立即生效、手动地址点保存生效;
+// 改全局目录时库里记着全局安装的先确认(见 switchDistro),改了以后重读快照，界面换成新的全局目录。
 // GitHub 令牌、AI 设置与同步设置也存在数据库里，点保存才存入(见 credentials-form.tsx);AI 分区里的自动翻译开关是应用设置，改了立即保存。
 // 目录大致按保存方式分组：通用与管理分区在上，GitHub、AI、同步三个凭据表单在下，再下面是关于。
 // Agent 分区见 agent-settings;项目分区复用主界面右栏的登记 / 改位置 / 注销;卸载 Mechbox 在关于分区的最后一行，不进目录，见 uninstall-dialog。
@@ -10,7 +11,7 @@ import { Events } from "@wailsio/runtime";
 import { AppService, type Settings } from "@bindings/cmd/desktop";
 import { ErrorCode } from "@bindings/internal/library";
 import { toLanguage, useLanguage, useT } from "@/lib/i18n";
-import { useSnapshot, type LibraryError } from "@/lib/library";
+import { currentSnapshot, useSnapshot, type LibraryError } from "@/lib/library";
 import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { useView } from "@/lib/view";
@@ -29,6 +30,7 @@ import { AISection, GitHubSection, SyncSection } from "./credentials-form";
 import { AboutSection, ChecksSection, GeneralSection, ProjectsSection, TranslateSection } from "./settings-sections";
 import { UninstallDialog } from "./uninstall-dialog";
 import { foldSaved } from "./fold";
+import { globalDirName, globalInstallsToConfirm } from "./global-dir-rules";
 
 // 分区按文案里的键排，标题取当前语言的文案;目录里一组一段。
 const groups = [["general", "agents", "projects", "checks"], ["github", "ai", "sync"], ["about"]] as const;
@@ -104,6 +106,28 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
       else if (switching && switchedToDistro(before, next.wsl_distro ?? "")) void offerDistroAgents(next.wsl_distro ?? "");
       if ("language" in change) await AppService.Language().then((l) => setLanguage(toLanguage(l)), () => {});
     });
+  };
+
+  // 换全局目录：库里记着全局安装时先确认，写明换过去以后这些安装按新位置的目录检查、原来位置的文件夹留在原处;
+  // 点「换过去」才保存，之后和直接换一样(换到发行版时补弹添加 Agent)。取消或关掉时什么都不保存，下拉框留在原来的选择。
+  const switchDistro = async (distro: string) => {
+    const before = latest.current?.wsl_distro ?? "";
+    const n = globalInstallsToConfirm(currentSnapshot(), before, distro);
+    if (n) {
+      const to = globalDirName(distro);
+      const ok = await ui.confirm({
+        title: t.switchGlobalDirTitle(to),
+        body: (
+          <>
+            <p>{t.switchGlobalDirBody(n, to)}</p>
+            <p>{t.switchGlobalDirKeep(globalDirName(before))}</p>
+          </>
+        ),
+        confirm: t.switchGlobalDir,
+      });
+      if (!ok) return;
+    }
+    save({ wsl_distro: distro });
   };
 
   // 左栏高亮跟着滚动走：顶上已经滚过的最后一个分区，滚到底时是最后一个分区。
@@ -196,7 +220,14 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
               {card(
                 "general",
                 null,
-                settings && <GeneralSection settings={settings} save={save} onRetryDistro={() => void retryDistro()} />,
+                settings && (
+                  <GeneralSection
+                    settings={settings}
+                    save={save}
+                    onSwitchDistro={(distro) => void switchDistro(distro)}
+                    onRetryDistro={() => void retryDistro()}
+                  />
+                ),
               )}
               {card(
                 "agents",

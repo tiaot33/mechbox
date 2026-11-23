@@ -1168,6 +1168,11 @@ export const zh = {
       `打不开 WSL 发行版「${distro}」，现在用的是 Windows 本机的全局目录：${reason}`,
     retryDistro: "再试一次",
     distroSwitchFailed: (distro: string, reason: string) => `打不开 WSL 发行版「${distro}」，全局目录没有换：${reason}`,
+    switchGlobalDirTitle: (to: string) => `把全局目录换到「${to}」？`,
+    switchGlobalDirBody: (n: number, to: string) =>
+      `库里记着 ${n} 处全局安装。换到「${to}」后按那里的目录检查，那里没有的显示「文件夹不在了」，可以到各 Agent 的作用域页重新安装过去。`,
+    switchGlobalDirKeep: (from: string) => `「${from}」全局目录里的文件夹留在原处，不再管；换回来时，这些安装又按「${from}」的目录检查。`,
+    switchGlobalDir: "换过去",
     followSystem: "跟随系统",
     // 语言选项写各自的名字，两份文案里一样。
     chinese: "简体中文",
