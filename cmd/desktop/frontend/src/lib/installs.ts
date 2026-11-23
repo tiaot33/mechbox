@@ -76,8 +76,10 @@ export interface InstalledWhere {
   total: number;
 }
 
-export function installedWhere(s: Snapshot, skillID: number): InstalledWhere {
-  const places = placeNames(s, skillScopesOf(s, skillID));
+// placed 是写操作刚装上、s 里还没有的几处，一起算上。
+export function installedWhere(s: Snapshot, skillID: number, placed: readonly Scope[] = []): InstalledWhere {
+  const known = skillScopesOf(s, skillID);
+  const places = placeNames(s, [...known, ...placed.filter((x) => !known.some((p) => scopeKey(p.scope) === scopeKey(x)))]);
   return { places: places.slice(0, 2), total: places.length };
 }
 

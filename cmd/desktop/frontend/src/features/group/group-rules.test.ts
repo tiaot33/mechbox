@@ -128,6 +128,21 @@ describe("同名的几个技能一起加入组", () => {
     ]);
   });
 
+  it("这次才装上的那一个写出装在这次装的地方，不按写之前的快照说成没装", () => {
+    const before = snapshot({
+      skills: [1, 2].map((id) => ({ id, name: "release-notes", source: { type: SourceType.$zero } }) as Skill),
+      skillScopes: [place(1, global(claude), { direct: true })],
+    });
+    const r = addedToGroup(before, [1, 2], [
+      { value: [result(1, GroupMemberOutcome.MemberSkipped)] },
+      { value: [result(2, GroupMemberOutcome.MemberInstalled)] },
+    ]);
+    expect(r.rows.map((x) => [x.outcome, x.detail])).toEqual([
+      [t.memberSkipped, "没有来源，装在 Claude Code · 全局"],
+      [t.memberInstalled, "没有来源，装在 Codex · 全局"],
+    ]);
+  });
+
   it("库里没有同名的技能不多写", () => {
     const r = addedToGroup(snapshot(), [1], [{ value: [result(1, GroupMemberOutcome.MemberSkipped)] }]);
     expect(r.rows[0].detail).toBeUndefined();

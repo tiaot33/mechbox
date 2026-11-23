@@ -37,9 +37,11 @@ function memberOutcome(outcome: string): { text: string; tone: ResultRow["tone"]
 }
 
 // twinDetail 是库里有同名的技能时，这个技能是哪一个(来源、装在哪，见 twinNote):同名的几个一起出现在结果里时靠它分辨;没有同名的为 undefined。
-export function twinDetail(s: Snapshot, id: SkillID): string | undefined {
+// s 是写之前的快照，results 是这次的逐个结果：这次装上的那几处一起算进装在哪，不说成还没装。
+export function twinDetail(s: Snapshot, id: SkillID, results: readonly GroupMemberResult[] = []): string | undefined {
   const skill = s.skills.find((x) => x.id === id);
-  return skill && sameNameInLibrary(s, skill).length ? twinNote(s, skill) : undefined;
+  const placed = placedBy([...results]).filter((r) => r.skill_id === id).map((r) => r.scope);
+  return skill && sameNameInLibrary(s, skill).length ? twinNote(s, skill, placed) : undefined;
 }
 
 // memberRows 是组安装、加入组的逐个结果;被同名的另一个技能占用而跳过的，能点开占着的那个(错误里带着它)。
@@ -47,7 +49,7 @@ export function twinDetail(s: Snapshot, id: SkillID): string | undefined {
 export function memberRows(s: Snapshot, results: GroupMemberResult[], adding = false): ResultRow[] {
   return results.map((r) => ({
     label: `${skillName(s, r.skill_id)} → ${scopeLabel(s, r.scope)}`,
-    detail: twinDetail(s, r.skill_id),
+    detail: twinDetail(s, r.skill_id, results),
     outcome: memberOutcome(r.outcome)?.text ?? r.outcome,
     tone: memberOutcome(r.outcome)?.tone ?? "info",
     reason: memberReason(s, r, adding),
