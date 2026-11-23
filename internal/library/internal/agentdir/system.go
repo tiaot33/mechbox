@@ -23,7 +23,7 @@ type fileSystem interface {
 	stat(path string) (entry, error)
 	evalSymlinks(path string) (string, error)
 	readlink(path string) (string, error)
-	readFile(path string) ([]byte, error)
+	readFile(ctx context.Context, path string) ([]byte, error)
 	sameEntry(a, b string) (same, known bool)
 	sameFolder(a, b string) (same, known bool)
 	foldsCase(path string) bool
@@ -31,7 +31,7 @@ type fileSystem interface {
 	canonicalAll(ctx context.Context, paths []string) ([]string, error)
 	modes() bool
 	inspect(ctx context.Context, folders []string, read *limits, visit func(int, FolderState) error) error
-	list(directory string) ([]Folder, error)
+	listAll(ctx context.Context, directories []string) ([]Listing, error)
 	committed(ctx context.Context, root, directory string) (map[string]bool, error)
 
 	mkdirTemp(directory, prefix string) (string, error)

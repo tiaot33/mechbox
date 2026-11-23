@@ -209,7 +209,7 @@ func (l *Library) unmanagedFolder(ctx context.Context, operation string, req Fol
 		return unmanagedFolder{}, err
 	}
 	path := agentdir.FolderPath(target.directory, req.Name)
-	folders, err := agentdir.List(target.directory)
+	folders, err := agentdir.List(ctx, target.directory)
 	if err != nil {
 		return unmanagedFolder{}, err
 	}
@@ -364,7 +364,7 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folders
 	untouched, editedLatest := false, false
 	records := l.sourceRecords()
 	for _, each := range folders {
-		if entry, ok := records.find(each.target, each.parsed.Name, each.name); ok {
+		if entry, ok := records.find(ctx, each.target, each.parsed.Name, each.name); ok {
 			if !entry.from(input, ref) {
 				continue
 			}
@@ -835,7 +835,7 @@ func (r sourceRecord) from(input, ref string) bool {
 	return r.recognized && r.input == input && r.ref == ref
 }
 
-func (f *sourceRecords) find(target resolvedScope, names ...string) (sourceRecord, bool) {
+func (f *sourceRecords) find(ctx context.Context, target resolvedScope, names ...string) (sourceRecord, bool) {
 	root := ""
 	if target.ProjectID != nil {
 		root = target.root
@@ -843,10 +843,10 @@ func (f *sourceRecords) find(target resolvedScope, names ...string) (sourceRecor
 	records, ok := f.read[root]
 	if !ok {
 		if root == "" {
-			content, _ := agentdir.ReadFile(f.home.Join(skilllock.GlobalFile))
+			content, _ := agentdir.ReadFile(ctx, f.home.Join(skilllock.GlobalFile))
 			records = skilllock.ParseGlobal(content)
 		} else {
-			content, _ := agentdir.ReadFile(agentdir.Join(root, skilllock.ProjectFile))
+			content, _ := agentdir.ReadFile(ctx, agentdir.Join(root, skilllock.ProjectFile))
 			records = skilllock.ParseProject(content)
 		}
 		f.read[root] = records

@@ -308,7 +308,7 @@ func wslCommandsSince(t *testing.T, log string, skip int) []string {
 
 // 往发行版发的几种命令的脚本里各有一句别的脚本没有的,按它数命令。
 const (
-	wslListCommand      = `[ -f "$e/SKILL.md" ]`
+	wslListCommand      = `[ -f "$p/SKILL.md" ]`
 	wslCanonicalCommand = `rest=${c##*/}`
 	wslInspectCommand   = `printf 'irregular\0'`
 )
@@ -324,7 +324,7 @@ func countWSLCommands(commands []string, script string) int {
 }
 
 // 几个 Agent 共用 .agents/skills(其中一个经符号链接指过去的别的写法),登记了几个项目:列未纳管技能、同名技能时,
-// 规范化后相同的目录只列一次,规范化一次批量做完;每个作用域里的路径仍是它自己的写法。
+// 规范化后相同的目录只列一次,规范化、列目录各用一条命令批量做完,不随项目数逐个往返;每个作用域里的路径仍是它自己的写法。
 func TestWSLDistroListsSharedDirectoryOnce(t *testing.T) {
 	lib, home := openWSLLibrary(t)
 	ctx := t.Context()
@@ -378,8 +378,6 @@ func TestWSLDistroListsSharedDirectoryOnce(t *testing.T) {
 		}
 		return wslPath(t, filepath.Join(root, directories[agent], "dup"))
 	}
-	// 共用的 .agents/skills 在主目录和每个项目里各一个,Claude Code 的 .claude/skills 也各一个。
-	distinct := 2 * (1 + len(projects))
 
 	var unmanaged []library.UnmanagedSkill
 	commands := wslCommandsDuring(t, log, func() {
@@ -387,8 +385,8 @@ func TestWSLDistroListsSharedDirectoryOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	if got := countWSLCommands(commands, wslListCommand); got != distinct {
-		t.Errorf("ListUnmanagedSkills listed %d directories, want %d", got, distinct)
+	if got := countWSLCommands(commands, wslListCommand); got != 1 {
+		t.Errorf("ListUnmanagedSkills ran %d list commands, want 1", got)
 	}
 	// 只给列出的目录规范化一次:没有是符号链接的技能文件夹,不用判断链接是否指向 Agent 目录外面。
 	if got := countWSLCommands(commands, wslCanonicalCommand); got != 1 {
@@ -423,8 +421,8 @@ func TestWSLDistroListsSharedDirectoryOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	})
-	if got := countWSLCommands(commands, wslListCommand); got != distinct {
-		t.Errorf("ListSameNameSkills listed %d directories, want %d", got, distinct)
+	if got := countWSLCommands(commands, wslListCommand); got != 1 {
+		t.Errorf("ListSameNameSkills ran %d list commands, want 1", got)
 	}
 	if got := countWSLCommands(commands, wslCanonicalCommand); got != 1 {
 		t.Errorf("ListSameNameSkills ran %d canonical commands, want 1", got)

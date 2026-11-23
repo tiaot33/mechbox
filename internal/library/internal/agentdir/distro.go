@@ -135,21 +135,25 @@ one() {
 for p in "$@"; do
 	one "$p"
 done`
-	listScript = `cd -- "$1" 2>/dev/null || exit 0
-shift
-for e in *; do
-	[ -d "$e" ] && [ -f "$e/SKILL.md" ] || continue
-	t=
-	if [ -L "$e" ]; then t=$(readlink -f -- "$e") || continue; fi
-	printf '%s\0%s\0' "$e" "$t"
-	[ -r "$e/SKILL.md" ] || continue
-	s=$(($(wc -c <"$e/SKILL.md")))
-	[ "$s" -le 1048576 ] && set -- "$@" "./$e/SKILL.md"
-	[ -f "$e/agents/openai.yaml" ] && [ -r "$e/agents/openai.yaml" ] || continue
-	s=$(($(wc -c <"$e/agents/openai.yaml")))
-	[ "$s" -le 1048576 ] && set -- "$@" "./$e/agents/openai.yaml"
+	listScript = `n=$#
+while [ "$n" -gt 0 ]; do
+	d=$1
+	shift
+	n=$((n - 1))
+	for p in "$d"/*; do
+		[ -d "$p" ] && [ -f "$p/SKILL.md" ] || continue
+		t=
+		if [ -L "$p" ]; then t=$(readlink -f -- "$p") || continue; fi
+		printf '%s\0%s\0' "${p##*/}" "$t"
+		[ -r "$p/SKILL.md" ] || continue
+		s=$(($(wc -c <"$p/SKILL.md")))
+		[ "$s" -le 1048576 ] && set -- "$@" "$p/SKILL.md"
+		[ -f "$p/agents/openai.yaml" ] && [ -r "$p/agents/openai.yaml" ] || continue
+		s=$(($(wc -c <"$p/agents/openai.yaml")))
+		[ "$s" -le 1048576 ] && set -- "$@" "$p/agents/openai.yaml"
+	done
+	printf '\0'
 done
-printf '\0'
 [ $# -eq 0 ] || tar -chf - "$@" 2>/dev/null || :`
 	committedScript = `GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 exec git -c core.fsmonitor=false -C "$1" ls-tree -r -z --name-only HEAD -- "$2"`
 	mkdirTempScript = `mkdir -p -- "$1" && mktemp -d "$1/$2XXXXXX"`
@@ -280,8 +284,8 @@ func (d distro) readlink(p string) (string, error) {
 	return strings.TrimSuffix(output, "\n"), nil
 }
 
-func (d distro) readFile(p string) ([]byte, error) {
-	output, err := wsl.ReadFile(context.Background(), d.name, d.linux(p))
+func (d distro) readFile(ctx context.Context, p string) ([]byte, error) {
+	output, err := wsl.ReadFile(ctx, d.name, d.linux(p))
 	return output, d.failure("open", p, err)
 }
 
@@ -540,51 +544,64 @@ func readArchive(archive []byte, visit func(header *tar.Header, name string, con
 	}
 }
 
-func (d distro) list(directory string) ([]Folder, error) {
-	output, err := d.run(context.Background(), "list", directory, listScript, d.linux(directory))
+func (d distro) listAll(ctx context.Context, directories []string) ([]Listing, error) {
+	listings := make([]Listing, len(directories))
+	linux := make([]string, len(directories))
+	for i, directory := range directories {
+		linux[i] = d.linux(directory)
+	}
+	output, err := d.run(ctx, "list", directories[0], listScript, linux...)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if err == nil {
+		err = d.parseListing(output, directories, linux, listings)
+	}
 	if err != nil {
-		return nil, fmt.Errorf("list skill folders: %w", err)
+		for i := range listings {
+			listings[i] = Listing{Err: fmt.Errorf("list skill folders: %w", err)}
+		}
 	}
-	if len(output) == 0 {
-		return nil, nil
-	}
+	return listings, nil
+}
+
+func (d distro) parseListing(output []byte, directories, linux []string, listings []Listing) error {
 	parser := &inspection{d: d, rest: output}
-	var folders []Folder
-	for {
-		name, err := parser.field()
-		if err != nil {
-			return nil, fmt.Errorf("list skill folders: %w", err)
+	for i, directory := range directories {
+		for {
+			name, err := parser.field()
+			if err != nil {
+				return err
+			}
+			if name == "" {
+				break
+			}
+			target, err := parser.field()
+			if err != nil {
+				return err
+			}
+			folder := Folder{Name: name, Path: d.join(directory, name)}
+			if target != "" {
+				folder.Target = d.path(target)
+			}
+			listings[i].Folders = append(listings[i].Folders, folder)
 		}
-		if name == "" {
-			break
-		}
-		target, err := parser.field()
-		if err != nil {
-			return nil, fmt.Errorf("list skill folders: %w", err)
-		}
-		folder := Folder{Name: name, Path: d.join(directory, name)}
-		if target != "" {
-			folder.Target = d.path(target)
-		}
-		folders = append(folders, folder)
 	}
-	manifests, metadata := map[string][]byte{}, map[string][]byte{}
+	files := map[string][]byte{}
 	_ = readArchive(parser.rest, func(_ *tar.Header, name string, content []byte) error {
-		folder, file, ok := strings.Cut(name, "/")
-		switch {
-		case !ok || content == nil:
-		case file == "SKILL.md":
-			manifests[folder] = content
-		case file == codexMetadataFile:
-			metadata[folder] = content
+		if content != nil {
+			files[name] = content
 		}
 		return nil
 	})
-	for i := range folders {
-		folders[i].SkillMD = manifests[folders[i].Name]
-		folders[i].CodexMetadata = metadata[folders[i].Name]
+	for i := range listings {
+		for j := range listings[i].Folders {
+			folder := strings.TrimPrefix(path.Join(linux[i], listings[i].Folders[j].Name), "/")
+			listings[i].Folders[j].SkillMD = files[folder+"/SKILL.md"]
+			listings[i].Folders[j].CodexMetadata = files[folder+"/"+codexMetadataFile]
+		}
 	}
-	return folders, nil
+	return nil
 }
 
 func (d distro) committed(ctx context.Context, root, directory string) (map[string]bool, error) {

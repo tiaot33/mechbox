@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 	"github.com/tiaot33/mechbox/internal/library/internal/wsl"
@@ -206,7 +207,7 @@ func TestDistroListMatchesNative(t *testing.T) {
 	if err := os.WriteFile(metadata, []byte("policy:\n  allow_implicit_invocation: false\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	want, err := List(directory)
+	want, err := List(t.Context(), directory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +216,7 @@ func TestDistroListMatchesNative(t *testing.T) {
 	}) {
 		t.Fatalf("native List = %+v, want shared with agents/openai.yaml", want)
 	}
-	got, err := List(unc(directory))
+	got, err := List(t.Context(), unc(directory))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +233,7 @@ func TestDistroListMatchesNative(t *testing.T) {
 			t.Errorf("folder %d = %+v, want %+v", i, got[i], w)
 		}
 	}
-	if missing, err := List(unc(filepath.Join(home, "missing"))); err != nil || missing != nil {
+	if missing, err := List(t.Context(), unc(filepath.Join(home, "missing"))); err != nil || missing != nil {
 		t.Errorf("missing directory: %v %v", missing, err)
 	}
 }
@@ -312,10 +313,10 @@ func TestDistroPathQueries(t *testing.T) {
 	if _, err := ProjectRoot(unc(filepath.Join(home, ".claude/skills/own/SKILL.md"))); !errors.Is(err, ErrNotDirectory) {
 		t.Errorf("ProjectRoot(file) = %v", err)
 	}
-	if content, err := ReadFile(unc(filepath.Join(home, ".claude/skills/own/SKILL.md"))); err != nil || string(content) != "---\nname: own\n---\n" {
+	if content, err := ReadFile(t.Context(), unc(filepath.Join(home, ".claude/skills/own/SKILL.md"))); err != nil || string(content) != "---\nname: own\n---\n" {
 		t.Errorf("ReadFile = %q %v", content, err)
 	}
-	if _, err := ReadFile(unc(filepath.Join(home, "missing"))); !errors.Is(err, os.ErrNotExist) {
+	if _, err := ReadFile(t.Context(), unc(filepath.Join(home, "missing"))); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("ReadFile(missing) = %v", err)
 	}
 }
@@ -511,5 +512,54 @@ func TestDistroCanonicalStartsNoProcessForDirectoriesAndMissingPaths(t *testing.
 	}
 	if _, err := Within(ctx, paths, []string{unc(filepath.Join(home, ".agents/skills/shared"))}); !errors.Is(err, context.Canceled) {
 		t.Errorf("Within after cancel = %v", err)
+	}
+}
+
+func TestDistroListAllListsEveryDirectoryInOneCommandAndStopsWhenCancelled(t *testing.T) {
+	home := npxLayout(t)
+	metadata := filepath.Join(home, ".agents/skills/shared/agents/openai.yaml")
+	write(t, metadata, "policy:\n  allow_implicit_invocation: false\n", 0o644)
+	directories := []string{filepath.Join(home, ".claude/skills"), filepath.Join(home, "missing"), filepath.Join(home, ".agents/skills")}
+	var paths []string
+	for _, directory := range directories {
+		paths = append(paths, unc(directory))
+	}
+	listed, err := ListAll(t.Context(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, directory := range directories {
+		want, err := List(t.Context(), directory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for j := range want {
+			want[j].Path = unc(want[j].Path)
+			if want[j].Target != "" {
+				want[j].Target = unc(want[j].Target)
+			}
+		}
+		if listed[i].Err != nil || !reflect.DeepEqual(listed[i].Folders, want) {
+			t.Errorf("ListAll[%d] = %+v, %v; want %+v", i, listed[i].Folders, listed[i].Err, want)
+		}
+	}
+
+	shims := t.TempDir()
+	real, err := exec.LookPath("wc")
+	if err != nil {
+		t.Skip("wc not found")
+	}
+	write(t, filepath.Join(shims, "wc"), "#!/bin/sh\nsleep 1\nexec '"+real+"' \"$@\"\n", 0o755)
+	shell := filepath.Join(t.TempDir(), "sh")
+	write(t, shell, "#!/bin/sh\nPATH='"+shims+"':$PATH exec "+cmp.Or(os.Getenv("AGENTDIR_TEST_SHELL"), "sh")+"\n", 0o755)
+	defer wsl.Emulate(shell)()
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	if _, err := ListAll(ctx, paths); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("ListAll cancelled while listing = %v", err)
+	}
+	if took := time.Since(start); took > 2*time.Second {
+		t.Errorf("ListAll returned %v after being cancelled at 300ms", took)
 	}
 }

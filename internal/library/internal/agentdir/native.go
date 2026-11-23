@@ -73,7 +73,12 @@ func (native) evalSymlinks(path string) (string, error) { return filepath.EvalSy
 
 func (native) readlink(path string) (string, error) { return os.Readlink(path) }
 
-func (native) readFile(path string) ([]byte, error) { return os.ReadFile(path) }
+func (native) readFile(ctx context.Context, path string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(path)
+}
 
 func (native) sameEntry(a, b string) (bool, bool) {
 	aInfo, aErr := os.Lstat(a)
@@ -270,6 +275,17 @@ func readNative(ctx context.Context, root string, read limits) ([]skillfile.File
 	}
 	slices.SortFunc(files, func(a, b skillfile.File) int { return cmp.Compare(a.Path, b.Path) })
 	return files, modified, nil
+}
+
+func (n native) listAll(ctx context.Context, directories []string) ([]Listing, error) {
+	listings := make([]Listing, len(directories))
+	for i, directory := range directories {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		listings[i].Folders, listings[i].Err = n.list(directory)
+	}
+	return listings, nil
 }
 
 func (native) list(directory string) ([]Folder, error) {

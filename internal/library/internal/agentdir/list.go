@@ -18,8 +18,35 @@ type Folder struct {
 
 const maxSkillMD = 1 << 20
 
-func List(directory string) ([]Folder, error) {
-	return on(directory).list(directory)
+type Listing struct {
+	Folders []Folder
+	Err     error
+}
+
+func List(ctx context.Context, directory string) ([]Folder, error) {
+	listed, err := ListAll(ctx, []string{directory})
+	if err != nil {
+		return nil, err
+	}
+	return listed[0].Folders, listed[0].Err
+}
+
+func ListAll(ctx context.Context, directories []string) ([]Listing, error) {
+	listings := make([]Listing, len(directories))
+	err := bySystem(directories, func(system fileSystem, group []string, indexes []int) error {
+		listed, err := system.listAll(ctx, group)
+		if err != nil {
+			return err
+		}
+		for i, listing := range listed {
+			listings[indexes[i]] = listing
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return listings, nil
 }
 
 func Committed(ctx context.Context, root, directory string) (map[string]bool, error) {

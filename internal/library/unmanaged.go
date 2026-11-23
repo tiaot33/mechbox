@@ -253,7 +253,7 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 				entry.Invalid = skillFileProblem(err)
 			}
 		}
-		if record, ok := records.find(target, skillName(found.Folder), found.Name); ok {
+		if record, ok := records.find(ctx, target, skillName(found.Folder), found.Name); ok {
 			entry.SourceInput, entry.SourceRef = record.input, record.ref
 			entry.InProjectLock = target.ProjectID != nil
 		}
@@ -328,7 +328,7 @@ func (s sameFolders) of(ctx context.Context, target resolvedScope, canonical str
 		if inRepository, err := s.committed.has(ctx, other.target, other.Name); err != nil || inRepository {
 			continue
 		}
-		if _, inLock := s.records.find(other.target, skillName(other.Folder), other.Name); inLock && other.target.ProjectID != nil {
+		if _, inLock := s.records.find(ctx, other.target, skillName(other.Folder), other.Name); inLock && other.target.ProjectID != nil {
 			continue
 		}
 		same = append(same, other)
@@ -672,11 +672,6 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 		}
 		claimed[key] = append(claimed[key], claim{row.Directory, SkillID(row.SkillID)})
 	}
-	type rootCheck struct {
-		missing *Error
-		err     error
-	}
-	roots := map[string]rootCheck{}
 	var listings []resolvedScope
 	var directories []string
 	seen := map[string]bool{}
@@ -699,18 +694,6 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 			if err != nil {
 				return nil, err
 			}
-			check, checked := roots[target.root]
-			if !checked {
-				check.missing, check.err = target.rootMissing("list skill folders")
-				roots[target.root] = check
-			}
-			missing, err := check.missing, check.err
-			if err != nil && !skipUnreadable {
-				return nil, err
-			}
-			if err != nil || missing != nil {
-				continue
-			}
 			for _, path := range target.paths {
 				each := target.in(path)
 				if !seen[each.directory] {
@@ -726,33 +709,34 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 		return nil, err
 	}
 	canonical := map[string]string{}
+	listedAt := map[string]int{}
+	var distinct []string
 	for i, directory := range resolved {
 		canonical[directories[i]] = directory
+		if _, ok := listedAt[directory]; !ok {
+			listedAt[directory] = len(distinct)
+			distinct = append(distinct, directories[i])
+		}
 	}
-	type listed struct {
-		folders []agentdir.Folder
-		err     error
+	lists, err := agentdir.ListAll(ctx, distinct)
+	if err != nil {
+		return nil, err
 	}
-	lists := map[string]listed{}
 	var folders []scopeFolder
 	for _, target := range listings {
 		directory := canonical[target.directory]
-		list, ok := lists[directory]
-		if !ok {
-			list.folders, list.err = agentdir.List(target.directory)
-			lists[directory] = list
-		}
-		if list.err != nil && skipUnreadable {
+		list := lists[listedAt[directory]]
+		if list.Err != nil && skipUnreadable {
 			continue
 		}
-		if list.err != nil {
-			return nil, list.err
+		if list.Err != nil {
+			return nil, list.Err
 		}
 		key := folder{}
 		if target.ProjectID != nil {
 			key.projectID = *target.ProjectID
 		}
-		for _, found := range list.folders {
+		for _, found := range list.Folders {
 			own := found
 			own.Path = agentdir.FolderPath(target.directory, found.Name)
 			key.name = found.Name
