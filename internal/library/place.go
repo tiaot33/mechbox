@@ -122,13 +122,12 @@ func (l *Library) targetClaimant(ctx context.Context, id SkillID, name string, t
 	if err != nil {
 		return nil, err
 	}
-	want := agentdir.Canonical(target.directory)
 	for _, other := range claimants {
 		claimed, err := l.resolveRow(ctx, other.Scope)
 		if err != nil {
 			return nil, err
 		}
-		if agentdir.Canonical(claimed.in(other.Directory).directory) != want {
+		if !agentdir.SameFolder(claimed.in(other.Directory).directory, target.directory) {
 			continue
 		}
 		return &claimant{skillID: SkillID(other.SkillID), name: other.Name}, nil

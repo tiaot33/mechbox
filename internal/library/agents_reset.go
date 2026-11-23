@@ -183,7 +183,7 @@ func (l *Library) ResetAgents(ctx context.Context, opts ResetAgentsOptions) (res
 		return ResetAgentsResult{}, err
 	}
 	for _, code := range batch.edited {
-		edited, err := l.editAgent(ctx, operation, code, batch.defaults[string(code)], EditAgentOptions{Migrate: true})
+		edited, err := l.editAgent(ctx, operation, code, batch.defaults[string(code)], EditAgentOptions{Migrate: true}, false)
 		if err != nil {
 			return ResetAgentsResult{}, err
 		}

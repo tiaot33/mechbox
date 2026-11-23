@@ -3739,29 +3739,37 @@ await step("设置页 Agent 分区：显示勾选、手填添加(改了出错的
   // 装到自定义 Agent。
   await installTo("alpha", "My Agent");
   await installTo("gamma", "My Agent");
+  await installTo("delta", "My Agent");
   assert(fs.existsSync(`${HOME}/.my-agent/skills/alpha/SKILL.md`), "alpha 应装进自定义 Agent 的全局目录");
   await closeDrawer();
 
-  // 改目录并迁移：新目录已有同名文件夹的 gamma 不搬、列出来，alpha 原样搬过去。
+  // 改目录并迁移：新目录已有同名文件夹的 gamma 不搬、列出来;新目录里同名那一份读不了的 delta 不搬、写明读不了;alpha 原样搬过去。
   fs.mkdirSync(`${HOME}/.my-agent2/skills/gamma`, { recursive: true });
   fs.writeFileSync(`${HOME}/.my-agent2/skills/gamma/note.txt`, "already here");
+  fs.mkdirSync(`${HOME}/.my-agent2/skills/delta`, { recursive: true });
+  fs.writeFileSync(`${HOME}/.my-agent2/skills/delta/SKILL.md`, "---\nname: delta\n---\n", { mode: 0 });
   await open();
   await btn(row("My Agent"), "编辑").click();
   await modal().locator('[data-slot="input"]').nth(1).fill("~/.my-agent2/skills");
   await btn(modal(), "保存").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "改 Agent「My Agent」的目录" }).waitFor();
-  for (const skill of ["alpha", "gamma"]) {
+  for (const skill of ["alpha", "gamma", "delta"]) {
     assert((await modal().locator('[data-slot="list-row"]', { hasText: `${skill} · 全局` }).count()) === 1, `迁移确认框应列出受影响的 ${skill}`);
   }
   await modal().locator('[data-slot="choice"]', { hasText: "迁移到新目录" }).click();
   await btn(modal(), "保存").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "已保存 Agent「My Agent」" }).waitFor();
   assert((await modal().locator('[data-slot="list-row"]', { hasText: "gamma" }).count()) === 1, "应列出没搬的 gamma");
+  assert((await modal().innerText()).includes("迁移了 1 处；2 处没有迁移，这个 Agent 在那里不再算已装。"), "汇总应写 gamma、delta 两处没有迁移、不再算已装");
+  const unreadable = modal().locator('[data-slot="list-row"]', { hasText: "delta" });
+  assert((await unreadable.count()) === 1 && (await unreadable.innerText()).includes("新目录里的那一份读不了"), "新目录里那一份读不了的 delta 应写明读不了");
   assert((await modal().locator('[data-slot="list-row"]', { hasText: "alpha" }).count()) === 0, "alpha 搬过去了，不应列出");
   await btn(modal(), "知道了").click();
   await settle();
   assert(fs.existsSync(`${HOME}/.my-agent2/skills/alpha/SKILL.md`) && !fs.existsSync(`${HOME}/.my-agent/skills/alpha`), "alpha 应原样搬到新目录");
   assert(fs.existsSync(`${HOME}/.my-agent/skills/gamma/SKILL.md`), "没搬的 gamma 留在旧目录");
+  assert(fs.existsSync(`${HOME}/.my-agent/skills/delta/SKILL.md`), "没搬的 delta 留在旧目录");
+  fs.rmSync(`${HOME}/.my-agent2/skills/delta`, { recursive: true });
   assert((await row("My Agent").locator(".font-mono", { hasText: "~/.my-agent2/skills" }).count()) === 1, "应显示新目录");
   await back();
 

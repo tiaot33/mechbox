@@ -230,6 +230,29 @@ describe("改目录并迁移之后", () => {
     expect(left.reason).toContain("新目录里已经有这个技能，和技能库里它的某一版一致：~/.agents/skills/s2");
     expect(left.reason).not.toContain("装的");
   });
+  it("新目录里那一份读不了的算没迁移，原因写读不了，不说成别的同名文件夹", () => {
+    const r = migrationReport(s, [migration(1, MigrationOutcome.MigrationMoved), migration(3, MigrationOutcome.MigrationUnreadable)]);
+    expect(r).toMatchObject({ listed: true, migrated: 1, skipped: 1 });
+    expect(r.rows.map((row) => [row.label, row.outcome, row.tone])).toEqual([["blocked · 全局", "没有迁移", "warn"]]);
+    expect(r.rows[0].reason).toContain("新目录里的那一份读不了");
+    expect(r.rows[0].reason).toContain("~/.agents/skills/s3");
+    expect(r.rows[0].reason).toContain("旧文件夹留在原处：~/.mine/skills/s3");
+    expect(r.rows[0].reason).not.toContain("不是这个技能的同名文件夹");
+  });
+  it("读不了的那一份是别的 Agent 装的：写出是谁，说这个 Agent 经共用目录仍列在那里，不算进「不再算已装」", () => {
+    const named = { ...s, agents: [{ code: AgentCode.AgentCodex, name: "Codex" }] } as unknown as Snapshot;
+    const r = migrationReport(named, [
+      migration(1, MigrationOutcome.MigrationMoved),
+      { ...migration(2, MigrationOutcome.MigrationUnreadable), installed_for: [AgentCode.AgentCodex] },
+      migration(3, MigrationOutcome.MigrationUnreadable),
+    ]);
+    expect(r).toMatchObject({ listed: true, migrated: 1, skipped: 1, shared: 1 });
+    const [codex, gone] = r.rows;
+    expect(codex.reason).toContain("新目录里的那一份读不了");
+    expect(codex.reason).toContain("是 Codex 装的：~/.agents/skills/s2");
+    expect(codex.reason).toContain("经共用目录仍列在那里");
+    expect(gone.reason).not.toContain("经共用目录");
+  });
 });
 
 describe("目录输入框的下拉候选", () => {

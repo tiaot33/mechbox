@@ -163,9 +163,10 @@ export interface AgentMigration {
     "to": string;
 
     /**
-     * InstalledFor 只在 MigrationAlreadyInstalled 时可能不为空:新目录那一份是库为同一层级哪几个其他 Agent 装的(它们在那里有直接安装或组安装,
-     * 只因共用目录才算已装的不算),按代码排序。为空时那一份没有安装记录,只是内容和库里这个技能的某一版一致,
-     * 如上一次迁移时留在原处的旧文件夹、手动放进去的文件夹。
+     * InstalledFor 只在 MigrationAlreadyInstalled、MigrationUnreadable 时可能不为空:新目录那一份是库为同一层级哪几个其他 Agent 装的
+     * (它们在那里有直接安装或组安装,只因共用目录才算已装的不算),按代码排序。MigrationAlreadyInstalled 为空时那一份没有安装记录,
+     * 只是内容和库里这个技能的某一版一致,如上一次迁移时留在原处的旧文件夹、手动放进去的文件夹;MigrationUnreadable 为空时
+     * 那一份没有安装记录,这个 Agent 在这一处不再算已装。
      */
     "installed_for"?: AgentCode[] | null;
 }
@@ -1345,7 +1346,16 @@ export enum MigrationOutcome {
     MigrationSkipped = "skipped",
 
     /**
-     * 新目录里已经装着库里的这个技能(同一层级里别的 Agent 装的、文件夹在磁盘上,文件夹名可以不同;或没有记录、内容和库里某一版一致):
+     * 新目录里那一份读不了,To 是它:没有记录的同名项里有没有读权限的文件或子目录、是指向没有读权限的地方的链接,
+     * 或同一层级里别的 Agent 为这个技能装在那里的(文件夹名可以不同)都不是能读的技能文件夹(坏的符号链接、不是文件夹、
+     * 没有能读的 SKILL.md)。不覆盖、不搬,旧文件夹留在原处,去掉这个 Agent 在这一处的安装记录;那一份是别的 Agent 装的时
+     * InstalledFor 写出是谁,这个 Agent 按共用目录照常列在那里,不算不再装着,巡检报出它的状态。
+     */
+    MigrationUnreadable = "unreadable",
+
+    /**
+     * 新目录里已经装着库里的这个技能(同一层级里别的 Agent 装的、是能读的技能文件夹,文件夹名可以不同;
+     * 或没有记录、内容和库里这个技能的某一版一致,库里另有内容相同的技能也一样):
      * 不复制、不搬,这个 Agent 的安装记录改指到那一处,保留直接安装与组安装,照常算已装;
      * 旧文件夹留在原处,还有别的 Agent 在读的连同安装记录留给它们,没有的库不再管理它。
      */

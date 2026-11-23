@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -127,6 +128,23 @@ func TestDistroReadMatchesNative(t *testing.T) {
 	symlink(t, "/etc/hosts", filepath.Join(home, ".claude/skills/own/link"))
 	if err := folderErr(ctx, unc(filepath.Join(home, ".claude/skills/own")), 100, 1<<20); !errors.Is(err, ErrIrregularFile) {
 		t.Errorf("inner symlink: %v", err)
+	}
+}
+
+// 文件夹里有没有读权限的文件:发行版里和本机一样只这个文件夹报权限错误,和别的文件夹一起读时不让整段命令出错。
+func TestDistroReadReportsAnUnreadableFileAsPermission(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("root reads any file")
+	}
+	home := tempDir(t)
+	write(t, filepath.Join(home, "locked/SKILL.md"), "locked", 0)
+	write(t, filepath.Join(home, "open/SKILL.md"), "open", 0o644)
+	for _, at := range []func(string) string{func(path string) string { return path }, unc} {
+		root := at(home)
+		states := readFolders(t, at(filepath.Join(home, "locked")), at(filepath.Join(home, "open")))
+		if !errors.Is(states[0].Err, fs.ErrPermission) || states[1].Err != nil || len(states[1].Files) != 1 {
+			t.Errorf("ReadFolders(%s) = %v, %v %v; want permission for locked, open read", root, states[0].Err, states[1].Files, states[1].Err)
+		}
 	}
 }
 

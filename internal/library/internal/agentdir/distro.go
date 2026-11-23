@@ -113,8 +113,16 @@ one() {
 			printf 'irregular\0'
 			return
 		fi
+		if [ ! -r "$d/$e" ]; then
+			printf 'denied\0%s\0' "$e"
+			return
+		fi
+		if ! z=$(wc -c <"$d/$e" 2>"$T/m"); then
+			printf 'error\0%s\0' "$(cat "$T/m")"
+			return
+		fi
 		f=$((f + 1))
-		s=$((s + $(wc -c <"$d/$e")))
+		s=$((s + $z))
 		if [ "$f" -gt "$n" ] || [ "$s" -gt "$b" ]; then
 			printf 'large\0'
 			return
@@ -468,6 +476,12 @@ func (p *inspection) next(folder string, read bool) (FolderState, bool, error) {
 			return state, false, err
 		}
 		state.Err = fmt.Errorf("read installed files: %s", strings.TrimSpace(message))
+	case "denied":
+		name, err := p.field()
+		if err != nil {
+			return state, false, err
+		}
+		state.Err = fmt.Errorf("read installed files: %s: %w", name, fs.ErrPermission)
 	case "ok":
 		size, err := p.field()
 		if err != nil {

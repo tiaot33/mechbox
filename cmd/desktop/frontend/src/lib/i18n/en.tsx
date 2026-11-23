@@ -397,7 +397,7 @@ export const en = {
       `${n === 1 ? "1 of these folders is" : `${n} of these folders are`} still used by other Agents and stay in the old directory for them: migrating copies them to the new directory; not migrating leaves them alone.`,
     migrate: "Migrate to the new directory",
     migrateDesc:
-      "Move the installed folders over as they are and keep the Group installs; where the new directory already has the same skill, this Agent uses that one; where it has a different folder with the same name, it isn't overwritten or moved—the old folder stays and is listed afterwards",
+      "Move the installed folders over as they are and keep the Group installs; where the new directory already has the same skill, this Agent uses that one; where it has a different folder with the same name, or one that can't be read, it isn't overwritten or moved—the old folder stays and is listed afterwards",
     noMigrate: "Don't migrate",
     noMigrateDesc: "Only change the directory; leave the folders in the old directory alone and drop this Agent's install records and Group installs there",
     save: "Save",
@@ -405,14 +405,18 @@ export const en = {
     notMigrated: "Not migrated",
     notMigratedReason: (to: string, from: string) =>
       `The new directory already has a different folder with the same name, or it's taken by another skill's install: ${to}\nThe old folder stays where it is: ${from}`,
+    unreadableMigrationReason: (to: string, from: string) =>
+      `The copy in the new directory can't be read (no read permission, a broken link, not a folder, or no SKILL.md): ${to}\nThe old folder stays where it is: ${from}`,
+    unreadableSharedReason: (to: string, from: string, agents: string[]) =>
+      `The copy in the new directory, installed for ${and(agents)}, can't be read (no read permission, a broken link, not a folder, or no SKILL.md): ${to}\nThis Agent still lists it through the shared directory, and checks report its state; the old folder stays where it is: ${from}`,
     alreadyMigrated: "Already in the new directory",
     alreadyMigratedReason: (to: string, from: string, agents: string[]) =>
       (agents.length
         ? `The new directory already has this skill (installed for ${and(agents)}): ${to}`
         : `The new directory already has this skill, matching a version of it in the library: ${to}`) +
       `\nThis Agent now uses that one and still counts it as installed; the old folder stays where it is: ${from}`,
-    migratedPartly: (migrated: number, skipped: number) =>
-      `Migrated ${count(migrated, "install")}${skipped ? `; ${count(skipped, "install")} ${skipped === 1 ? "wasn't" : "weren't"} migrated, and this Agent no longer counts ${skipped === 1 ? "it" : "them"} as installed there` : ""}.`,
+    migratedPartly: (migrated: number, skipped: number, shared: number) =>
+      `Migrated ${count(migrated, "install")}${skipped ? `; ${count(skipped, "install")} ${skipped === 1 ? "wasn't" : "weren't"} migrated, and this Agent no longer counts ${skipped === 1 ? "it" : "them"} as installed there` : ""}${shared ? `; ${count(shared, "install")} ${shared === 1 ? "wasn't" : "weren't"} migrated because another Agent's copy in the new directory can't be read, and this Agent still lists ${shared === 1 ? "it" : "them"} through the shared directory, where checks report ${shared === 1 ? "its" : "their"} state` : ""}.`,
     agentSavedMigrated: (name: string, n: number) => `Saved Agent “${name}” and migrated ${count(n, "install")}`,
     addToGroupReadsTwiceTitle: (group: string) => `Add to Group “${group}”`,
     addToGroupConfirm: "Add",
