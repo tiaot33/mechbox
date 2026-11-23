@@ -376,12 +376,14 @@ export const zh = {
     notMigratedReason: (to: string, from: string) => `新目录里已有不是这个技能的同名文件夹，或被库里另一个技能的安装占用：${to}\n旧文件夹留在原处：${from}`,
     unreadableMigrationReason: (to: string, from: string) =>
       `新目录里的那一份读不了（没有读权限、是坏的链接、不是文件夹或没有 SKILL.md）：${to}\n旧文件夹留在原处：${from}`,
+    unreadableSharedReason: (to: string, from: string, agents: string[]) =>
+      `新目录里的那一份读不了（没有读权限、是坏的链接、不是文件夹或没有 SKILL.md），是 ${agents.join("、")} 装的：${to}\n这个 Agent 经共用目录仍列在那里，巡检会报出它的状态；旧文件夹留在原处：${from}`,
     alreadyMigrated: "新目录里已装着",
     alreadyMigratedReason: (to: string, from: string, agents: string[]) =>
       (agents.length ? `新目录里已经装着这个技能（${agents.join("、")} 装的）：${to}` : `新目录里已经有这个技能，和技能库里它的某一版一致：${to}`) +
       `\n这个 Agent 改认那一份，照常算已装；旧文件夹留在原处：${from}`,
-    migratedPartly: (migrated: number, skipped: number) =>
-      `迁移了 ${migrated} 处${skipped ? `；${skipped} 处没有迁移，这个 Agent 在那里不再算已装` : ""}。`,
+    migratedPartly: (migrated: number, skipped: number, shared: number) =>
+      `迁移了 ${migrated} 处${skipped ? `；${skipped} 处没有迁移，这个 Agent 在那里不再算已装` : ""}${shared ? `；${shared} 处没有迁移，新目录里那一份是别的 Agent 装的、读不了，这个 Agent 经共用目录仍列在那里，巡检会报出它的状态` : ""}。`,
     agentSavedMigrated: (name: string, n: number) => `已保存 Agent「${name}」，迁移了 ${n} 处技能`,
     addToGroupReadsTwiceTitle: (group: string) => `加入组「${group}」`,
     addToGroupConfirm: "加入",

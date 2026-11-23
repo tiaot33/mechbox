@@ -776,15 +776,6 @@ func recordFetchedFolders(ctx context.Context, tx *store.Tx, id int64, folders [
 }
 
 func matchingSkill(ctx context.Context, reader versionReader, disk diskFiles) (int64, int64, error) {
-	return matchingVersion(ctx, reader, disk, 0)
-}
-
-func matchesSkill(ctx context.Context, reader versionReader, id SkillID, disk diskFiles) (bool, error) {
-	matched, _, err := matchingVersion(ctx, reader, disk, id)
-	return matched != 0, err
-}
-
-func matchingVersion(ctx context.Context, reader versionReader, disk diskFiles, only SkillID) (int64, int64, error) {
 	manifest, ok := disk.digests["SKILL.md"]
 	if !ok {
 		return 0, 0, nil
@@ -794,9 +785,6 @@ func matchingVersion(ctx context.Context, reader versionReader, disk diskFiles, 
 		return 0, 0, err
 	}
 	for _, match := range matches {
-		if only != 0 && SkillID(match.SkillID) != only {
-			continue
-		}
 		version, err := reader.VersionDigests(ctx, match.VersionID)
 		if err != nil {
 			return 0, 0, err

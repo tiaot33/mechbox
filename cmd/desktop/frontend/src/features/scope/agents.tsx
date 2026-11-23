@@ -68,7 +68,7 @@ export async function editAgent(agent: Agent, input: AgentInput, onInvalid: (err
   const name = result.agent.name;
   const report = migrationReport(s, result.migrations ?? []);
   if (report.listed) {
-    await showResults(t.agentSaved(name), report.rows, t.migratedPartly(report.migrated, report.skipped));
+    await showResults(t.agentSaved(name), report.rows, t.migratedPartly(report.migrated, report.skipped, report.shared));
   } else {
     ui.toast(report.migrated ? t.agentSavedMigrated(name, report.migrated) : t.agentSaved(name));
   }
@@ -151,7 +151,7 @@ export async function resetAgents() {
   // 结果里写的 Agent 名字按恢复默认之后的：等快照重读完再取。
   await reloadLibrary();
   const report = migrationReport(currentSnapshot(), result.migrations ?? []);
-  if (report.listed) await showResults(done, report.rows, a.migratedPartly(report.migrated, report.skipped));
+  if (report.listed) await showResults(done, report.rows, a.migratedPartly(report.migrated, report.skipped, report.shared));
   else ui.toast(done);
 }
 

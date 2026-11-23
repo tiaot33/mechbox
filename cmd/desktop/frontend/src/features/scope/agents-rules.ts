@@ -100,9 +100,11 @@ export function agentDelete(s: Snapshot, code: AgentCode) {
   return { kept: places.filter((p) => p.shared_with?.length), own: places.filter((p) => !p.shared_with?.length) };
 }
 
-// migrationReport 是改目录并迁移之后要说的：rows 逐个列出没有原样搬过去的(新目录里已有别的同名文件夹而没迁移的，新目录里的那一份读不了而没迁移的，
-// 新目录里已经装着同一个技能、改认那一份而旧文件夹留在原处的：那一份是库为别的 Agent 装的写出是谁，没有安装记录的只说和库里某一版一致);listed 是要不要弹出结果列表：有这几种之一就弹，否则只提示迁移了几处;
-// migrated 是这个 Agent 在新目录照常算已装的处数(搬过去的、复制过去的、改认那一份的),skipped 是没有迁移的处数(含读不了的)。
+// migrationReport 是改目录并迁移之后要说的：rows 逐个列出没有原样搬过去的(新目录里已有别的同名文件夹而没迁移的，新目录里的那一份读不了而没迁移的：
+// 那一份是别的 Agent 装的写出是谁、说这个 Agent 经共用目录仍列在那里，新目录里已经装着同一个技能、改认那一份而旧文件夹留在原处的：那一份是库为别的 Agent 装的写出是谁，
+// 没有安装记录的只说和库里某一版一致);listed 是要不要弹出结果列表：有这几种之一就弹，否则只提示迁移了几处;
+// migrated 是这个 Agent 在新目录照常算已装的处数(搬过去的、复制过去的、改认那一份的),skipped 是没有迁移、这个 Agent 在那里不再算已装的处数，
+// shared 是没有迁移、但新目录里那一份读不了的是别的 Agent 装的，这个 Agent 经共用目录仍列在那里的处数。
 export function migrationReport(s: Snapshot, migrations: AgentMigration[]) {
   const t = messages().actions;
   const label = (m: AgentMigration) => `${skillName(s, m.skill_id)} · ${m.scope.project_id ? projectName(s, m.scope.project_id) : messages().model.global}`;
@@ -111,7 +113,14 @@ export function migrationReport(s: Snapshot, migrations: AgentMigration[]) {
   const already = migrations.filter((m) => m.outcome === MigrationOutcome.MigrationAlreadyInstalled);
   const rows: ResultRow[] = [
     ...skipped.map((m) => ({ label: label(m), outcome: t.notMigrated, tone: "warn" as const, reason: t.notMigratedReason(shortPath(s, m.to), shortPath(s, m.from)) })),
-    ...unreadable.map((m) => ({ label: label(m), outcome: t.notMigrated, tone: "warn" as const, reason: t.unreadableMigrationReason(shortPath(s, m.to), shortPath(s, m.from)) })),
+    ...unreadable.map((m) => ({
+      label: label(m),
+      outcome: t.notMigrated,
+      tone: "warn" as const,
+      reason: m.installed_for?.length
+        ? t.unreadableSharedReason(shortPath(s, m.to), shortPath(s, m.from), m.installed_for.map((code) => agentName(s, code)))
+        : t.unreadableMigrationReason(shortPath(s, m.to), shortPath(s, m.from)),
+    })),
     ...already.map((m) => ({
       label: label(m),
       outcome: t.alreadyMigrated,
@@ -119,8 +128,9 @@ export function migrationReport(s: Snapshot, migrations: AgentMigration[]) {
       reason: t.alreadyMigratedReason(shortPath(s, m.to), shortPath(s, m.from), (m.installed_for ?? []).map((code) => agentName(s, code))),
     })),
   ];
-  const notMigrated = skipped.length + unreadable.length;
-  return { rows, listed: rows.length > 0, migrated: migrations.length - notMigrated, skipped: notMigrated };
+  const shared = unreadable.filter((m) => m.installed_for?.length).length;
+  const gone = skipped.length + unreadable.length - shared;
+  return { rows, listed: rows.length > 0, migrated: migrations.length - gone - shared, skipped: gone, shared };
 }
 
 // ---------- 按键 ----------

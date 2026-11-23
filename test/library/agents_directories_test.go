@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -453,7 +454,8 @@ func TestHomeFoldsCaseIsFalseInAWSLDistro(t *testing.T) {
 }
 
 // 新目录里别的 Agent 为这个技能装的那一处不是能读的技能文件夹(指向已删除位置的符号链接、普通文件、没有 SKILL.md):
-// 不算这个 Agent 已经装着,结果写读不了;不覆盖、不搬,旧文件夹留在原处,这个 Agent 自己的安装记录去掉,只经共用目录列着那一处。
+// 不算这个 Agent 已经装着,结果写读不了、那一份是 Codex 装的;不覆盖、不搬,旧文件夹留在原处,这个 Agent 自己的安装记录去掉,
+// 只经共用目录列着那一处(结果框据 InstalledFor 不说它不再算已装)。
 // 以前只看名字在不在,结果写「新目录里已经装着」,这个 Agent 照常算已装,实际读不到。
 func TestEditAgentMigrationDoesNotAdoptABrokenFolderInTheNewDirectory(t *testing.T) {
 	t.Parallel()
@@ -477,6 +479,15 @@ func TestEditAgentMigrationDoesNotAdoptABrokenFolderInTheNewDirectory(t *testing
 				t.Fatal(err)
 			}
 		},
+		// 里面有符号链接时读到它就停,不能据此当成能读:还要看 SKILL.md 在不在。
+		"no SKILL.md but a link inside": func(t *testing.T, folder string) {
+			if err := os.Remove(filepath.Join(folder, "SKILL.md")); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink("/etc/hosts", filepath.Join(folder, "hosts")); err != nil {
+				t.Fatal(err)
+			}
+		},
 	}
 	for name, breakFolder := range breakers {
 		t.Run(name, func(t *testing.T) {
@@ -496,14 +507,17 @@ func TestEditAgentMigrationDoesNotAdoptABrokenFolderInTheNewDirectory(t *testing
 			oldDir, newDir := filepath.Join(home, ".agent", "skills"), filepath.Join(home, ".agents", "skills")
 			breakFolder(t, filepath.Join(newDir, "foo"))
 			migrations := editMigrating(t, lib, agent, newDir)
-			want := []library.AgentMigration{{SkillID: skill.ID, Scope: global, Outcome: library.MigrationUnreadable, From: filepath.Join(oldDir, "foo"), To: filepath.Join(newDir, "foo")}}
+			want := []library.AgentMigration{{
+				SkillID: skill.ID, Scope: global, Outcome: library.MigrationUnreadable,
+				From: filepath.Join(oldDir, "foo"), To: filepath.Join(newDir, "foo"), InstalledFor: []library.AgentCode{library.AgentCodex},
+			}}
 			if !reflect.DeepEqual(migrations, want) {
 				t.Fatalf("EditAgent() migrations = %#v, want %#v", migrations, want)
 			}
 			requireInstalledFolder(t, oldDir, "foo", "# foo\n")
 			scopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{Scope: &global})
-			if err != nil || slices.ContainsFunc(scopes, func(scope library.SkillScope) bool { return !scope.SharedOnly }) {
-				t.Fatalf("ListSkillScopes(agent) = %#v, %v; want no install of its own", scopes, err)
+			if err != nil || len(scopes) != 1 || !scopes[0].SharedOnly || scopes[0].Folder != filepath.Join(newDir, "foo") {
+				t.Fatalf("ListSkillScopes(agent) = %#v, %v; want only Codex's folder, through the shared directory", scopes, err)
 			}
 		})
 	}
@@ -547,8 +561,8 @@ func TestEditAgentMigrationAdoptsAnIdenticalFolderWhenAnotherSkillHasTheSameCont
 // 这个 Agent 在这一处不再算已装。以前读不出来就当成别的技能,结果只写没有迁移,看不出原因。
 func TestEditAgentMigrationReportsAnUnreadableFolderInTheNewDirectory(t *testing.T) {
 	t.Parallel()
-	if os.Getuid() == 0 {
-		t.Skip("root reads any file")
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("root reads any file, and mode 0 doesn't stop reading on Windows")
 	}
 	ctx := t.Context()
 	home := t.TempDir()
@@ -575,8 +589,8 @@ func TestEditAgentMigrationReportsAnUnreadableFolderInTheNewDirectory(t *testing
 
 // 同上,全局目录在 WSL 发行版里时也写读不了。以前发行版里读到没有读权限的文件时整段命令出错,整个编辑报内部错误。
 func TestWSLEditAgentMigrationReportsAnUnreadableFolderInTheNewDirectory(t *testing.T) {
-	if os.Getuid() == 0 {
-		t.Skip("root reads any file")
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("root reads any file, and mode 0 doesn't stop reading on Windows")
 	}
 	lib, home := openWSLLibrary(t)
 	ctx := t.Context()
@@ -680,5 +694,96 @@ func TestEditAgentDetectsAfterMigrating(t *testing.T) {
 	}
 	if !result.Agent.Detected || !hasAgent(listAgents(t, lib), result.Agent) {
 		t.Fatalf("EditAgent() agent = %#v; want it detected, as ListAgents lists it", result.Agent)
+	}
+}
+
+// 别的 Agent 为这个技能装的那一份里有符号链接(读到它就停)、SKILL.md 能读:照常算已经装着。
+func TestEditAgentMigrationAdoptsARecordedFolderWithALinkInside(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	home := t.TempDir()
+	setTestHome(t, home)
+	lib := openTestLibrary(t)
+	agent := addAgent(t, lib, home, "Agent", ".agent/skills", ".agent/skills")
+	skill := fetchNamedSkill(t, lib, "foo")
+	for _, scope := range []library.Scope{library.GlobalScope(library.AgentCodex), library.GlobalScope(agent.Code)} {
+		if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	newDir := filepath.Join(home, ".agents", "skills")
+	if err := os.Symlink("/etc/hosts", filepath.Join(newDir, "foo", "hosts")); err != nil {
+		t.Fatal(err)
+	}
+	migrations := editMigrating(t, lib, agent, newDir)
+	if len(migrations) != 1 || migrations[0].Outcome != library.MigrationAlreadyInstalled {
+		t.Fatalf("EditAgent() migrations = %#v; want Codex's folder counted as already installed", migrations)
+	}
+	requireOwnInstall(t, lib, library.GlobalScope(agent.Code), filepath.Join(newDir, "foo"))
+}
+
+// 新目录里没有记录的同名项是指向没有读权限的地方的链接:写读不了,不当成别的同名文件夹。
+func TestEditAgentMigrationReportsALinkToAnUnreadablePlace(t *testing.T) {
+	t.Parallel()
+	if os.Getuid() == 0 || runtime.GOOS == "windows" {
+		t.Skip("root reads any directory, and mode 0 doesn't stop reading on Windows")
+	}
+	ctx := t.Context()
+	home := t.TempDir()
+	setTestHome(t, home)
+	lib := openTestLibrary(t)
+	agent := addAgent(t, lib, home, "Agent", ".old/skills", ".agent/skills")
+	skill := fetchNamedSkill(t, lib, "foo")
+	global := library.GlobalScope(agent.Code)
+	if err := lib.Install(ctx, skill.ID, global, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	private := filepath.Join(home, "private")
+	writeFile(t, filepath.Join(private, "foo", "SKILL.md"), []byte(skillDocument("foo", "# foo\n")), 0o644)
+	if err := os.Chmod(private, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(private, 0o755) })
+	newDir := filepath.Join(home, ".new", "skills")
+	if err := os.MkdirAll(newDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(private, "foo"), filepath.Join(newDir, "foo")); err != nil {
+		t.Fatal(err)
+	}
+	migrations := editMigrating(t, lib, agent, newDir)
+	if len(migrations) != 1 || migrations[0].Outcome != library.MigrationUnreadable || len(migrations[0].InstalledFor) != 0 {
+		t.Fatalf("EditAgent() migrations = %#v; want unreadable", migrations)
+	}
+	requireInstalledFolder(t, filepath.Join(home, ".old", "skills"), "foo", "# foo\n")
+}
+
+// 大小写不敏感的文件系统上,新目录只和别的 Agent 的目录差大小写时是同一个目录:那里同名的是库里另一个内容相同的技能装的,
+// 算被它占着、没有迁移,不把这个技能的安装记到它的文件夹上。以前按字面比较目录,认领了别的技能的文件夹,之后单独卸载这个技能会删掉它。
+// 区分大小写的文件系统上跳过。
+func TestEditAgentMigrationRespectsAnotherSkillsFolderInADirectoryThatDiffersOnlyInCase(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	home := t.TempDir()
+	setTestHome(t, home)
+	if info, err := os.Stat(strings.ToUpper(home)); err != nil || !info.IsDir() {
+		t.Skip("the file system is case-sensitive")
+	}
+	lib := openTestLibrary(t)
+	agent := addAgent(t, lib, home, "Agent", ".old/skills", ".agent/skills")
+	mine, theirs := fetchNamedSkill(t, lib, "foo"), fetchNamedSkill(t, lib, "foo")
+	global := library.GlobalScope(agent.Code)
+	if err := lib.Install(ctx, mine.ID, global, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := lib.Install(ctx, theirs.ID, library.GlobalScope(library.AgentCodex), library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	migrations := editMigrating(t, lib, agent, filepath.Join(home, ".AGENTS", "skills"))
+	if len(migrations) != 1 || migrations[0].Outcome != library.MigrationSkipped {
+		t.Fatalf("EditAgent() migrations = %#v; want skipped, the folder is another skill's", migrations)
+	}
+	if scopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{SkillID: mine.ID}); err != nil || len(scopes) != 0 {
+		t.Fatalf("ListSkillScopes(mine) = %#v, %v; want none", scopes, err)
 	}
 }

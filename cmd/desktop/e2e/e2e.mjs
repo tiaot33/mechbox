@@ -3760,6 +3760,7 @@ await step("设置页 Agent 分区：显示勾选、手填添加(改了出错的
   await btn(modal(), "保存").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "已保存 Agent「My Agent」" }).waitFor();
   assert((await modal().locator('[data-slot="list-row"]', { hasText: "gamma" }).count()) === 1, "应列出没搬的 gamma");
+  assert((await modal().innerText()).includes("迁移了 1 处；2 处没有迁移，这个 Agent 在那里不再算已装。"), "汇总应写 gamma、delta 两处没有迁移、不再算已装");
   const unreadable = modal().locator('[data-slot="list-row"]', { hasText: "delta" });
   assert((await unreadable.count()) === 1 && (await unreadable.innerText()).includes("新目录里的那一份读不了"), "新目录里那一份读不了的 delta 应写明读不了");
   assert((await modal().locator('[data-slot="list-row"]', { hasText: "alpha" }).count()) === 0, "alpha 搬过去了，不应列出");
