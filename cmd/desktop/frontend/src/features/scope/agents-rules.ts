@@ -17,23 +17,33 @@ import { messages } from "@/lib/i18n";
 import type { Snapshot } from "@/lib/library";
 import { folderPlaces } from "@/lib/installs";
 import { directoriesAt } from "@/lib/places";
-import { shortPath } from "@/lib/paths";
+import { shortPath, windowsHome } from "@/lib/paths";
 import { agentName, placeOf, projectName, scopeKey, skillName, type Place } from "@/lib/scope";
 import type { ResultRow } from "@/components/app/result-rows";
 
 // cleanPath 是比较目录时去掉开头的 ./ 和末尾的 /(Windows 上也去掉 .\ 和末尾的 \):写法不同的同一个目录不算改了。
 const cleanPath = (path: string) => path.replace(/^\.[\\/]/, "").replace(/[\\/]+$/, "");
 
-// comparable 是比较两个目录用的写法：去掉开头的 ./ 和末尾的斜杠、反斜杠换成 /;foldsCase(主目录所在的卷不区分大小写，见 AppInfo.home_folds_case)
-// 时不论大小写，和技能库一样把只差大小写的两个目录当作同一个。
-const comparable = (path: string, foldsCase: boolean) => {
-  const key = cleanPath(path).replaceAll("\\", "/");
-  return foldsCase ? key.toLowerCase() : key;
+// DirectoryRules 是比较两个目录写法时的规则:foldsCase 是不论大小写(主目录所在的卷不区分大小写，见 AppInfo.home_folds_case),
+// backslashes 是反斜杠也是分隔符(主目录是 Windows 上的路径时;macOS、Linux 上反斜杠是文件名的一部分)。
+export type DirectoryRules = { foldsCase: boolean; backslashes: boolean };
+
+// directoryRules 是按主目录定的规则：技能库校验一个 Agent 的目录列表时也按主目录所在的卷判断大小写。
+export function directoryRules(s: Snapshot): DirectoryRules {
+  return { foldsCase: !!s.info?.home_folds_case, backslashes: windowsHome(s.info?.home_dir ?? "") };
+}
+
+// comparable 是按 rules 比较两个目录用的写法：去掉开头的 ./ 和末尾的分隔符，反斜杠算分隔符时换成 /;不论大小写时只把 A–Z 转小写，
+// 其他字母的大小写规则 JS 与技能库(Go)不完全一样，宁可当作两个目录多问一次。
+const comparable = (path: string, rules: DirectoryRules) => {
+  const trimmed = rules.backslashes ? path.replaceAll("\\", "/") : path;
+  const key = trimmed.replace(/^\.\//, "").replace(/\/+$/, "");
+  return rules.foldsCase ? key.replace(/[A-Z]/g, (c) => c.toLowerCase()) : key;
 };
 
 // overlappingDirectories 是一组目录里有没有重复的，或一个在另一个里面：技能库不接受这样的目录列表。
-export function overlappingDirectories(paths: string[], foldsCase: boolean): boolean {
-  const keys = paths.map((p) => comparable(p, foldsCase));
+export function overlappingDirectories(paths: string[], rules: DirectoryRules): boolean {
+  const keys = paths.map((p) => comparable(p, rules));
   return keys.some((a, i) => keys.some((b, j) => i !== j && (a === b || b.startsWith(a.endsWith("/") ? a : `${a}/`))));
 }
 
@@ -41,10 +51,13 @@ export function overlappingDirectories(paths: string[], foldsCase: boolean): boo
 // 所在目录还在新列表里的磁盘不动，不算);groupInstalls 是原来的第 1 个目录被去掉的层级里它的组安装数。
 // asks 是要不要先问是否迁移;shared 是其中还有别的 Agent 在读的(那份文件夹留在旧目录);detached 是迁移时别处的符号链接
 // 指着要搬走的文件夹、库先给那几处换上独立的一份的。
+// 只改大小写的全局目录在不区分大小写的卷上不算去掉;项目目录照常算，因为项目可以在区分大小写的卷上(例如 WSL 发行版里),由技能库逐个项目判断。
 export function agentEdit(s: Snapshot, agent: Agent, input: AgentInput) {
-  const folds = !!s.info?.home_folds_case;
-  const removed = (dir: string, place: Place) =>
-    !((place ? input.project_directories : input.global_directories) ?? []).some((d) => comparable(d, folds) === comparable(dir, folds));
+  const home = directoryRules(s);
+  const removed = (dir: string, place: Place) => {
+    const rules = place ? { ...home, foldsCase: false } : home;
+    return !((place ? input.project_directories : input.global_directories) ?? []).some((d) => comparable(d, rules) === comparable(dir, rules));
+  };
   // 这一处所在的目录：技能库总会给出;没有时按原来的第 1 个目录算。
   const dirOf = (p: SkillScopeInspection) => p.directory || (directoriesAt(agent, placeOf(p.scope))[0] ?? "");
   const firstRemoved = (scope: Scope) => removed(directoriesAt(agent, placeOf(scope))[0] ?? "", placeOf(scope));
@@ -233,13 +246,14 @@ export function directoryOptions(catalog: Agent[], code: string | undefined, kin
 // filterDirectoryOptions 是下拉里显示的候选：去掉这组里别的行已经填了的;typed 不为空时按文字过滤(不分大小写，包含即算)。
 // opensWhileTyping 是下拉收着时，输入一下要不要自己展开：有和输入的不一样的候选才展开;没有匹配的、或输入的就是唯一的候选时不展开，
 // 免得填完自己的路径后下拉挡住下面的按钮。
-export function opensWhileTyping(options: DirectoryOptions, typed: string, taken: string[]): boolean {
-  const shown = filterDirectoryOptions(options, typed, taken);
-  return [...shown.defaults, ...shown.others].some((d) => cleanPath(d) !== cleanPath(typed.trim()));
+// 判断两个写法是不是同一个目录按 rules(见 directoryRules)。
+export function opensWhileTyping(options: DirectoryOptions, typed: string, taken: string[], rules: DirectoryRules): boolean {
+  const shown = filterDirectoryOptions(options, typed, taken, rules);
+  return [...shown.defaults, ...shown.others].some((d) => comparable(d, rules) !== comparable(typed.trim(), rules));
 }
 
-export function filterDirectoryOptions(options: DirectoryOptions, typed: string, taken: string[]): DirectoryOptions {
+export function filterDirectoryOptions(options: DirectoryOptions, typed: string, taken: string[], rules: DirectoryRules): DirectoryOptions {
   const q = cleanPath(typed.trim()).toLowerCase();
-  const keep = (d: string) => !taken.some((x) => cleanPath(x.trim()) === cleanPath(d)) && (!q || d.toLowerCase().includes(q));
+  const keep = (d: string) => !taken.some((x) => comparable(x.trim(), rules) === comparable(d, rules)) && (!q || d.toLowerCase().includes(q));
   return { defaults: options.defaults.filter(keep), others: options.others.filter(keep) };
 }

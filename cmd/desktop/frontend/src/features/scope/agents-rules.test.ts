@@ -32,6 +32,8 @@ const place = (skill_id: number, scope: Scope, extra: Partial<SkillScopeInspecti
 const agent = { code: mine, name: "Mine", global_directories: ["/home/.mine/skills"], project_directories: [".mine/skills" ]} as Agent;
 const input = (extra: Partial<AgentInput>) => ({ name: "Mine", global_directories: ["/home/.mine/skills"], project_directories: [".mine/skills"], ...extra }) as AgentInput;
 
+const exact = { foldsCase: false, backslashes: false };
+
 const snapshot = (skillScopes: SkillScopeInspection[], groupInstalls: GroupInstall[] = []) => ({ skillScopes, groupInstalls }) as unknown as Snapshot;
 
 describe("改 Agent 的第 1 个目录", () => {
@@ -40,17 +42,31 @@ describe("改 Agent 的第 1 个目录", () => {
     [{ group_id: 5, scope: project(mine, 7) } as GroupInstall],
   );
 
+  const onWindows = (folds: boolean) => ({ ...s, info: { home_dir: "C:\\Users\\me", home_folds_case: folds } }) as Snapshot;
+
   it("Windows 上全局目录末尾带反斜杠也是同一个目录，不问", () => {
     const windows = { ...agent, global_directories: ["C:\\Users\\me\\.mine\\skills"] } as Agent;
-    expect(agentEdit(s, windows, input({ global_directories: ["C:\\Users\\me\\.mine\\skills\\"] })).asks).toBe(false);
+    expect(agentEdit(onWindows(true), windows, input({ global_directories: ["C:\\Users\\me\\.mine\\skills\\"] })).asks).toBe(false);
   });
 
-  it("主目录所在的卷不区分大小写时，只改大小写不算改了，不问;区分大小写时算改了", () => {
-    const windows = { ...agent, global_directories: ["C:\\Users\\me\\.agents\\skills"], project_directories: [".agents/skills"] } as Agent;
-    const caseOnly = input({ global_directories: ["C:\\Users\\me\\.Agents\\skills"], project_directories: [".Agents/skills"] });
-    const folds = { ...s, info: { home_folds_case: true } } as Snapshot;
-    expect(agentEdit(folds, windows, caseOnly)).toMatchObject({ affected: [], groupInstalls: 0, asks: false });
-    expect(agentEdit({ ...s, info: { home_folds_case: false } } as Snapshot, windows, caseOnly).asks).toBe(true);
+  it("macOS、Linux 上反斜杠是文件名的一部分：从 team\\skills 改到 team/skills 是换了目录，要问", () => {
+    const mac = { ...s, info: { home_dir: "/home", home_folds_case: true } } as Snapshot;
+    const backslash = { ...agent, global_directories: ["/home/team\\skills"] } as Agent;
+    expect(agentEdit(mac, backslash, input({ global_directories: ["/home/team/skills"] })).asks).toBe(true);
+  });
+
+  it("主目录所在的卷不区分大小写时，全局目录只改大小写不算改了，不问;区分大小写时算改了", () => {
+    const windows = { ...agent, global_directories: ["C:\\Users\\me\\.agents\\skills"] } as Agent;
+    const caseOnly = input({ global_directories: ["C:\\Users\\me\\.Agents\\skills"] });
+    expect(agentEdit(onWindows(true), windows, caseOnly)).toMatchObject({ affected: [], groupInstalls: 0, asks: false });
+    expect(agentEdit(onWindows(false), windows, caseOnly).asks).toBe(true);
+  });
+
+  it("项目目录只改大小写照常问：项目可以在区分大小写的卷上，由技能库逐个项目判断", () => {
+    const windows = { ...agent, project_directories: [".agents/skills"] } as Agent;
+    const r = agentEdit(onWindows(true), windows, input({ project_directories: [".Agents/skills"] }));
+    expect(r.affected.map((p) => p.skill_id)).toEqual([3]);
+    expect(r.asks).toBe(true);
   });
 
   it("写法不同的同一个目录不算改了，不问", () => {
@@ -234,14 +250,19 @@ describe("目录输入框的下拉候选", () => {
   });
   it("输入时按文字过滤;这组里别的行已经填了的不再列", () => {
     const options = directoryOptions(catalog, "cursor", "global_directories", short);
-    expect(filterDirectoryOptions(options, "CLAUDE", [])).toEqual({ defaults: [], others: ["~/.claude/skills"] });
-    expect(filterDirectoryOptions(options, "", ["~/.agents/skills/"])).toEqual({ defaults: ["~/.cursor/skills"], others: ["~/.claude/skills"] });
+    expect(filterDirectoryOptions(options, "CLAUDE", [], exact)).toEqual({ defaults: [], others: ["~/.claude/skills"] });
+    expect(filterDirectoryOptions(options, "", ["~/.agents/skills/"], exact)).toEqual({ defaults: ["~/.cursor/skills"], others: ["~/.claude/skills"] });
+  });
+  it("别的行和候选只差大小写、在不区分大小写的卷上是同一个目录，也不再列", () => {
+    const options = directoryOptions(catalog, "cursor", "global_directories", short);
+    expect(filterDirectoryOptions(options, "", ["~/.Agents/skills"], { foldsCase: true, backslashes: false }).defaults).toEqual(["~/.cursor/skills"]);
+    expect(filterDirectoryOptions(options, "", ["~/.Agents/skills"], exact).defaults).toEqual(["~/.agents/skills", "~/.cursor/skills"]);
   });
   it("收着时输入：有别的候选才自己展开;没有匹配的、填的正是唯一的候选时不展开", () => {
     const options = directoryOptions(catalog, "cursor", "global_directories", short);
-    expect(opensWhileTyping(options, "~/.c", [])).toBe(true);
-    expect(opensWhileTyping(options, "~/.claude/skills", [])).toBe(false);
-    expect(opensWhileTyping(options, "/opt/my-agent/skills", [])).toBe(false);
+    expect(opensWhileTyping(options, "~/.c", [], exact)).toBe(true);
+    expect(opensWhileTyping(options, "~/.claude/skills", [], exact)).toBe(false);
+    expect(opensWhileTyping(options, "/opt/my-agent/skills", [], exact)).toBe(false);
   });
 });
 
@@ -327,20 +348,25 @@ describe("表单的按键", () => {
 });
 
 describe("技能目录重复或一个在另一个里面", () => {
+  const windows = (foldsCase: boolean) => ({ foldsCase, backslashes: true });
   it("重复的、写法不同的同一个、一个在另一个里面的都不行", () => {
-    expect(overlappingDirectories(["/home/.a/skills", "/home/.a/skills/"], false)).toBe(true);
-    expect(overlappingDirectories([".agents/skills", "./.agents/skills"], false)).toBe(true);
-    expect(overlappingDirectories(["/home/.a", "/home/.a/skills"], false)).toBe(true);
-    expect(overlappingDirectories(["C:\\Users\\me\\.a\\skills", "C:\\Users\\me\\.a"], false)).toBe(true);
+    expect(overlappingDirectories(["/home/.a/skills", "/home/.a/skills/"], exact)).toBe(true);
+    expect(overlappingDirectories([".agents/skills", "./.agents/skills"], exact)).toBe(true);
+    expect(overlappingDirectories(["/home/.a", "/home/.a/skills"], exact)).toBe(true);
+    expect(overlappingDirectories(["C:\\Users\\me\\.a\\skills", "C:\\Users\\me\\.a"], windows(false))).toBe(true);
   });
 
   it("只差大小写的在不区分大小写的卷上算同一个，区分时是两个目录", () => {
     const dirs = ["C:\\Users\\me\\.agents\\skills", "C:\\Users\\me\\.Agents\\skills"];
-    expect(overlappingDirectories(dirs, true)).toBe(true);
-    expect(overlappingDirectories(dirs, false)).toBe(false);
+    expect(overlappingDirectories(dirs, windows(true))).toBe(true);
+    expect(overlappingDirectories(dirs, windows(false))).toBe(false);
+  });
+
+  it("macOS、Linux 上反斜杠不是分隔符", () => {
+    expect(overlappingDirectories(["/home/team\\skills", "/home/team/skills"], { foldsCase: true, backslashes: false })).toBe(false);
   });
 
   it("名字只是前缀相同的不算在里面", () => {
-    expect(overlappingDirectories(["/home/.a/skills", "/home/.a/skills-old", "/home/.b/skills"], true)).toBe(false);
+    expect(overlappingDirectories(["/home/.a/skills", "/home/.a/skills-old", "/home/.b/skills"], windows(true))).toBe(false);
   });
 });

@@ -30,7 +30,7 @@ export function resolveLocalPath(input: string, home: string, wsl: boolean): Pat
 }
 
 // windowsHome 按主目录的写法判断是不是 Windows 上的主目录：带盘符，或 \\ 开头的网络路径(含选了发行版时的 \\wsl.localhost\...)。
-function windowsHome(home: string): boolean {
+export function windowsHome(home: string): boolean {
   return /^([A-Za-z]:|\\\\|\/\/)/.test(home);
 }
 
