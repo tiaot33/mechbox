@@ -261,7 +261,8 @@ func (l *Library) AddAgent(ctx context.Context, agent AgentInput) (added Agent, 
 
 // EditAgent 修改一个已添加的 Agent 的名称、技能目录和检测目录,代码不变;填写规则同 AgentInput。未知代码或候选池里的 Agent
 // 返回 NotFound。这个 Agent 的每处安装(含只因共用目录而算已装的)按编辑前的实际目录处理:
-//   - 这个目录还在新列表里:磁盘不动,安装记录跟着新列表换算。
+//   - 这个目录还在新列表里:磁盘不动,安装记录跟着新列表换算。用户主目录所在的文件系统不区分大小写时,只改了大小写的也算还在
+//     (记录改成新的写法)。
 //   - 不在了、选了迁移:文件夹原样搬到新的第 1 个目录,不从库里重新安装,这个 Agent 在那里照常算已装;旧目录还有别的已添加 Agent
 //     在读时复制过去,旧文件夹和它的安装记录留给它们。旧目录和新目录其实是同一个文件夹(符号链接)时只改记下的目录。
 //     新目录里已经装着库里的这个技能时不复制、不搬,这个 Agent 的安装记录改指到那一处(MigrationAlreadyInstalled)。
@@ -299,8 +300,10 @@ func (l *Library) editAgent(ctx context.Context, operation string, code AgentCod
 	if err != nil {
 		return EditAgentResult{}, err
 	}
+	kept := l.keptDirectory
 	removed := func(item agentInstall) bool {
-		return !slices.Contains(row.Paths(item.project()), item.place.target.relative)
+		_, ok := kept(row.Paths(item.project()), item.place.target.relative)
+		return !ok
 	}
 	if opts.Migrate {
 		for _, item := range installs {
@@ -334,9 +337,9 @@ func (l *Library) editAgent(ctx context.Context, operation string, code AgentCod
 	planned := map[string]bool{}
 	result.Migrations = []AgentMigration{}
 	for _, item := range installs {
-		if !removed(item) {
+		if path, ok := kept(row.Paths(item.project()), item.place.target.relative); ok {
 			if item.own != nil {
-				rebased = append(rebased, rebase{item.own.ID, store.StoredDirectory(row, item.project(), item.place.target.relative)})
+				rebased = append(rebased, rebase{item.own.ID, store.StoredDirectory(row, item.project(), path)})
 			}
 			continue
 		}
@@ -450,7 +453,7 @@ func (l *Library) editAgent(ctx context.Context, operation string, code AgentCod
 			}
 		}
 		for _, project := range []bool{false, true} {
-			if !opts.Migrate && !slices.Contains(row.Paths(project), current.Paths(project)[0]) {
+			if _, ok := kept(row.Paths(project), current.Paths(project)[0]); !opts.Migrate && !ok {
 				if err := tx.RemoveAgentGroupInstalls(ctx, row.Code, project); err != nil {
 					return err
 				}
@@ -463,6 +466,16 @@ func (l *Library) editAgent(ctx context.Context, operation string, code AgentCod
 	}
 	result.Agent, err = l.agentOf(ctx, row)
 	return result, err
+}
+
+func (l *Library) keptDirectory(paths []string, path string) (string, bool) {
+	foldsCase := agentdir.FoldsCase(l.home.Root())
+	for _, each := range paths {
+		if each == path || foldsCase && strings.EqualFold(each, path) {
+			return each, true
+		}
+	}
+	return "", false
 }
 
 func migrationDestination(item agentInstall, row store.Agent) resolvedScope {
