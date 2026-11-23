@@ -484,16 +484,10 @@ export async function uninstallGroup(groupID: GroupID, scope: Scope) {
     danger: true,
   });
   if (!ok) return;
-  // 删之前核对出被改过的再问一次时，已经撤掉的那几条不再重撤。
-  const done = new Set<string>();
+  // 合成一处里的几条一次撤掉(全成或全不成),再问一次时还什么都没删。
   await runDeleting(
     deleteConsent(deleted),
-    async (consent) => {
-      for (const sc of scopes.filter((x) => !done.has(scopeKey(x)))) {
-        await LibraryService.UninstallGroup(groupID, sc, consent);
-        done.add(scopeKey(sc));
-      }
-    },
+    (consent) => (scopes.length > 1 ? LibraryService.UninstallGroupFrom(groupID, scopes, consent) : LibraryService.UninstallGroup(groupID, scopes[0], consent)),
     { success: t.groupUninstalled(groupName(s, groupID), scopeLabel(s, scope)) },
   );
 }

@@ -124,7 +124,8 @@
 // 安装(install.go):
 //   - [Library.PlanInstall] 再 [Library.Install]:先看会装到哪个文件夹、那里现在是什么情况,再直接安装;
 //     目标处有不是从库里装的同名文件夹时,用户同意后才覆盖。[Library.Uninstall] 撤销,[Library.UninstallSkills] 一次撤销勾选的几处。
-//   - [Library.PlanGroupInstall] 再 [Library.InstallGroup]:组安装;[Library.UninstallGroup] 撤销。
+//   - [Library.PlanGroupInstall] 再 [Library.InstallGroup]:组安装;[Library.UninstallGroup] 撤销,界面上合成一处的几个 Agent
+//     各有这个组的组安装时用 [Library.UninstallGroupFrom] 一次撤销(全成或全不成)。
 //   - [Library.ListSkillScopes]、[Library.ListGroupInstalls] 列出安装记录。看一个技能装在哪些地方,用
 //     [Library.ListSkillScopes] 或 [Library.InspectSkillScopes] 按技能筛选。
 //   - 会删技能文件夹的操作(卸载、组卸载、移除技能、移出组或删除组时一并卸载、注销项目、移除 Agent、恢复默认时移除手填的 Agent)的确认框,

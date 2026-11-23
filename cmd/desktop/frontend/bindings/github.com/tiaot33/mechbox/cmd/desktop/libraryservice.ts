@@ -438,6 +438,10 @@ export function UninstallGroup(groupID: library$0.GroupID, scope: library$0.Scop
     return $Call.ByID(2742724331, groupID, scope, opts);
 }
 
+export function UninstallGroupFrom(groupID: library$0.GroupID, scopes: library$0.Scope[] | null, opts: library$0.UninstallOptions): $CancellablePromise<void> {
+    return $Call.ByID(2852142631, groupID, scopes, opts);
+}
+
 export function UninstallSkills(places: library$0.SkillInScope[] | null, opts: library$0.UninstallOptions): $CancellablePromise<void> {
     return $Call.ByID(3875458066, places, opts);
 }
