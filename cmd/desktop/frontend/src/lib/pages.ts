@@ -4,12 +4,12 @@
 // 集合和组不是筛选，是技能库页里的分节;左栏点它们只是跳到那一节，关系图从节标题或左栏右键菜单打开。
 // 集合与组的先后由技能库给出(ListCollections / ListGroups 按用户拖出来的先后列出),左栏、技能库页与作用域页的分节、
 // 更新列表、作用域摘要里的组都直接按快照里的顺序。
-import type { Agent, CollectionID, GroupID, ProjectID, Scope, Skill, SkillID, UnmanagedSkill } from "@bindings/internal/library";
+import type { Agent, AgentCode, CollectionID, GroupID, ProjectID, Scope, Skill, SkillID, UnmanagedSkill } from "@bindings/internal/library";
 import { messages } from "./i18n";
 import { placesIn } from "./installs";
 import type { Snapshot } from "./library";
 import { globalScopesSeenFrom, mergeAgents, scopeLabel } from "./places";
-import { parseScope, placeOf, projectName, scopeKey, scopeOf, type ScopeKey } from "./scope";
+import { parseScope, placeOf, projectName, scopeKey, scopeOf, type Place, type ScopeKey } from "./scope";
 import { collectionSkills, noSource, sourceLabel } from "./source";
 import { todoSkills, updatableCollections } from "./source-state";
 import { extraCopy, splitIdentical, unmanagedIn } from "./unmanaged";
@@ -229,14 +229,28 @@ export interface ProjectAgent {
   all: number;
 }
 
-// projectAgents 是项目页按 Agent 分的节：项目里装有技能(库装的或未纳管的)的 Agent,按 Agent 列表顺序;
-// 搜索时只留有结果的节。来自全局的不算，项目页只列装在项目里的。
+// projectAgentsIn 是项目里装有技能(库装的或未纳管的)的 Agent,按 Agent 列表顺序;共用一个目录的几个合成一处(代表的 Agent)。
+// 来自全局的不算。
+function projectAgentsIn(s: Snapshot, project: ProjectID): Agent[] {
+  const inProject = (p: { scope: Scope }, a: Agent) => p.scope.agent === a.code && placeOf(p.scope) === project;
+  const used = s.agents.filter((a) => s.skillScopes.some((p) => inProject(p, a)) || s.unmanaged.some((u) => inProject(u, a)));
+  return mergeAgents(s, project, used).filter((a) => {
+    const key = scopeKey(scopeOf(a.code, project));
+    return placesIn(s, key).length > 0 || unmanagedIn(s, key).length > 0;
+  });
+}
+
+// projectScopes 是项目里装了技能(库装的或未纳管的)的作用域，和项目页的各节一一对应(合成一处的是代表的作用域);
+// 勾选后的操作栏「从这个项目卸载」就在这几处卸载。
+export function projectScopes(s: Snapshot, project: ProjectID): Scope[] {
+  return projectAgentsIn(s, project).map((a) => scopeOf(a.code, project));
+}
+
+// projectAgents 是项目页按 Agent 分的节：项目里装有技能的 Agent(见 projectAgentsIn)各一节;搜索时只留有结果的节。
 export function projectAgents(s: Snapshot, project: ProjectID, search: string): ProjectAgent[] {
   const hit = (x: { name: string; description?: string }) => matches(search, x);
   const byName = (a: { name: string }, b: { name: string }) => collator.compare(a.name, b.name);
-  const inProject = (p: { scope: Scope }, a: Agent) => p.scope.agent === a.code && placeOf(p.scope) === project;
-  const used = s.agents.filter((a) => s.skillScopes.some((p) => inProject(p, a)) || s.unmanaged.some((u) => inProject(u, a)));
-  return mergeAgents(s, project, used)
+  return projectAgentsIn(s, project)
     .map((agent) => {
       const key = scopeKey(scopeOf(agent.code, project));
       const split = splitIdentical(unmanagedIn(s, key));
@@ -330,4 +344,11 @@ export function pageSkills(s: Snapshot, page: Page): Set<SkillID> {
   if (page.kind === "graph") return new Set(graphMembers(s, page.set) ?? []);
   if (page.kind !== "project") return new Set(s.skills.map((x) => x.id));
   return new Set(projectAgents(s, page.project, "").flatMap((a) => a.skills.map((x) => x.id)));
+}
+
+// pageInstallTarget 是在这一页上"安装到…"默认选的地方与 Agent:作用域页是这个作用域，项目页是这个项目，其余不预选。
+export function pageInstallTarget(page: Page): { place?: Place; agent?: AgentCode } {
+  if (page.kind === "scope") return { place: placeOf(parseScope(page.scope)), agent: parseScope(page.scope).agent };
+  if (page.kind === "project") return { place: page.project };
+  return {};
 }

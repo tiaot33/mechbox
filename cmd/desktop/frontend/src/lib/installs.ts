@@ -1,11 +1,11 @@
 // 安装状态：技能装在哪几处、每一处和库里的当前版本一不一样、要不要重新安装，都从快照里的巡检结果派生。
 // 逐处列出、数几处、写名字时目录列表相同、合成一处的几个 Agent 算一处，见 lib/places。
-import { ErrorCode, SkillScopeStatus, type Agent, type Group, type Scope, type SkillID, type SkillScopeInspection } from "@bindings/internal/library";
+import { ErrorCode, SkillScopeStatus, type Agent, type Group, type InstallPlan, type Scope, type SkillID, type SkillScopeInspection } from "@bindings/internal/library";
 import { messages } from "./i18n";
 import { worstLevel, type Level, type Mark, type Tone } from "./level";
 import type { Snapshot } from "./library";
 import { shortPath } from "./paths";
-import { agentShown, eachPlace, mergedAgents, placeAgentNames, placeNames, scopeLabel } from "./places";
+import { agentNameIn, agentShown, eachPlace, mergedAgents, placeAgentNames, placeNames, scopeLabel } from "./places";
 import { parseScope, placeOf, projectName, scopeKey, type ScopeKey } from "./scope";
 
 // ---------- 装在哪 ----------
@@ -40,13 +40,16 @@ export function skillScopeIn(s: Snapshot, skillID: number, key: ScopeKey): Skill
   return s.skillScopes.find((p) => p.skill_id === skillID && scopeKey(p.scope) === key);
 }
 
+// placeKey 标识一处安装：哪个技能装在哪个作用域。
+export const placeKey = (p: { skill_id: SkillID; scope: Scope }) => `${p.skill_id}|${scopeKey(p.scope)}`;
+
 // folderKey 是装出去的实际文件夹:几个 Agent 共用一个目录时，它们的这一处是同一个文件夹，只能一起换、一起装回去或卸载。
 export const folderKey = (p: SkillScopeInspection) => `${p.skill_id}|${p.folder}`;
 
 // folderPlaces 是和 places 同一个文件夹的各处(含共用这个目录的 Agent),删文件夹时它们一起没了。
 export function folderPlaces(s: Snapshot, places: SkillScopeInspection[]): SkillScopeInspection[] {
-  const folders = new Set(places.map((p) => `${p.skill_id}|${p.folder}`));
-  return s.skillScopes.filter((p) => folders.has(`${p.skill_id}|${p.folder}`));
+  const folders = new Set(places.map(folderKey));
+  return s.skillScopes.filter((p) => folders.has(folderKey(p)));
 }
 
 // groupInstallIn 是组在某个作用域的组安装落在哪个作用域上：合成一处的几个 Agent 里任何一个有这个组的组安装都算(代表换了也不变),
@@ -125,16 +128,23 @@ export function needsReinstall(p: SkillScopeInspection): boolean {
 // editedHere 是这一处被手动改过(用户或 Agent 直接在 Agent 目录里改的):是用户自己的修改，可以用这里的修改更新技能库。
 // 在 app 外更新到了作者新版的不算(那是更新)。
 export const editedHere = (p: Pick<SkillScopeInspection, "status" | "source_latest">) =>
-  p.status === SkillScopeStatus.SkillScopeModified && !p.source_latest;
+  p.status === SkillScopeStatus.SkillScopeModified && !sourceLatestHere(p);
 
 // needsRepair 是这一处真要重新安装：文件夹不在了、版本落后于库里。被手动改过的、在 app 外更新到作者新版的都不算。
 export const needsRepair = (p: SkillScopeInspection) =>
   canInstall(p) && (p.status === SkillScopeStatus.SkillScopeMissing || p.status === SkillScopeStatus.SkillScopeStale);
 
-// sourceLatest 为 true(见 SkillScopeInspection.source_latest)时被改过的那一处是在 app 外更新到了作者的新版，不说"被手动改过"。
-export function skillScopeStatus(status: SkillScopeStatus, sourceLatest = false): { label: string; tone: Tone } {
+// sourceLatestHere 是被改过的这一处其实是在 app 外更新到了作者的新版(见 SkillScopeInspection.source_latest):不是用户的修改，
+// 用更新把库里换成这一版就好;和 editedHere 是被改过的两种情况。
+export const sourceLatestHere = (p: Pick<SkillScopeInspection, "status" | "source_latest">) =>
+  p.status === SkillScopeStatus.SkillScopeModified && !!p.source_latest;
+
+// skillScopeStatus 是一处的状态怎么写;在 app 外更新到了作者新版的那一处(sourceLatestHere)不说"被手动改过"。
+// 只要某种状态的写法时传 { status }。
+export function skillScopeStatus(p: Pick<SkillScopeInspection, "status" | "source_latest">): { label: string; tone: Tone } {
   const m = messages();
-  if (status === SkillScopeStatus.SkillScopeModified && sourceLatest) return { label: m.model.statusSourceLatest, tone: "update" };
+  if (sourceLatestHere(p)) return { label: m.model.statusSourceLatest, tone: "update" };
+  const status = p.status;
   return {
     [SkillScopeStatus.SkillScopeCurrent]: { label: m.model.statusCurrent, tone: "plain" as const },
     [SkillScopeStatus.SkillScopeStale]: { label: m.model.statusStale, tone: "warn" as const },
@@ -150,7 +160,7 @@ export function skillScopeStatus(status: SkillScopeStatus, sourceLatest = false)
 // reinstallLevel 是几处安装里和当前版本不一样的那些最重到哪一级提醒(作用域栏 Agent 行、作用域页摘要的提醒图标按它取级别):
 // 有文件夹不在了的是严重，版本落后的是注意，只有被手动改过的是提示;在 app 外更新到了作者新版的不是提醒(是更新),不算;都一样时没有。
 export function reinstallLevel(places: SkillScopeInspection[]): Level | undefined {
-  return worstLevel(places.filter(needsReinstall).map((p) => skillScopeStatus(p.status, p.source_latest).tone));
+  return worstLevel(places.filter(needsReinstall).map((p) => skillScopeStatus(p).tone));
 }
 
 // ReinstallAlert 是一个技能在几处和当前版本不一样的原因之一：级别、原因(label)、tip 逐行写出是哪几处。
@@ -163,7 +173,7 @@ export function reinstallAlerts(s: Snapshot, id: SkillID): ReinstallAlert[] {
   const m = messages().model;
   const by = new Map<string, ReinstallAlert>();
   for (const p of eachPlace(s, skillScopesOf(s, id)).filter(needsReinstall)) {
-    const st = skillScopeStatus(p.status, p.source_latest);
+    const st = skillScopeStatus(p);
     if (st.tone === "plain") continue;
     const at = scopeLabel(s, p.scope);
     const had = by.get(st.label);
@@ -177,6 +187,19 @@ export function reinstallAlerts(s: Snapshot, id: SkillID): ReinstallAlert[] {
 
 // linkNote 是库要写一处符号链接时的说明:写成独立的文件夹，不再写进链接指向的地方。
 export const linkNote = (s: Snapshot, target: string) => messages().model.linkNote(shortPath(s, target));
+
+// readsTwiceNotes 是装上之后会让别的 Agent 读到两份的说明(见 InstallPlan.reads_twice):它们也读要装进的目录，又已经在自己的另一个目录装着这个技能。
+// 一处一行，label 给出时写在前面(装到几处时写出是哪一处);没有时为空。照样能装，安装前提示。
+export function readsTwiceNotes(s: Snapshot, plans: readonly { plan: InstallPlan; label?: string }[]): string[] {
+  const t = messages().actions;
+  return plans.flatMap(({ plan, label }) => {
+    const scopes = plan.reads_twice ?? [];
+    if (!scopes.length) return [];
+    const names = [...new Set(scopes.map((sc) => agentNameIn(s, sc.agent, placeOf(sc))))];
+    const note = t.readsTwice(names, plan.name);
+    return [label ? `${label}：${note}` : note];
+  });
+}
 
 // occupierOf 是装不上时占着文件夹的另一个同名技能，界面上能点开它:candidate 是安装计划的 occupier_skill_id,
 // 或安装失败时错误里的 details.skill_id(见 errorOccupier)。是这个技能自己(它的另一个作用域算出同一个目录)、不在快照里时没有。

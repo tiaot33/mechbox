@@ -9,7 +9,7 @@
 import type { CollectionID, GroupID } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot, type Snapshot } from "@/lib/library";
-import { missingFromGroup } from "@/features/group/group-rules";
+import { missingFromGroup } from "@/lib/source";
 import { parseScope, type ScopeKey } from "@/lib/scope";
 import { groupInstallIn, skillScopeIn } from "@/lib/installs";
 import { useBusy } from "@/lib/ui";

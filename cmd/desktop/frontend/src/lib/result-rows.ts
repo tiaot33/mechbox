@@ -1,15 +1,15 @@
-// 写操作结果列表里的一行(results.tsx 的 showResults 列出它们):组安装、加入组的逐个成员，重新安装失败的条目。
+// 写操作结果列表里的一行(components/app/results.tsx 的 showResults 列出它们):组安装、加入组的逐个成员，重新安装失败的条目。
 // 不碰界面、不调技能库，流程里的判断(features/ 下的 *-rules.ts)也用它们归并结果。
 import { ErrorCode, GroupMemberOutcome, type GroupMemberResult, type ReinstallResult, type SkillID } from "@bindings/internal/library";
-import { describeError, occupiedReason } from "@/lib/errors";
-import { messages } from "@/lib/i18n";
-import type { Attempt, Snapshot } from "@/lib/library";
-import type { Tone } from "@/lib/level";
-import { errorOccupier } from "@/lib/installs";
-import { shortPath } from "@/lib/paths";
-import { scopeLabel } from "@/lib/places";
-import { sameNameInLibrary, twinNote } from "@/lib/same-name";
-import { skillName } from "@/lib/scope";
+import { describeError, occupiedReason } from "./errors";
+import { messages } from "./i18n";
+import type { Attempt, Snapshot } from "./library";
+import type { Tone } from "./level";
+import { errorOccupier } from "./installs";
+import { shortPath } from "./paths";
+import { scopeLabel } from "./places";
+import { sameNameInLibrary, twinNote } from "./same-name";
+import { skillName } from "./scope";
 
 // ResultRow 是一条结果;detail 是库里有同名技能时这一行是哪一个(写在名字下面);occupier 是安装时占着文件夹的另一个同名技能，
 // 这一行能点开它(先关掉结果)。

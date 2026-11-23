@@ -38,7 +38,16 @@ import {
   deleteConsent,
   lostEdits,
   staleLinksOf,
-  overwriteKey,
+  chooseMissing,
+  missingChoice,
+  missingFolders,
+  noInstallChoices,
+  noReinstallChoices,
+  overwriteCount,
+  overwriting,
+  putBackAll,
+  toggleInstallOn,
+  toggleOverwrite,
   planReinstall,
   reinstallsNothing,
   refreshRequests,
@@ -46,9 +55,7 @@ import {
   toggleFetchGroup,
   updateInstalls,
   updatedByDefault,
-  type ReinstallChoices,
 } from "./consent";
-import { folderKey } from "./installs";
 import { scopeKey } from "./scope";
 
 const claude = AgentCode.AgentClaudeCode;
@@ -69,7 +76,7 @@ function plan(skills: PlannedSkill[], installs: SkillScopeInspection[] = []): Up
   return { id: "plan-1", collection_id: 1, source: {} as UpdatePlan["source"], skills, installs };
 }
 
-const nothingChosen = (): ReinstallChoices => ({ overwrite: new Set(), missing: new Map() });
+const nothingChosen = () => noReinstallChoices;
 
 describe("更新计划默认勾哪些技能", () => {
   it("有变化、没跳过的默认勾上", () => {
@@ -154,10 +161,12 @@ describe("装出去的地方默认勾哪些", () => {
     const sameFolder = { ...place(1, project(codex, 7), SkillScopeStatus.SkillScopeModified), folder: edited.folder };
     const current = place(2, global(claude), SkillScopeStatus.SkillScopeCurrent);
     const off = place(3, project(claude, 8), SkillScopeStatus.SkillScopeRootMissing);
-    const on = chosenInstallOn(new Map([[folderKey(edited), true], [folderKey(current), false], [folderKey(off), true]]));
+    const on = chosenInstallOn([edited, current, off].reduce(toggleInstallOn, noInstallChoices));
     expect([edited, sameFolder, current, off].map(on)).toEqual([true, true, false, false]);
-    expect(chosenInstallOn(new Map())(edited)).toBe(false);
-    expect(chosenInstallOn(new Map())(current)).toBe(true);
+    expect(chosenInstallOn(noInstallChoices)(edited)).toBe(false);
+    expect(chosenInstallOn(noInstallChoices)(current)).toBe(true);
+    // 再点一次共用文件夹的另一处，一起回到不勾。
+    expect(chosenInstallOn(toggleInstallOn(toggleInstallOn(noInstallChoices, edited), sameFolder))(edited)).toBe(false);
   });
 });
 
@@ -216,6 +225,12 @@ describe("本地目录来源的重新读取(目录内容没变)", () => {
     expect(r.keptEdited).toBe(1);
     expect(r.keptMissing).toBe(1);
   });
+
+  it("在 app 外更新到作者新版的一处照常补换，不算进用户改过、保持原样的", () => {
+    const r = refreshRequests([place(1, global(codex), SkillScopeStatus.SkillScopeModified, { source_latest: true })]);
+    expect(r.requests).toEqual([{ skill_id: 1, scope: global(codex), overwrite: false }]);
+    expect(r.keptEdited).toBe(0);
+  });
 });
 
 describe("重新安装", () => {
@@ -244,20 +259,20 @@ describe("重新安装", () => {
   it("只剩被改过的、文件夹不在了的，一处都没选要动时什么都不做(确认点不了);有版本落后的照样要做", () => {
     const { targets } = reinstallTargets([modified, missing], false);
     expect(reinstallsNothing(targets, false, nothingChosen())).toBe(true);
-    expect(reinstallsNothing(targets, false, { overwrite: new Set([overwriteKey(modified)]), missing: new Map() })).toBe(false);
-    expect(reinstallsNothing(targets, false, { overwrite: new Set(), missing: new Map([[folderKey(missing), "uninstall"]]) })).toBe(false);
+    expect(reinstallsNothing(targets, false, toggleOverwrite(noReinstallChoices, modified))).toBe(false);
+    expect(reinstallsNothing(targets, false, chooseMissing(noReinstallChoices, missing, "uninstall"))).toBe(false);
     expect(reinstallsNothing(reinstallTargets(inspected, false).targets, false, nothingChosen())).toBe(false);
   });
 
   it("在 app 外更新到作者新版的那一处，勾上覆盖时照样带覆盖：重新安装是换回库里的版本", () => {
     const latest = place(1, global(codex), SkillScopeStatus.SkillScopeModified, { source_latest: true });
-    const r = planReinstall([latest], false, { overwrite: new Set([overwriteKey(latest)]), missing: new Map() });
+    const r = planReinstall([latest], false, toggleOverwrite(noReinstallChoices, latest));
     expect(r.requests).toEqual([{ skill_id: 1, scope: global(codex), overwrite: true }]);
   });
 
   it("勾上的被改过的地方才覆盖，选装回去的才装回去", () => {
     const { targets } = reinstallTargets(inspected, false);
-    const chosen: ReinstallChoices = { overwrite: new Set([overwriteKey(modified)]), missing: new Map([[folderKey(missing), "putBack"]]) };
+    const chosen = chooseMissing(toggleOverwrite(noReinstallChoices, modified), missing, "putBack");
     const r = planReinstall(targets, false, chosen);
     expect(r.requests).toEqual([
       { skill_id: 1, scope: global(claude), overwrite: false },
@@ -270,14 +285,14 @@ describe("重新安装", () => {
 
   it("文件夹不在了的选卸载：卸载这一处，不装回去", () => {
     const { targets } = reinstallTargets(inspected, false);
-    const r = planReinstall(targets, false, { overwrite: new Set(), missing: new Map([[folderKey(missing), "uninstall"]]) });
+    const r = planReinstall(targets, false, chooseMissing(noReinstallChoices, missing, "uninstall"));
     expect(r.uninstalls.map((x) => x.place)).toEqual([missing]);
     expect(r.requests.some((x) => x.skill_id === 2)).toBe(false);
   });
 
   it("文件夹不在了的选卸载：指向它的旧链接交给技能库一并删掉", () => {
     const gone = { ...missing, stale_links: ["/home/.cursor/skills/s2"] };
-    const r = planReinstall([gone], false, { overwrite: new Set(), missing: new Map([[folderKey(gone), "uninstall"]]) });
+    const r = planReinstall([gone], false, chooseMissing(noReinstallChoices, gone, "uninstall"));
     expect(r.uninstalls).toEqual([{ place: gone, consent: { discard_edits: [], delete_links: ["/home/.cursor/skills/s2"] } }]);
   });
 
@@ -290,12 +305,25 @@ describe("重新安装", () => {
   it("项目里共用一个文件夹的几处按文件夹勾选、只卸载一次", () => {
     const a = place(4, project(claude, 7), SkillScopeStatus.SkillScopeMissing, { folder: "/p7/.agents/skills/s4" });
     const b = place(4, project(codex, 7), SkillScopeStatus.SkillScopeMissing, { folder: "/p7/.agents/skills/s4" });
-    const r = planReinstall([a, b], false, { overwrite: new Set(), missing: new Map([[folderKey(a), "uninstall"]]) });
+    const r = planReinstall([a, b], false, chooseMissing(noReinstallChoices, a, "uninstall"));
     expect(r.uninstalls).toHaveLength(1);
     const m1 = place(5, project(claude, 7), SkillScopeStatus.SkillScopeModified, { folder: "/p7/.agents/skills/s5" });
     const m2 = place(5, project(codex, 7), SkillScopeStatus.SkillScopeModified, { folder: "/p7/.agents/skills/s5" });
-    expect(overwriteKey(m1)).toBe(overwriteKey(m2));
+    expect(overwriting(toggleOverwrite(noReinstallChoices, m1), m2)).toBe(true);
     expect(planReinstall([m1, m2], false, nothingChosen()).keptModified).toBe(1);
+  });
+
+  it("确认框里的选择：文件夹不在了的按文件夹分行、改选一行连同共用文件夹的几处，全部装回去不动被改过的勾选", () => {
+    const a = place(4, project(claude, 7), SkillScopeStatus.SkillScopeMissing, { folder: "/p7/.agents/skills/s4" });
+    const b = place(4, project(codex, 7), SkillScopeStatus.SkillScopeMissing, { folder: "/p7/.agents/skills/s4" });
+    expect(missingFolders([a, missing, b])).toEqual([[a, b], [missing]]);
+    expect(missingChoice(noReinstallChoices, a)).toBe("keep");
+    expect(missingChoice(chooseMissing(noReinstallChoices, a, "putBack"), b)).toBe("putBack");
+    const all = putBackAll(chooseMissing(toggleOverwrite(noReinstallChoices, modified), a, "uninstall"), [a, b, missing]);
+    expect([a, b, missing].map((p) => missingChoice(all, p))).toEqual(["putBack", "putBack", "putBack"]);
+    expect(overwriting(all, modified)).toBe(true);
+    expect(overwriteCount(all)).toBe(1);
+    expect(overwriteCount(toggleOverwrite(all, modified))).toBe(0);
   });
 });
 

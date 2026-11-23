@@ -30,7 +30,6 @@ import {
   notDirectIn,
   occupied,
   readInstallPlans,
-  readsTwiceNotes,
   skippedPicked,
   uninstallGroupPlaces,
   uninstallPicked,
@@ -76,17 +75,6 @@ const plan = (status: InstallPlanStatus, extra: Partial<InstallPlan> = {}) =>
   ({ status, name: "s1", folder: "/home/.claude/skills/s1", ...extra }) as InstallPlan;
 
 const err = (code: ErrorCode, details?: LibraryError["details"]): LibraryError => ({ code, message: code, details }) as LibraryError;
-
-describe("装上之后会读到两份", () => {
-  it("写出也读这个目录、已经在别的目录装着它的 Agent;装到几处时写出是哪一处", () => {
-    const s = snapshot({});
-    const twice = plan(InstallPlanStatus.InstallReady, { reads_twice: [global(codex)] });
-    expect(readsTwiceNotes(s, [{ plan: twice }])).toEqual([t.readsTwice(["Codex"], "s1")]);
-    expect(readsTwiceNotes(s, [{ plan: twice, label: "s1 · Claude Code · 全局" }, { plan: plan(InstallPlanStatus.InstallReady) }])).toEqual([
-      `s1 · Claude Code · 全局：${t.readsTwice(["Codex"], "s1")}`,
-    ]);
-  });
-});
 
 describe("被占用、装不上的一处怎么说", () => {
   it("占着的是这个技能自己(另一个作用域算出同一个目录)时没有能点开的", () => {

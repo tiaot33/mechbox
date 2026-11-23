@@ -6,13 +6,13 @@ import type { Scope } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { parseScope, projectName, scopeKey } from "@/lib/scope";
-import { projectAgents, type PageListing } from "@/lib/pages";
+import { pageInstallTarget, projectScopes, type PageListing } from "@/lib/pages";
 import { scopeLabel } from "@/lib/places";
 import { placesAt } from "@/lib/installs";
 import { clearPicked, clearPickedAfter, useCurrentPage, useView } from "@/lib/view";
 import { pickGroup } from "@/features/group/group";
 import { uninstallSkills } from "@/features/install/install";
-import { chooseAndInstall, pageInstallTarget } from "@/features/install/install-to";
+import { chooseAndInstall } from "@/features/install/install-to";
 import { removeSkills } from "@/features/skill/remove";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -46,7 +46,7 @@ export function PickBar({ listing }: { listing: PageListing }) {
     listing.kind === "scope"
       ? { scopes: [parseScope(listing.scope)], where: scopeLabel(s, parseScope(listing.scope)) }
       : listing.kind === "project"
-        ? { scopes: projectAgents(s, listing.project, "").map((a) => parseScope(a.scope)), where: projectName(s, listing.project) }
+        ? { scopes: projectScopes(s, listing.project), where: projectName(s, listing.project) }
         : undefined;
   // 安装到…默认选这一页的地方：作用域页是这个作用域，项目页是这个项目。
   const initial = pageInstallTarget(page);

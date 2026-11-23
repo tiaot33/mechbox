@@ -7,7 +7,7 @@ import { Badge, MarkIcon } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ListRow } from "@/components/ui/list";
 import { cn } from "@/lib/utils";
-import { riskSummary } from "./risks";
+import { riskSummary } from "@/lib/risks";
 
 interface RowActions {
   viewed: boolean; // 这个技能的差异正展开着

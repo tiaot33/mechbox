@@ -9,7 +9,7 @@ import { agentName } from "@/lib/scope";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ChangedFiles, FileDiff, type FileReaders } from "./file-diff";
-import { fileRiskBadge } from "./risks";
+import { fileRiskBadge } from "@/lib/risks";
 import { openCompare } from "./version-compare";
 
 // SkillDiff 是一个技能这次改了哪些文件，点文件看内容差异:库里一侧读当前版本，来源一侧读更新计划。

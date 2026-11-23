@@ -4,7 +4,7 @@ import { FolderPolicy, type Agent, type AgentInput } from "@bindings/internal/li
 import { detachedBy, deleteConsent, lostEdits } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, reloadLibrary, useSnapshot, type LibraryError } from "@/lib/library";
-import { folderPlaces } from "@/lib/installs";
+import { folderPlaces, placeKey } from "@/lib/installs";
 import { scopeLabel } from "@/lib/places";
 import { nativePath, shortPath, wslTitle } from "@/lib/paths";
 import { skillName } from "@/lib/scope";
@@ -211,7 +211,7 @@ function ResetBody({ plan }: { plan: ResetPlan }) {
           {heading(t.resetMigrations(plan.migrations.length))}
           <ListBox className="reset-migrations">
             {plan.migrations.map(({ place, to }) => (
-              <ListRow key={`${place.skill_id}:${place.scope.agent}:${place.scope.project_id ?? 0}`}>
+              <ListRow key={placeKey(place)}>
                 <div className="min-w-0 grow">
                   <div>
                     {skillName(s, place.skill_id)} · {scopeLabel(s, place.scope)}

@@ -1,6 +1,6 @@
-// 来源与集合：来源是哪一种、在界面上叫什么，集合里有哪些技能、在哪个来源版本上。
+// 来源与集合：来源是哪一种、在界面上叫什么，集合里有哪些技能(还有哪些不在某个组里)、左栏怎样折叠与排先后、在哪个来源版本上。
 // 来源那边有没有新内容见 lib/source-state。
-import { SourceType, type Collection, type CollectionID, type Scope, type Skill, type Source } from "@bindings/internal/library";
+import { SourceType, type Collection, type CollectionID, type GroupID, type Scope, type Skill, type SkillID, type Source } from "@bindings/internal/library";
 import { messages } from "./i18n";
 import type { Snapshot } from "./library";
 import { lastSegment, shortPath } from "./paths";
@@ -83,6 +83,12 @@ export function collectionSkills(s: Snapshot, c: Collection): Skill[] {
   return s.skills.filter((x) => ids.has(x.id));
 }
 
+// missingFromGroup 是集合里还不在组里的技能：集合拖到组上、右键"加入组"时加入的就是这些;为空时说"都已在组里"。
+export function missingFromGroup(s: Snapshot, collectionID: CollectionID, groupID: GroupID): SkillID[] {
+  const members = new Set(s.groups.find((g) => g.id === groupID)?.members ?? []);
+  return (s.collections.find((c) => c.id === collectionID)?.skills ?? []).filter((id) => !members.has(id));
+}
+
 // foldCollections 把左栏的集合分成照常列出的与折起来的：开着折叠时，技能少于 foldBelow 个的集合折起来，两边都保持原来的先后;
 // 关着时、或没有一个集合够数时(折起来就只剩一行「另外 K 个」)全部照常列出。
 export function foldCollections(s: Pick<Snapshot, "collections" | "foldCollections" | "foldBelow">): { shown: Collection[]; folded: Collection[] } {
@@ -90,6 +96,11 @@ export function foldCollections(s: Pick<Snapshot, "collections" | "foldCollectio
   const shown = s.collections.filter((c) => !small(c));
   if (!s.foldCollections || shown.length === 0) return { shown: s.collections, folded: [] };
   return { shown, folded: s.collections.filter(small) };
+}
+
+// isDefaultOrder 是左栏集合或组的先后还是默认的:集合按首次入库、组按新建的先后,即 ID 升序;是的话「恢复默认顺序」不用点。
+export function isDefaultOrder(ids: number[]): boolean {
+  return ids.every((id, i) => i === 0 || ids[i - 1] < id);
 }
 
 // collectionName 是更新页的集合行、更新计划和更新提示里集合的名字：只有一个技能时用技能名，否则是来源名。

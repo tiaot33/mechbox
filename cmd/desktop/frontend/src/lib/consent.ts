@@ -24,13 +24,11 @@ import {
   type UnmanagedSkill,
   type UpdatePlan,
 } from "@bindings/internal/library";
-import { canInstall, editedHere, folderKey, needsReinstall } from "./installs";
+import { canInstall, editedHere, folderKey, needsReinstall, placeKey } from "./installs";
 import { notTakenOver } from "./unmanaged";
+import { toggled } from "./utils";
 import { scopeKey } from "./scope";
 import { sourceState } from "./source-state";
-
-// placeKey 标识一处安装：哪个技能装在哪个作用域。
-export const placeKey = (p: { skill_id: SkillID; scope: Scope }) => `${p.skill_id}|${scopeKey(p.scope)}`;
 
 // ---------- 更新计划 ----------
 
@@ -51,10 +49,22 @@ const edited = editedHere;
 // 在 app 外已经更新到作者新版的照常勾上：库换成这一版之后它就是当前版本，不会被覆盖。
 export const defaultInstallOn = (p: SkillScopeInspection) => canInstall(p) && !edited(p) && p.status !== SkillScopeStatus.SkillScopeMissing;
 
-// chosenInstallOn 是更新计划、用目录里的修改更新的弹窗里一处勾没勾:choice 是用户点过的(按文件夹，几个 Agent 共用一个文件夹时只能一起换),
-// 没点过的按 defaultInstallOn;项目不在这台机器上的装不到，不勾。
-export const chosenInstallOn = (choice: ReadonlyMap<string, boolean>) => (p: SkillScopeInspection) =>
-  canInstall(p) && (choice.get(folderKey(p)) ?? defaultInstallOn(p));
+const folders = Symbol("folders");
+
+// InstallChoices 是更新计划、用目录里的修改更新的弹窗里用户点过的勾选，从 noInstallChoices 开始。
+// 按文件夹记(几个 Agent 共用一个文件夹时只能一起换);弹窗只经 chosenInstallOn 读、toggleInstallOn 改，不碰里面怎么记。
+export type InstallChoices = { readonly [folders]: ReadonlyMap<string, boolean> };
+
+export const noInstallChoices: InstallChoices = { [folders]: new Map() };
+
+// chosenInstallOn 是这些勾选下一处勾没勾：用户点过的按点过的，没点过的按 defaultInstallOn;项目不在这台机器上的装不到，不勾。
+export const chosenInstallOn = (choices: InstallChoices) => (p: SkillScopeInspection) =>
+  canInstall(p) && (choices[folders].get(folderKey(p)) ?? defaultInstallOn(p));
+
+// toggleInstallOn 是点了一处之后的勾选：这一处(连同共用这个文件夹的几处)换成另一种。
+export function toggleInstallOn(choices: InstallChoices, p: SkillScopeInspection): InstallChoices {
+  return { [folders]: new Map(choices[folders]).set(folderKey(p), !chosenInstallOn(choices)(p)) };
+}
 
 // consented 是勾上即同意的地方：用户改过的覆盖，文件夹不在了的装回去。作者新版的那一处不用同意覆盖。
 const consented = (p: SkillScopeInspection) => edited(p) || p.status === SkillScopeStatus.SkillScopeMissing;
@@ -86,14 +96,13 @@ export interface UpdateInstalls {
 export function updateInstalls(plan: UpdatePlan, checked: Set<SkillID>, installOn: (p: SkillScopeInspection) => boolean): UpdateInstalls {
   const places = plannedInstalls(plan, checked);
   const written = (p: SkillScopeInspection) => canInstall(p) && installOn(p);
-  const kept = (status: SkillScopeStatus) =>
-    new Set(places.filter((p) => p.status === status && !p.source_latest && !installOn(p)).map(folderKey)).size;
+  const kept = (which: (p: SkillScopeInspection) => boolean) => new Set(places.filter((p) => which(p) && !installOn(p)).map(folderKey)).size;
   return {
     places,
     written,
     requests: places.filter(written).map((p) => ({ skill_id: p.skill_id, scope: p.scope, overwrite: consented(p) })),
-    keptEdited: kept(SkillScopeStatus.SkillScopeModified),
-    keptMissing: kept(SkillScopeStatus.SkillScopeMissing),
+    keptEdited: kept(edited),
+    keptMissing: kept((p) => p.status === SkillScopeStatus.SkillScopeMissing),
   };
 }
 
@@ -101,13 +110,13 @@ export function updateInstalls(plan: UpdatePlan, checked: Set<SkillID>, installO
 // 其余换成当前版本。keptEdited / keptMissing 是没动的文件夹数。
 export function refreshRequests(inspected: SkillScopeInspection[]) {
   const behind = inspected.filter(needsReinstall);
-  const kept = (status: SkillScopeStatus) => new Set(behind.filter((p) => p.status === status).map(folderKey)).size;
+  const kept = (which: (p: SkillScopeInspection) => boolean) => new Set(behind.filter(which).map(folderKey)).size;
   return {
     requests: behind
       .filter((p) => !consented(p))
       .map((p): ReinstallRequest => ({ skill_id: p.skill_id, scope: p.scope, overwrite: false })),
-    keptEdited: kept(SkillScopeStatus.SkillScopeModified),
-    keptMissing: kept(SkillScopeStatus.SkillScopeMissing),
+    keptEdited: kept(edited),
+    keptMissing: kept((p) => p.status === SkillScopeStatus.SkillScopeMissing),
   };
 }
 
@@ -115,14 +124,41 @@ export function refreshRequests(inspected: SkillScopeInspection[]) {
 
 export type MissingChoice = "keep" | "putBack" | "uninstall";
 
-// ReinstallChoices 是确认框里的选择:被改过的勾选了哪几处覆盖(overwriteKey),文件夹不在了的每个文件夹选了什么(folderKey)。
-export interface ReinstallChoices {
-  overwrite: Set<string>;
-  missing: Map<string, MissingChoice>;
+const picked = Symbol("picked");
+
+// ReinstallChoices 是重新安装确认框里的选择，从 noReinstallChoices 开始：被改过的勾选了哪几处覆盖，文件夹不在了的选了什么。
+// 都按文件夹记(共用一个文件夹的几处合成一行);确认框只经下面几个函数读、改，不碰里面怎么记。
+export type ReinstallChoices = { readonly [picked]: { overwrite: ReadonlySet<string>; missing: ReadonlyMap<string, MissingChoice> } };
+
+export const noReinstallChoices: ReinstallChoices = { [picked]: { overwrite: new Set(), missing: new Map() } };
+
+// overwriting 是被改过的这一处勾没勾覆盖，toggleOverwrite 换成另一种，overwriteCount 是勾了几个文件夹(写在确认按钮上)。
+export const overwriting = (c: ReinstallChoices, p: SkillScopeInspection) => c[picked].overwrite.has(folderKey(p));
+
+export function toggleOverwrite(c: ReinstallChoices, p: SkillScopeInspection): ReinstallChoices {
+  return { [picked]: { ...c[picked], overwrite: toggled(c[picked].overwrite, folderKey(p)) } };
 }
 
-// overwriteKey 是被改过的一处在确认框里的勾选：共用一个文件夹的几处合成一行，按文件夹勾选。
-export const overwriteKey = (p: SkillScopeInspection) => folderKey(p);
+export const overwriteCount = (c: ReinstallChoices) => c[picked].overwrite.size;
+
+// missingFolders 把文件夹不在了的几处按文件夹分成确认框里的一行一组(共用一个文件夹的几处一起装回去或卸载),按第一次出现的先后。
+export function missingFolders(missing: SkillScopeInspection[]): SkillScopeInspection[][] {
+  const rows = new Map<string, SkillScopeInspection[]>();
+  for (const p of missing) rows.set(folderKey(p), [...(rows.get(folderKey(p)) ?? []), p]);
+  return [...rows.values()];
+}
+
+// missingChoice 是文件夹不在了的这一处选了什么，没选过的是不动;chooseMissing 改选这一处(连同共用这个文件夹的几处)。
+export const missingChoice = (c: ReinstallChoices, p: SkillScopeInspection): MissingChoice => c[picked].missing.get(folderKey(p)) ?? "keep";
+
+export function chooseMissing(c: ReinstallChoices, p: SkillScopeInspection, choice: MissingChoice): ReinstallChoices {
+  return { [picked]: { ...c[picked], missing: new Map(c[picked].missing).set(folderKey(p), choice) } };
+}
+
+// putBackAll 是「全部装回去」:文件夹不在了的几处都选装回去，被改过的勾选不变。
+export function putBackAll(c: ReinstallChoices, missing: SkillScopeInspection[]): ReinstallChoices {
+  return { [picked]: { ...c[picked], missing: new Map(missing.map((p) => [folderKey(p), "putBack" as const])) } };
+}
 
 // ReinstallTargets 是现查之后要重新安装的几处，以及其中要问用户的：被改过的、文件夹不在了的。
 // 只点了一处(single)时文件夹不在了也直接装回去，不再问。
@@ -145,9 +181,9 @@ export function reinstallsNothing(targets: SkillScopeInspection[], single: boole
 }
 
 export function planReinstall(targets: SkillScopeInspection[], single: boolean, chosen: ReinstallChoices) {
-  const choice = (p: SkillScopeInspection) => chosen.missing.get(folderKey(p)) ?? "keep";
+  const choice = (p: SkillScopeInspection) => missingChoice(chosen, p);
   const wanted = (p: SkillScopeInspection) => {
-    if (p.status === SkillScopeStatus.SkillScopeModified) return chosen.overwrite.has(overwriteKey(p));
+    if (p.status === SkillScopeStatus.SkillScopeModified) return overwriting(chosen, p);
     if (p.status === SkillScopeStatus.SkillScopeMissing) return single || choice(p) === "putBack";
     return true;
   };
@@ -165,7 +201,7 @@ export function planReinstall(targets: SkillScopeInspection[], single: boolean, 
       place: p,
       consent: deleteConsent([p]),
     })),
-    keptModified: new Set(modified.filter((p) => !wanted(p)).map(overwriteKey)).size,
+    keptModified: new Set(modified.filter((p) => !wanted(p)).map(folderKey)).size,
     keptMissing: new Set(missing.filter((p) => choice(p) === "keep").map(folderKey)).size,
   };
 }
@@ -183,7 +219,7 @@ export function detachedBy(touched: SkillScopeInspection[]): Detached[] {
   const keys = new Set(touched.map(placeKey));
   const folders = new Set<string>();
   return touched.flatMap((place) => {
-    const folder = `${place.skill_id}|${place.folder}`;
+    const folder = folderKey(place);
     if (folders.has(folder)) return [];
     folders.add(folder);
     const by = (place.linked_by ?? []).filter((scope) => !keys.has(placeKey({ skill_id: place.skill_id, scope })));
@@ -337,7 +373,7 @@ export function copyDefaults(entries: [string, CopyPlanned][]): { checked: Set<s
 }
 
 // copyOverwriteCount 是按勾选会覆盖几个不是库装的同名文件夹：勾上的直接安装里有的，加上勾了"覆盖"的组安装里组员有的。
-export function copyOverwriteCount(entries: Map<string, CopyPlanned>, checked: Set<string>, overwrite: Set<string>): number {
+export function copyOverwriteCount(entries: ReadonlyMap<string, CopyPlanned>, checked: ReadonlySet<string>, overwrite: ReadonlySet<string>): number {
   let n = 0;
   for (const [key, v] of entries) {
     if (!checked.has(key)) continue;

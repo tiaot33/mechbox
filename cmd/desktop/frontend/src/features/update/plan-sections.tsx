@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { Notice } from "@/components/ui/notice";
-import { isRiskNotice, riskItems, riskLabel } from "./risks";
+import { isRiskNotice, riskItems, riskLabel } from "@/lib/risks";
 import { agentName } from "@/lib/scope";
 import { Summary } from "@/components/app/parts";
 

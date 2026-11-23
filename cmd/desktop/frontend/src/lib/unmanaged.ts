@@ -44,6 +44,13 @@ type Ownership = Pick<UnmanagedSkill, "in_repository" | "in_project_lock" | "lin
 // repoOwned 是归项目仓库管的未纳管技能：提交在项目仓库里，或记在项目的 skills-lock.json 里。
 export const repoOwned = (u: Pick<Ownership, "in_repository" | "in_project_lock">) => !!(u.in_repository || u.in_project_lock);
 
+// repoMark 是归项目仓库管的那一条标注写哪一种：提交在项目仓库里的优先，其次是记在 skills-lock.json 里;都不是时没有。
+// 一行只标一条，列表的行(folderNotes)和整批入库确认里的行都按它。
+export function repoMark(u: Pick<Ownership, "in_repository" | "in_project_lock">): "repository" | "lock" | undefined {
+  if (u.in_repository) return "repository";
+  return u.in_project_lock ? "lock" : undefined;
+}
+
 // notTakenOver 是还没交给 app 管的、用户自己的未纳管技能：归项目仓库管的、符号链接指向 Agent 目录以外的(作者有意留在自己目录里的)不算。
 // 整批入库时默认勾哪些、照装时说哪些要先入库才带得过去，都按它。
 export const notTakenOver = (u: Ownership) => !repoOwned(u) && !u.link_outside;
@@ -53,9 +60,9 @@ export const notTakenOver = (u: Ownership) => !repoOwned(u) && !u.link_outside;
 export function folderNotes(u: Ownership & Pick<UnmanagedSkill, "link_target">, home?: string): { text: string; title: string }[] {
   const t = messages().list;
   return [
-    u.in_repository
+    repoMark(u) === "repository"
       ? { text: t.inRepository, title: t.inRepositoryTitle }
-      : u.in_project_lock
+      : repoMark(u) === "lock"
         ? { text: t.inLock, title: t.inLockTitle }
         : undefined,
     u.link_outside

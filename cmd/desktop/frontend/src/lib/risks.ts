@@ -1,8 +1,8 @@
 // 更新计划里的风险(新增或改动的脚本、新增的可执行文件、技能放宽了对 Agent 声明的权限)在界面上的说法。
 // 「会自动调用它了」只是提示，不算风险：不进更新页那一行的风险摘要，更新计划里也和风险分开写。
 import { UpdateRiskKind, type UpdateRisk } from "@bindings/internal/library";
-import { hookText, toolText } from "@/lib/agent-settings";
-import { messages } from "@/lib/i18n";
+import { hookText, toolText } from "./agent-settings";
+import { messages } from "./i18n";
 
 // isRiskNotice 是提示级的一条(原来关掉了自动调用，这次 Agent 会自动调用它了)。
 export const isRiskNotice = (r: UpdateRisk) => r.kind === UpdateRiskKind.RiskAutoInvocationEnabled;

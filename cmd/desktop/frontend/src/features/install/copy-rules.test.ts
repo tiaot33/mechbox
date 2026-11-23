@@ -1,5 +1,5 @@
-// 照着装：确认框里一处标题上的勾选、另外说出的改过与新版的技能，确认后逐处要做的事和结果怎么归并;
-// 照着另一个 Agent、另一个项目装时装哪些，哪些未纳管技能带不过去。
+// 照着装：确认框里各项能不能勾、勾没勾，一处标题上的勾选，确认按钮上的数，另外说出的改过与新版的技能，
+// 确认后逐处要做的事和结果怎么归并;照着另一个 Agent、另一个项目装时可以照着谁、装哪些，哪些未纳管技能带不过去。
 import { describe, expect, it } from "vitest";
 import {
   AgentCode,
@@ -24,24 +24,20 @@ import { messages } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
 import { placeOf } from "@/lib/scope";
 import {
-  canCheck,
-  checkedCounts,
-  comingNotes,
-  copyFromAgent,
-  copyFromProject,
-  copyProjectSources,
+  agentCopy,
   copyResults,
-  copySources,
   copySteps,
-  groupKey,
-  meantPlaces,
-  placeKeys,
-  skillKey,
+  copyView,
+  plansRead,
+  plansToRead,
+  projectCopy,
+  readingCopy,
+  toggleItem,
+  toggleOverwrite,
   togglePlace,
-  uncopiedProjectUnmanaged,
-  uncopiedUnmanaged,
+  type CopyChoices,
   type CopyPlace,
-  type Plans,
+  type Planned,
 } from "./copy-rules";
 
 const claude = AgentCode.AgentClaudeCode;
@@ -53,7 +49,7 @@ const c = messages().copy;
 const skill = (id: number) => ({ id, name: `s${id}`, source: { type: SourceType.SourceGitHub, label: "owner/repo" } }) as Skill;
 const group = (id: number, members: number[]) => ({ id, name: `g${id}`, members }) as Group;
 const plan = (status: InstallPlanStatus, extra: Partial<InstallPlan> = {}) => ({ status, name: "x", folder: "/home/.claude/skills/x", ...extra }) as InstallPlan;
-const member = (skill_id: number, status: InstallPlanStatus) => ({ ...plan(status), skill_id }) as InstallPlan;
+const member = (skill_id: number, status: InstallPlanStatus, name = `s${skill_id}`) => ({ ...plan(status), skill_id, name }) as InstallPlan;
 const err = (code: ErrorCode, details?: LibraryError["details"]): LibraryError => ({ code, message: code, details }) as LibraryError;
 
 const where = (to: Scope, extra: Partial<CopyPlace> = {}): CopyPlace => ({ to, groups: [], skills: [], edited: [], newer: [], missing: false, ...extra });
@@ -67,47 +63,100 @@ const snapshot = () =>
     info: { home_dir: "/home" },
   }) as unknown as Snapshot;
 
+// read 是读完安装计划的确认框:planned 按「哪一处的哪个技能 / 组」给出(没给的当作读不出)，交回时按 plansToRead 的先后。
+function read(places: CopyPlace[], planned: (r: { scope: Scope; id: number; group: boolean }) => Planned, byDefault = (_p: CopyPlace) => true): CopyChoices {
+  const c = readingCopy(places, byDefault);
+  return plansRead(
+    c,
+    plansToRead(c).map((r) => planned({ scope: r.scope, id: "skill" in r ? r.skill.id : r.group.id, group: "group" in r })),
+  );
+}
+
+// item 是确认框里某一处的某一项(组安装或直接安装的技能)。
+const items = (s: Snapshot, ch: CopyChoices, i = 0) => {
+  const p = copyView(s, ch).places[i];
+  return { skill: (id: number) => p.skills.find((x) => x.skill.id === id)!, group: (id: number) => p.groups.find((x) => x.group.id === id)! };
+};
+
 describe("确认框里的勾选", () => {
-  const p = where(global(claude), { groups: [group(5, [3])], skills: [skill(1), skill(2)] });
+  const s = snapshot();
+  const p = where(global(claude), { groups: [group(5, [3])], skills: [skill(1), skill(2), skill(4)] });
+  const planned = (r: { id: number; group: boolean }): Planned =>
+    r.group
+      ? { members: [member(3, InstallPlanStatus.InstallUntracked)] }
+      : r.id === 1
+        ? { plan: plan(InstallPlanStatus.InstallReady) }
+        : r.id === 2
+          ? { plan: plan(InstallPlanStatus.InstallUntracked) }
+          : { plan: plan(InstallPlanStatus.InstallOccupied, { occupier_skill_id: 3 }) };
 
-  it("组安装读出计划就能勾，直接安装还要装得了", () => {
-    expect(canCheck({ members: [] })).toBe(true);
-    expect(canCheck({ plan: plan(InstallPlanStatus.InstallReady) })).toBe(true);
-    expect(canCheck({ plan: plan(InstallPlanStatus.InstallOccupied) })).toBe(false);
-    expect(canCheck({ error: err(ErrorCode.Permission) })).toBe(false);
-    expect(canCheck(undefined)).toBe(false);
+  it("还没读完安装计划时什么都没勾，确认按钮点不了，点标题不变", () => {
+    const ch = readingCopy([p], () => true);
+    const v = copyView(s, ch);
+    expect(v.reading).toBe(true);
+    expect(v.confirm).toEqual({ skills: 0, groups: 0, overwrites: 0, ready: false });
+    expect(v.places[0]).toMatchObject({ on: false, mixed: false, count: 4 });
+    expect(togglePlace(ch, p)).toBe(ch);
+    expect(copySteps(s, ch)).toEqual([]);
   });
 
-  it("确认按钮上的技能数、组数按勾上的项算：直接安装的是技能，组安装的是组", () => {
-    expect(checkedCounts(new Set([skillKey(p, 1), skillKey(p, 2), groupKey(p, 5)]))).toEqual({ skills: 2, groups: 1 });
-    expect(checkedCounts(new Set())).toEqual({ skills: 0, groups: 0 });
+  it("要读的安装计划：先直接安装、再组安装，项目不在这台机器上的那一处不读", () => {
+    const gone = where(project(claude, 7), { missing: true, skills: [skill(3)] });
+    const reads = plansToRead(readingCopy([p, gone], () => true));
+    expect(reads.map((r) => ("skill" in r ? `s${r.skill.id}` : `g${r.group.id}`))).toEqual(["s1", "s2", "s4", "g5"]);
   });
 
-  it("一处标题：有勾上的就整处取消;一个都没勾时按默认规则整处勾上，有同名文件夹的、读不出计划的不勾", () => {
-    const plans: Plans = new Map([
-      [groupKey(p, 5), { members: [] }],
-      [skillKey(p, 1), { plan: plan(InstallPlanStatus.InstallReady) }],
-      [skillKey(p, 2), { plan: plan(InstallPlanStatus.InstallUntracked) }],
-    ]);
-    const keys = placeKeys(p);
-    expect([...togglePlace(new Set(), keys, plans)]).toEqual([groupKey(p, 5), skillKey(p, 1)]);
-    expect([...togglePlace(new Set([skillKey(p, 2), "other"]), keys, plans)]).toEqual(["other"]);
-    expect([...togglePlace(new Set(), keys, null)]).toEqual([]);
+  it("组安装读出计划就能勾，直接安装还要装得了;有不是库装的同名文件夹的标出来，被占用、读不出的写明原因", () => {
+    const ch = read([p], (r) => (r.group ? { error: err(ErrorCode.Permission) } : planned(r)));
+    const it = items(s, ch);
+    expect(it.skill(1)).toMatchObject({ can: true, untracked: undefined, reason: undefined });
+    expect(it.skill(2)).toMatchObject({ can: true, untracked: "~/.claude/skills/x" });
+    expect(it.skill(4).can).toBe(false);
+    expect(it.skill(4).reason).toBeTruthy();
+    expect(it.group(5)).toMatchObject({ can: false, coming: undefined });
+    expect(it.group(5).reason).toBeTruthy();
+  });
+
+  it("打开时默认勾的那几处：组安装整组勾上，直接安装有同名文件夹的不勾;组员的覆盖默认不勾", () => {
+    const ch = read([p], planned);
+    const it = items(s, ch);
+    expect([it.group(5).on, it.skill(1).on, it.skill(2).on, it.skill(4).on]).toEqual([true, true, false, false]);
+    expect(it.group(5)).toMatchObject({ coming: 1, overwrite: false, untracked: ["s3"], blocked: [] });
+    expect(copyView(s, ch).places[0]).toMatchObject({ on: true, mixed: true });
+  });
+
+  it("不默认勾的那一处打开时都不勾，点它的标题按默认规则整处勾上，再点整处取消", () => {
+    const ch = read([p], planned, () => false);
+    expect(copyView(s, ch).places[0].on).toBe(false);
+    const on = togglePlace(ch, p);
+    const it = items(s, on);
+    expect([it.group(5).on, it.skill(1).on, it.skill(2).on]).toEqual([true, true, false]);
+    expect(copyView(s, togglePlace(toggleItem(ch, items(s, ch).skill(2).ref), p)).places[0].on).toBe(false);
+  });
+
+  it("确认按钮上的数：勾上的直接安装是技能、组安装是组，覆盖数算勾上的直接安装和勾了覆盖的组安装里的同名文件夹", () => {
+    let ch = read([p], planned);
+    expect(copyView(s, ch).confirm).toEqual({ skills: 1, groups: 1, overwrites: 0, ready: true });
+    ch = toggleItem(ch, items(s, ch).skill(2).ref);
+    ch = toggleOverwrite(ch, items(s, ch).group(5).ref);
+    expect(copyView(s, ch).confirm).toEqual({ skills: 2, groups: 1, overwrites: 2, ready: true });
+  });
+
+  it("取消组安装时它的覆盖不变，再勾上还是原来的样子", () => {
+    let ch = read([p], planned);
+    const ref = items(s, ch).group(5).ref;
+    ch = toggleItem(toggleOverwrite(ch, ref), ref);
+    expect(items(s, ch).group(5)).toMatchObject({ on: false, overwrite: true });
+    expect(items(s, toggleItem(ch, ref)).group(5)).toMatchObject({ on: true, overwrite: true });
   });
 
   it("另外说出的改过、新版的技能只算勾上的项会装过来的：直接安装勾上了，或随勾上的组装过来", () => {
     const edited = where(global(claude), { groups: [group(5, [3])], skills: [skill(1)], edited: [skill(1), skill(3)], newer: [skill(3)] });
-    expect(comingNotes([edited], new Set())).toEqual({ edited: [], newer: [] });
-    expect(comingNotes([edited], new Set([skillKey(edited, 1)]))).toEqual({ edited: ["s1"], newer: [] });
-    expect(comingNotes([edited], new Set([groupKey(edited, 5)]))).toEqual({ edited: ["s3"], newer: ["s3"] });
-  });
-
-  it("结果只算默认勾的那几处，和用户勾了东西的那几处", () => {
-    const here = where(project(claude, 7), { skills: [skill(1)] });
-    const there = where(global(claude), { skills: [skill(2)] });
-    const byDefault = (x: CopyPlace) => x === here;
-    expect(meantPlaces([here, there], byDefault, new Set())).toEqual([here]);
-    expect(meantPlaces([here, there], byDefault, new Set([skillKey(there, 2)]))).toEqual([here, there]);
+    const none = read([edited], () => ({ plan: plan(InstallPlanStatus.InstallReady) }), () => false);
+    expect(copyView(s, none)).toMatchObject({ edited: [], newer: [] });
+    expect(copyView(s, toggleItem(none, items(s, none).skill(1).ref))).toMatchObject({ edited: ["s1"], newer: [] });
+    const grouped = read([edited], (r) => (r.group ? { members: [] } : { plan: plan(InstallPlanStatus.InstallReady) }), () => false);
+    expect(copyView(s, toggleItem(grouped, items(s, grouped).group(5).ref))).toMatchObject({ edited: ["s3"], newer: ["s3"] });
   });
 });
 
@@ -115,21 +164,24 @@ describe("确认后逐处要做的事", () => {
   const s = snapshot();
 
   it("项目不在这台机器上的一处整个跳过并说明", () => {
-    const steps = copySteps(s, [where(project(claude, 7), { missing: true, skills: [skill(1)] })], new Map(), new Set(), new Set());
+    const steps = copySteps(s, read([where(project(claude, 7), { missing: true, skills: [skill(1)] })], () => ({ members: [] })));
     expect(steps).toEqual([{ skip: { label: "Claude Code · proj", outcome: a.memberSkipped, tone: "warn", reason: c.missingPlace, occupier: undefined } }]);
   });
 
   it("每一处先组安装再直接安装;没勾的不装，读不出计划、被占用的照样写进结果", () => {
     const p = where(global(claude), { groups: [group(5, [3]), group(6, [4])], skills: [skill(1), skill(2), skill(3), skill(4)] });
-    const plans: Plans = new Map([
-      [groupKey(p, 5), { members: [member(3, InstallPlanStatus.InstallUntracked)] }],
-      [groupKey(p, 6), { error: err(ErrorCode.Permission) }],
-      [skillKey(p, 1), { plan: plan(InstallPlanStatus.InstallUntracked) }],
-      [skillKey(p, 2), { plan: plan(InstallPlanStatus.InstallOccupied, { occupier_skill_id: 4 }) }],
-      [skillKey(p, 3), { error: err(ErrorCode.Permission) }],
-      [skillKey(p, 4), { plan: plan(InstallPlanStatus.InstallReady) }],
-    ]);
-    const steps = copySteps(s, [p], plans, new Set([groupKey(p, 5), skillKey(p, 1)]), new Set([groupKey(p, 5)]));
+    const planned = (r: { id: number; group: boolean }): Planned => {
+      if (r.group) return r.id === 5 ? { members: [member(3, InstallPlanStatus.InstallUntracked)] } : { error: err(ErrorCode.Permission) };
+      if (r.id === 1) return { plan: plan(InstallPlanStatus.InstallUntracked) };
+      if (r.id === 2) return { plan: plan(InstallPlanStatus.InstallOccupied, { occupier_skill_id: 4 }) };
+      if (r.id === 3) return { error: err(ErrorCode.Permission) };
+      return { plan: plan(InstallPlanStatus.InstallReady) };
+    };
+    let ch = read([p], planned);
+    const it = items(s, ch);
+    // 默认勾上了组 5 和 s4;改成只勾组 5(带覆盖)和 s1。
+    ch = toggleOverwrite(toggleItem(toggleItem(ch, it.skill(4).ref), it.skill(1).ref), it.group(5).ref);
+    const steps = copySteps(s, ch);
     const kind = (x: (typeof steps)[number]) => ("skip" in x ? `skip:${x.skip.label}` : "group" in x ? `group:${x.group.id}` : `skill:${x.skill.id}`);
     expect(steps.map(kind)).toEqual([
       "group:5",
@@ -142,24 +194,25 @@ describe("确认后逐处要做的事", () => {
     expect(steps[2]).toMatchObject({ overwrite: true });
     expect("skip" in steps[3] && steps[3].skip.occupier).toBe(4);
   });
+
+  it("只算默认勾的那几处，和用户勾了东西的那几处", () => {
+    const here = where(project(claude, 7), { skills: [skill(1)] });
+    const there = where(global(claude), { skills: [skill(2)] });
+    const ch = read([here, there], () => ({ plan: plan(InstallPlanStatus.InstallReady) }), (x) => x === here);
+    const labels = (steps: ReturnType<typeof copySteps>) => steps.map((x) => ("skill" in x ? x.skill.id : 0));
+    expect(labels(copySteps(s, ch))).toEqual([1]);
+    expect(labels(copySteps(s, toggleItem(ch, items(s, ch, 1).skill(2).ref)))).toEqual([1, 2]);
+  });
 });
 
 describe("照着装的结果怎么归并", () => {
   const s = snapshot();
   const p = where(global(claude), { groups: [group(5, [1, 2, 3])], skills: [skill(1), skill(4)] });
   const result = (skill_id: number, outcome: GroupMemberOutcome) => ({ skill_id, scope: global(claude), outcome }) as GroupMemberResult;
-  const steps = (overwrite: boolean) =>
-    copySteps(
-      s,
-      [p],
-      new Map([
-        [groupKey(p, 5), { members: [member(2, InstallPlanStatus.InstallUntracked)] }],
-        [skillKey(p, 1), { plan: plan(InstallPlanStatus.InstallReady) }],
-        [skillKey(p, 4), { plan: plan(InstallPlanStatus.InstallReady) }],
-      ]),
-      new Set([groupKey(p, 5), skillKey(p, 1), skillKey(p, 4)]),
-      new Set(overwrite ? [groupKey(p, 5)] : []),
-    );
+  const steps = (overwrite: boolean) => {
+    const ch = read([p], (r) => (r.group ? { members: [member(2, InstallPlanStatus.InstallUntracked)] } : { plan: plan(InstallPlanStatus.InstallReady) }));
+    return copySteps(s, overwrite ? toggleOverwrite(ch, items(s, ch).group(5).ref) : ch);
+  };
   const groupResults = [
     result(1, GroupMemberOutcome.MemberInstalled),
     result(2, GroupMemberOutcome.MemberSkipped),
@@ -212,6 +265,13 @@ describe("照着装时装哪些", () => {
   const skill = (id: number) => ({ id, name: `s${id}`, source: { type: SourceType.SourceGitHub, label: "a/a" } }) as Skill;
   // 项目 1、3 在这台机器上，项目 2 不在。
   const projects = [{ id: 1, name: "web" }, { id: 2, name: "old", missing: true }, { id: 3, name: "new" }] as RegisteredProject[];
+  // 经 agentCopy、projectCopy 看装哪些：from 是照着谁，to 是装到哪个 Agent / 项目。
+  const copyFromAgent = (s: Snapshot, from: AgentCode, to: AgentCode) => agentCopy(s, to, 0).places(from);
+  const copySources = (s: Snapshot, to: AgentCode, at: number) => agentCopy(s, to, at).sources.map((x) => x.key);
+  const uncopiedUnmanaged = (s: Snapshot, from: AgentCode, to: AgentCode) => agentCopy(s, to, 0).left(from);
+  const copyFromProject = (s: Snapshot, from: number, to: number) => projectCopy(s, to).places(String(from));
+  const copyProjectSources = (s: Snapshot, to: number) => projectCopy(s, to).sources.map((x) => Number(x.key));
+  const uncopiedProjectUnmanaged = (s: Snapshot, from: number, to: number) => projectCopy(s, to).left(String(from));
   const base = {
     agents,
     projects,
@@ -328,7 +388,7 @@ describe("照着装时装哪些", () => {
           installed(1, at(codex)),
         ],
       });
-      expect(copySources(s, codex, 0).map((a) => a.code)).toEqual([cursor, claude]);
+      expect(copySources(s, codex, 0)).toEqual([cursor, claude]);
       expect(copySources(snapshot({ ...base, skillScopes: [installed(1, at(claude)), installed(1, at(codex))] }), codex, 0)).toEqual([]);
       const onlyMissing = snapshot({ ...base, skillScopes: [installed(1, at(claude, 2), { status: SkillScopeStatus.SkillScopeRootMissing })] });
       expect(copySources(onlyMissing, codex, 0)).toEqual([]);
@@ -348,10 +408,25 @@ describe("照着装时装哪些", () => {
         ],
         groupInstalls: [{ group_id: 7, scope: at(claude, 1) }] as GroupInstall[],
       });
-      expect(copySources(s, codex, 0).map((a) => a.code)).toEqual([cursor, claude]);
-      expect(copySources(s, codex, 1).map((a) => a.code)).toEqual([claude, cursor]);
+      expect(copySources(s, codex, 0)).toEqual([cursor, claude]);
+      expect(copySources(s, codex, 1)).toEqual([claude, cursor]);
       // 项目 3 里谁都没有可以照着装的：照旧装得最多的在前。
-      expect(copySources(s, codex, 3).map((a) => a.code)).toEqual([cursor, claude]);
+      expect(copySources(s, codex, 3)).toEqual([cursor, claude]);
+    });
+
+    it("从项目的作用域页打开时，这个项目排在最前、默认只勾它;各处的标题是地方加装到的 Agent", () => {
+      const s = snapshot({ ...base, skillScopes: [installed(1, at(claude)), installed(2, at(claude, 1)), installed(3, at(claude, 3))] });
+      const kind = agentCopy(s, codex, 3);
+      const places = kind.places(claude);
+      expect(places.map((p) => placeOf(p.to))).toEqual([3, 0, 1]);
+      expect(places.map(kind.byDefault)).toEqual([true, false, false]);
+      expect(places.map((p) => kind.heading(p))).toEqual([
+        // 项目里 Codex 和 Cursor 读同一个目录，合成一处。
+        { name: "new", detail: "Codex、Cursor" },
+        { name: messages().model.global, detail: "Codex" },
+        { name: "web", detail: "Codex、Cursor" },
+      ]);
+      expect(agentCopy(s, codex, 0).places(claude).map(agentCopy(s, codex, 0).byDefault)).toEqual([true, true, true]);
     });
 
     it("未纳管技能带不过来，数出来;读同一个目录的那几处不算", () => {
@@ -455,7 +530,7 @@ describe("照着装时装哪些", () => {
           installed(5, at(claude)),
         ],
       });
-      expect(copyProjectSources(s, 3).map((p) => p.id)).toEqual([2, 1]);
+      expect(copyProjectSources(s, 3)).toEqual([2, 1]);
       const done = snapshot({ ...base, skillScopes: [installed(1, at(claude, 1)), installed(1, at(claude, 3))] });
       expect(copyProjectSources(done, 3)).toEqual([]);
     });
@@ -466,7 +541,7 @@ describe("照着装时装哪些", () => {
         ...base,
         skillScopes: [installed(1, at(codex, 1)), installed(1, at(cursor, 1)), installed(2, at(claude, 2)), installed(3, at(claude, 2))],
       });
-      expect(copyProjectSources(s, 3).map((p) => p.id)).toEqual([2, 1]);
+      expect(copyProjectSources(s, 3)).toEqual([2, 1]);
     });
 
     it("只有空的组安装、没装库里技能的项目不能照着装", () => {

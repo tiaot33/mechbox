@@ -1,4 +1,4 @@
-// 更新计划：对一个集合发起，先看清改了什么，再一次确认同时完成更新和重新安装(issue #131,流程见 update.tsx)。
+// 更新计划：对一个集合发起，先看清改了什么，再一次确认同时完成更新和重新安装(issue #131,执行见 run.ts)。
 // 顶上写来源版本从哪到哪;下面左右两栏，各自滚动：左边是技能(有变化 / 改名 / 删除 / 没变化)、来源里的新技能和装出去的地方，
 // 右边先是风险(新增或改动的脚本、新增的可执行文件)、GitHub 的提交说明，点了「看差异」的技能的文件差异接在后面。
 // 看差异时左边的技能和要换的地方不动，不用来回滚动。弹窗大小固定，读取中和读完一样大。
@@ -7,14 +7,13 @@ import { useEffect, useRef, useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
 import type { CollectionID, PlannedSkill, SkillID, UpdatePlan } from "@bindings/internal/library";
 import { rememberPlanRisks } from "@/lib/plan-risks";
-import { chosenInstallOn, defaultSkills, plannedInstalls } from "@/lib/consent";
+import { chosenInstallOn, defaultSkills, noInstallChoices, plannedInstalls, toggleInstallOn, type InstallChoices } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { changedFiles } from "@/lib/diff";
 import { useT } from "@/lib/i18n";
-import { useSnapshot, type LibraryError } from "@/lib/library";
-import { folderKey } from "@/lib/installs";
+import { currentSnapshot, useSnapshot, type LibraryError } from "@/lib/library";
 import { revisionSummary, revisionText, shortRevision, sourceLabel, collectionName } from "@/lib/source";
-import { Modal, useBusy, useUI } from "@/lib/ui";
+import { Modal, ui, useBusy, useUI } from "@/lib/ui";
 import { MarkIcon } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
@@ -26,8 +25,16 @@ import { ChangedRow, DeletedRow, RenameRow } from "./plan-rows";
 import { Commits, NewSkills, Risks, sectionClass } from "./plan-sections";
 import { reportUpdates } from "./report";
 import { SkillDiff } from "./skill-diff";
-import { runUpdate } from "./update";
+import { runUpdate } from "./run";
 import { planSections, plannedName, stalePlan } from "./update-rules";
+
+// openUpdate 打开集合的更新计划。从技能发起时传 focus:默认只勾这一个，其余折叠;
+// 从跳过记录找回时传 select:默认勾上那几个。
+export function openUpdate(collectionID: CollectionID, opts: { focus?: SkillID; select?: SkillID[] } = {}) {
+  const s = currentSnapshot();
+  if (!s.collections.some((c) => c.id === collectionID)) return;
+  return ui.open((close) => <UpdateDialog collectionID={collectionID} focus={opts.focus} select={opts.select} onClose={() => close()} />);
+}
 
 // usePlan 生成更新计划：打开时读一次来源，重试或计划失效后重新生成(replan);生成时写下的检查结论经 run 的重读带回主界面。
 // 关掉弹窗时取消读取。onLoaded 在每次生成好之后调用，用来定默认勾选;patch 改动已生成的计划里的一个技能(跳过、回答"不是"之后)。
@@ -68,7 +75,7 @@ function usePlan(collectionID: CollectionID, onLoaded: (plan: UpdatePlan) => voi
   return { plan, failed, replan, patch };
 }
 
-export function UpdateDialog({
+function UpdateDialog({
   collectionID,
   focus,
   select,
@@ -86,7 +93,7 @@ export function UpdateDialog({
   const t = tt.plan;
   const label = collectionName(s, collectionID);
   const [checked, setChecked] = useState<Set<SkillID>>(new Set());
-  const [installChoice, setInstallChoice] = useState<Map<string, boolean>>(new Map());
+  const [installChoices, setInstallChoices] = useState<InstallChoices>(noInstallChoices);
   const [expanded, setExpanded] = useState(!focus);
   const [viewing, setViewing] = useState<{ id: SkillID; path: string } | null>(null);
   const [removed, setRemoved] = useState<Set<SkillID>>(new Set());
@@ -106,7 +113,7 @@ export function UpdateDialog({
 
   const { plan, failed, replan, patch } = usePlan(collectionID, (p) => {
     setChecked(defaultSkills(p, focus ? [focus] : select));
-    setInstallChoice(new Map());
+    setInstallChoices(noInstallChoices);
     setConflict(false);
   });
 
@@ -140,8 +147,7 @@ export function UpdateDialog({
   const locked = working || busy;
   const risks = movable.flatMap((p) => (p.risks ?? []).map((r) => ({ p, r })));
   const places = plannedInstalls(plan, checked);
-  // 几个 Agent 共用一个文件夹时只能一起换，勾选按"技能 + 文件夹"算。
-  const installOn = chosenInstallOn(installChoice);
+  const installOn = chosenInstallOn(installChoices);
   const name = (id: SkillID) => plannedName(plan, checked, id);
   const from = revisionSummary(skills.map((p) => p.skill));
   const to = plan.revision ? shortRevision(plan.revision) : "";
@@ -295,7 +301,7 @@ export function UpdateDialog({
           {checked.size > 0 && (
             <>
               <div className={sectionClass}>{t.places}</div>
-              <Places places={places} name={name} on={installOn} onToggle={(p) => setInstallChoice((m) => new Map(m).set(folderKey(p), !installOn(p)))} />
+              <Places places={places} name={name} on={installOn} onToggle={(p) => setInstallChoices((c) => toggleInstallOn(c, p))} />
               <Hint>{t.uncheckedNote}</Hint>
             </>
           )}

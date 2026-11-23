@@ -3,13 +3,14 @@
 import type { Collection, Group } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import { collectionSkills, isLocal, sourceLabel } from "@/lib/source";
+import { collectionSkills, isLocal, missingFromGroup, sourceLabel } from "@/lib/source";
 import { sourceState } from "@/lib/source-state";
-import { missingFromGroup } from "@/features/group/group-rules";
 import { useBusy } from "@/lib/ui";
 import { openGraph } from "@/lib/view";
 import { checkUpdates } from "@/features/update/check";
-import { openHistory, openUpdate, rereadDirectory } from "@/features/update/update";
+import { openHistory } from "@/features/update/update-history";
+import { openUpdate } from "@/features/update/update-dialog";
+import { rereadDirectory } from "@/features/update/update";
 import { previewCollection } from "@/features/fetch/preview";
 import { addCollectionToGroup, createGroup, deleteGroup, renameGroup } from "@/features/group/group";
 import {

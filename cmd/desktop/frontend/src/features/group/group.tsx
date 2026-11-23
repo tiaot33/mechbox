@@ -7,8 +7,7 @@ import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, useSnapshot } from "@/lib/library";
 import { folderPlaces } from "@/lib/installs";
 import { groupName, skillName } from "@/lib/scope";
-import { missingFromGroup } from "@/features/group/group-rules";
-import { sourceLabel } from "@/lib/source";
+import { missingFromGroup, sourceLabel } from "@/lib/source";
 import { Modal, ui } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
@@ -17,7 +16,7 @@ import { DeleteNotes } from "@/components/app/link-notes";
 import { runDeleting } from "@/components/app/delete-check";
 import { LostMentions, lostMentions, ReadsTwiceNotice, toastInstalled } from "@/features/install/install";
 import { runEach, showResults } from "@/components/app/results";
-import { memberRows, placedBy } from "@/components/app/result-rows";
+import { memberRows, placedBy } from "@/lib/result-rows";
 import { addReadsTwice, addedToGroup, groupOnly, inGroup, notInGroup } from "./group-rules";
 
 export async function addSkillToGroup(groupID: GroupID, id: SkillID) {

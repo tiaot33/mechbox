@@ -1,11 +1,10 @@
 // 更新计划里"装出去的地方":勾选这次一起换成新版的地方;用户改过的、文件夹不在了的默认不勾并写明原因;
 // 在 app 外已经换成了这一版的写明不用再换。
 import { SkillScopeStatus, type SkillID, type SkillScopeInspection } from "@bindings/internal/library";
-import { placeKey } from "@/lib/consent";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { agentName, scopeKey } from "@/lib/scope";
-import { canInstall, linkNote } from "@/lib/installs";
+import { canInstall, editedHere, linkNote, placeKey, sourceLatestHere } from "@/lib/installs";
 import { eachPlace, placeLabel, placeNames, mergedScopeKey, sharedWithNote } from "@/lib/places";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -52,12 +51,8 @@ export function Places({
               <label key={placeKey(p)} className={cn("flex flex-wrap items-center gap-x-1.5 gap-y-0.5", canInstall(p) && "cursor-pointer")}>
                 <input type="checkbox" className="shrink-0 accent-primary" checked={on(p)} disabled={!canInstall(p)} onChange={() => onToggle(p)} />
                 <span className="whitespace-nowrap">{name(p.skill_id)}</span>
-                {p.status === SkillScopeStatus.SkillScopeModified &&
-                  (p.source_latest ? (
-                    <span className="update-place-latest text-caption text-muted-foreground">{t.alreadyLatest}</span>
-                  ) : (
-                    <Badge tone="warn">{modified ?? t.modifiedHere}</Badge>
-                  ))}
+                {sourceLatestHere(p) && <span className="update-place-latest text-caption text-muted-foreground">{t.alreadyLatest}</span>}
+                {editedHere(p) && <Badge tone="warn">{modified ?? t.modifiedHere}</Badge>}
                 {p.status === SkillScopeStatus.SkillScopeRootMissing && <Badge>{t.rootMissing}</Badge>}
                 {p.status === SkillScopeStatus.SkillScopeMissing && <Badge tone="critical">{t.folderMissing}</Badge>}
                 {sharedWithNote(s, p).length > 0 && (

@@ -1,8 +1,8 @@
-// 集合与组的先后：拖到同类的前后，恢复默认顺序，以及把旧版拖出来的先后换成交给技能库的完整先后。
+// 集合与组的先后：拖到同类的前后，以及把旧版拖出来的先后换成交给技能库的完整先后。
 import { describe, expect, it } from "vitest";
 import { SourceType, type Collection, type Group } from "@bindings/internal/library";
 import type { Snapshot } from "@/lib/library";
-import { isDefaultOrder, legacyOrder, moved } from "./order-rules";
+import { legacyOrder, moved } from "./order-rules";
 
 const collection = (id: number, label: string, skills: number[] = []) => ({ id, skills, source: { type: SourceType.SourceGitHub, label } }) as Collection;
 const group = (id: number, members: number[] = []) => ({ id, name: `g${id}`, members }) as Group;
@@ -19,17 +19,6 @@ describe("moved", () => {
   it("挪到自己身上、目标不在时不变", () => {
     expect(moved([1, 2, 3], 2, 2, true)).toEqual([1, 2, 3]);
     expect(moved([1, 2, 3], 2, 9, false)).toEqual([1, 2, 3]);
-  });
-});
-
-describe("isDefaultOrder", () => {
-  it("ID 升序(首次入库、新建的先后)是默认顺序", () => {
-    expect(isDefaultOrder([])).toBe(true);
-    expect(isDefaultOrder([1, 2, 5])).toBe(true);
-  });
-
-  it("拖过之后不是", () => {
-    expect(isDefaultOrder([2, 1, 5])).toBe(false);
   });
 });
 

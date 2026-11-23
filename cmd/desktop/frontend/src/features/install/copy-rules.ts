@@ -1,9 +1,10 @@
-// 照着装(copy.tsx)里的判断：照着另一个 Agent、另一个项目装时装哪些，确认框里各项的勾选键、一处标题上的勾选、
-// 要另外说出的改过的与新版的技能，确认后按勾选逐处要做的事和结果怎么归并。默认勾哪些、覆盖哪些见 lib/consent.ts。
+// 照着装(copy.tsx)里的判断：照着另一个 Agent、另一个项目装时可以照着谁、装哪些、哪些未纳管技能带不过去(agentCopy、projectCopy),
+// 确认框里的勾选与要显示的内容(readingCopy、plansToRead、plansRead、copyView 与几个 toggle*),确认后逐处要做的事(copySteps)和结果怎么归并(copyResults)。
+// 勾选怎么记(按作用域加技能或组)是这里的事，弹窗不碰;默认勾哪些、覆盖哪些见 lib/consent.ts。
 // 不碰界面、不调技能库，单元测试见 copy-rules.test.ts。
 import {
   GroupMemberOutcome,
-  SkillScopeStatus,
+  InstallPlanStatus,
   type Agent,
   type AgentCode,
   type Group,
@@ -16,17 +17,18 @@ import {
   type SkillInScope,
   type UnmanagedSkill,
 } from "@bindings/internal/library";
-import { copyable, copyDefaults, copyOverwrites, type CopyPlanned } from "@/lib/consent";
+import { copyable, copyDefaults, copyOverwriteCount, copyOverwrites, copyPlaceByDefault, type CopyPlanned } from "@/lib/consent";
 import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
 import type { Attempt, LibraryError, Snapshot } from "@/lib/library";
-import { errorOccupier, placesIn } from "@/lib/installs";
+import { editedHere, errorOccupier, placeKey, placesIn, sourceLatestHere } from "@/lib/installs";
 import { sortSkills } from "@/lib/pages";
-import { lastSegment } from "@/lib/paths";
-import { mergeAgents, mergedScope, placeCount, sameFolderAt, scopeLabel, type AgentList } from "@/lib/places";
-import { placeOf, scopeKey, scopeOf, type Place, type ScopeKey } from "@/lib/scope";
+import { lastSegment, shortPath } from "@/lib/paths";
+import { agentNameIn, mergeAgents, mergedScope, placeCount, sameFolderAt, scopeLabel, type AgentList } from "@/lib/places";
+import { placeOf, projectName, scopeKey, scopeOf, type Place, type ScopeKey } from "@/lib/scope";
 import { extraCopy, notTakenOver, repoOwned, unmanagedIn } from "@/lib/unmanaged";
-import { memberRows, type ResultRow } from "@/components/app/result-rows";
+import { memberRows, type ResultRow } from "@/lib/result-rows";
+import { toggled } from "@/lib/utils";
 import { occupied } from "./install-rules";
 
 // ---------- 装哪些 ----------
@@ -68,14 +70,14 @@ function copyPlace(s: Snapshot, from: Scope, to: Scope): CopyPlace[] {
   const skills = skillsOf(there.filter((p) => p.direct).map((p) => p.skill_id));
   if (!groups.length && !skills.length) return [];
   const coming = new Set([...skills.map((x) => x.id), ...groups.flatMap((g) => g.members ?? [])]);
-  const modified = there.filter((p) => p.status === SkillScopeStatus.SkillScopeModified && coming.has(p.skill_id));
-  const edited = skillsOf(modified.filter((p) => !p.source_latest).map((p) => p.skill_id));
-  const newer = skillsOf(modified.filter((p) => p.source_latest).map((p) => p.skill_id));
+  const modified = there.filter((p) => coming.has(p.skill_id));
+  const edited = skillsOf(modified.filter(editedHere).map((p) => p.skill_id));
+  const newer = skillsOf(modified.filter(sourceLatestHere).map((p) => p.skill_id));
   const missing = !!s.projects.find((p) => p.id === placeOf(to))?.missing;
   return [{ to, groups, skills, edited, newer, missing }];
 }
 
-export function copyFromAgent(s: Snapshot, from: AgentCode, to: AgentCode): CopyPlace[] {
+function copyFromAgent(s: Snapshot, from: AgentCode, to: AgentCode): CopyPlace[] {
   return [0, ...s.projects.map((p) => p.id)].flatMap((place) =>
     sameFolderAt(s, from, to, place) ? [] : copyPlace(s, scopeOf(from, place), scopeOf(copyTarget(s, to, place), place)),
   );
@@ -84,7 +86,7 @@ export function copyFromAgent(s: Snapshot, from: AgentCode, to: AgentCode): Copy
 // copySources 是可以照着装的 Agent:to 以外、照装时有东西可装的(只在不在这台机器上的项目里有的不算),排在最前的是默认照着的。
 // at 是从哪个作用域页打开的：从全局的(at 为 0)打开时装得最多的在前;从项目的打开时，在这个项目里可以照着装的项数
 // (copyItems,和确认框里这一处标题上的数一样)最多的在前，一样多的(包括谁都没有)再按装得多少排。再一样多的按 Agent 列表顺序。
-export function copySources(s: Snapshot, to: AgentCode, at: Place): Agent[] {
+function copySources(s: Snapshot, to: AgentCode, at: Place): Agent[] {
   const total = (code: AgentCode) => s.skillScopes.filter((p) => p.scope.agent === code).length;
   return s.agents
     .flatMap((a) => {
@@ -99,10 +101,10 @@ export function copySources(s: Snapshot, to: AgentCode, at: Place): Agent[] {
 }
 
 // copyItems 是照装时一处要装的项数：每个组安装、每个直接安装的技能各算一项。
-export const copyItems = (p: CopyPlace) => p.groups.length + p.skills.length;
+const copyItems = (p: CopyPlace) => p.groups.length + p.skills.length;
 
 // UncopiedUnmanaged 是照装带不过去的未纳管技能(见 splitUncopied)。
-export interface UncopiedUnmanaged {
+interface UncopiedUnmanaged {
   unmanaged: UnmanagedSkill[];
   repo: UnmanagedSkill[];
 }
@@ -115,7 +117,7 @@ function splitUncopied(left: UnmanagedSkill[]): UncopiedUnmanaged {
 
 // uncopiedUnmanaged 是 from 里照装带不过去的未纳管技能(按 splitUncopied 分开)。和 to 读同一个目录的那几处不算;
 // to 在同一处已经有同名文件夹的(如 npx skills 从这里链到 to 的那一份)也不算。
-export function uncopiedUnmanaged(s: Snapshot, from: AgentCode, to: AgentCode): UncopiedUnmanaged {
+function uncopiedUnmanaged(s: Snapshot, from: AgentCode, to: AgentCode): UncopiedUnmanaged {
   return splitUncopied(
     s.unmanaged.filter((u) => {
       const place = placeOf(u.scope);
@@ -143,7 +145,7 @@ function projectAgentsUsing(s: Snapshot, project: ProjectID): Agent[] {
 }
 
 // copyFromProject 是照着项目 from 装到项目 to:各 Agent(共用目录的合成一处)在 from 装的，装到 to 里的同一个 Agent。
-export function copyFromProject(s: Snapshot, from: ProjectID, to: ProjectID): CopyPlace[] {
+function copyFromProject(s: Snapshot, from: ProjectID, to: ProjectID): CopyPlace[] {
   if (from === to) return [];
   return projectAgentsUsing(s, from).flatMap((a) => copyPlace(s, scopeOf(a.code, from), scopeOf(a.code, to)));
 }
@@ -155,14 +157,14 @@ function projectInstalls(s: Snapshot, project: ProjectID): number {
 
 // copyProjectSources 是可以照着装到 to 的其他已登记项目：装了库里技能、有东西可装的(只有空的组安装的不算),
 // 装得最多的在前(默认选它),一样多的按项目列表顺序。
-export function copyProjectSources(s: Snapshot, to: ProjectID): RegisteredProject[] {
+function copyProjectSources(s: Snapshot, to: ProjectID): RegisteredProject[] {
   return s.projects
     .filter((p) => projectInstalls(s, p.id) > 0 && copyFromProject(s, p.id, to).length > 0)
     .sort((a, b) => projectInstalls(s, b.id) - projectInstalls(s, a.id));
 }
 
 // uncopiedProjectUnmanaged 是项目 from 里照装带不过去的未纳管技能(按 splitUncopied 分开;to 里同一个 Agent 已有同名文件夹的不算)。
-export function uncopiedProjectUnmanaged(s: Snapshot, from: ProjectID, to: ProjectID): UncopiedUnmanaged {
+function uncopiedProjectUnmanaged(s: Snapshot, from: ProjectID, to: ProjectID): UncopiedUnmanaged {
   return splitUncopied(
     mergeAgents(s, from, s.agents).flatMap((a) => {
       const there = folderNamesIn(s, scopeKey(scopeOf(a.code, to)));
@@ -171,42 +173,240 @@ export function uncopiedProjectUnmanaged(s: Snapshot, from: ProjectID, to: Proje
   );
 }
 
-// ---------- 确认框与结果 ----------
-
-// 勾选的 key:一处按装到的作用域区分，再加技能或组。
-export const skillKey = (p: CopyPlace, id: number) => `s:${scopeKey(p.to)}:${id}`;
-export const groupKey = (p: CopyPlace, id: number) => `g:${scopeKey(p.to)}:${id}`;
-// checkedCounts 是勾上的项里直接安装的技能数和组安装数(按键的前缀分),写在确认按钮上。
-export function checkedCounts(checked: ReadonlySet<string>): { skills: number; groups: number } {
-  const skills = [...checked].filter((k) => k.startsWith("s:")).length;
-  return { skills, groups: checked.size - skills };
+// CopyKind 是一种照装：sources 是可以照着的(key 是 Agent 代号或项目 ID,排在最前的是默认照着的);选了照着谁(from,sources 里的 key)之后，
+// places 是要装到的各处，left 是带不过去的未纳管技能(unmanaged 入库以后才能照着装，repo 归项目仓库管、随项目仓库走);
+// heading 是一处的标题，取时才写，跟随当前界面语言;byDefault 是一处的各项打开时默认勾不勾。
+export interface CopyKind {
+  sources: { key: string; name: string }[];
+  places: (from: string) => CopyPlace[];
+  left: (from: string) => UncopiedUnmanaged;
+  heading: (p: CopyPlace) => { name: string; detail?: string };
+  byDefault: (p: CopyPlace) => boolean;
 }
-export const placeKeys = (p: CopyPlace) => [...p.groups.map((g) => groupKey(p, g.id)), ...p.skills.map((x) => skillKey(p, x.id))];
 
-// Planned 是一项的安装计划(见 consent.ts 的 CopyPlanned),读不出时的错误是技能库错误。Plans 按 skillKey / groupKey 存。
+// agentCopy 是作用域页的「照着其他 Agent 装」:装到 Agent to,at 是从哪个作用域页打开的(全局为 0)。按地方分开列出;
+// 从项目的作用域页打开时这个项目排在最前、默认只勾它(见 consent.ts 的 copyPlaceByDefault)。
+export function agentCopy(s: Snapshot, to: AgentCode, at: Place): CopyKind {
+  return {
+    sources: copySources(s, to, at).map((a) => ({ key: a.code, name: a.name })),
+    places: (from) => {
+      const all = copyFromAgent(s, from as AgentCode, to);
+      const here = (p: CopyPlace) => !!at && placeOf(p.to) === at;
+      return [...all.filter(here), ...all.filter((p) => !here(p))];
+    },
+    left: (from) => uncopiedUnmanaged(s, from as AgentCode, to),
+    heading: (p) => ({
+      name: placeOf(p.to) ? projectName(s, placeOf(p.to)) : messages().model.global,
+      detail: agentNameIn(s, p.to.agent, placeOf(p.to)),
+    }),
+    byDefault: (p) => copyPlaceByDefault(at, placeOf(p.to)),
+  };
+}
+
+// projectCopy 是项目页的「照着其他项目装」:装到项目 to,按 Agent 分开列出，全局不在范围内;每一处都默认勾。
+export function projectCopy(s: Snapshot, to: ProjectID): CopyKind {
+  return {
+    sources: copyProjectSources(s, to).map((p) => ({ key: String(p.id), name: projectName(s, p.id) })),
+    places: (from) => copyFromProject(s, Number(from), to),
+    left: (from) => uncopiedProjectUnmanaged(s, Number(from), to),
+    heading: (p) => ({ name: agentNameIn(s, p.to.agent, to) }),
+    byDefault: () => true,
+  };
+}
+
+// ---------- 确认框 ----------
+
+// 勾选的键：一处按装到的作用域区分，再加技能或组。只在这个文件里用。
+const skillKey = (p: CopyPlace, id: number) => `s:${scopeKey(p.to)}:${id}`;
+const groupKey = (p: CopyPlace, id: number) => `g:${scopeKey(p.to)}:${id}`;
+const placeKeys = (p: CopyPlace) => [...p.groups.map((g) => groupKey(p, g.id)), ...p.skills.map((x) => skillKey(p, x.id))];
+
+// Planned 是一项的安装计划(见 consent.ts 的 CopyPlanned):直接安装是一个技能的，组安装是各成员的;读不出时是技能库错误。
 export type Planned = Exclude<CopyPlanned, { error: unknown }> | { error: LibraryError };
-export type Plans = Map<string, Planned>;
 
-// canCheck 是这一项能不能勾：组安装读出计划就能勾，直接安装还要装得了(没被占用)。
-export const canCheck = (planned: Planned | undefined) =>
-  !!planned && ("members" in planned || ("plan" in planned && copyable(planned.plan.status)));
+const state = Symbol("copy");
 
-// comingNotes 是确认框里另外说的、勾上的项里会装过来的技能：直接安装勾上了，或随勾上的组安装装过来。
-// edited 是原来那里被改过的(装过来的是库里的版本),newer 是原来那里在 app 外更新到了作者新版的，都按名字去重。
-export function comingNotes(places: CopyPlace[], checked: ReadonlySet<string>) {
+// CopyChoices 是确认框里的一份勾选，绑着选了照着谁之后要装的各处(places)与各处打开时默认勾不勾(byDefault):
+// 换了照着谁就换一份(readingCopy),不会把上一份的勾选和计划套到新的各处上。里面怎么记弹窗不碰，只经下面几个函数读、改。
+export type CopyChoices = {
+  readonly [state]: {
+    places: CopyPlace[];
+    byDefault: (p: CopyPlace) => boolean;
+    plans: ReadonlyMap<string, Planned> | null;
+    checked: ReadonlySet<string>;
+    overwrite: ReadonlySet<string>;
+  };
+};
+
+// CopyItemRef 标识确认框里的一项(一处的一个组安装或一个直接安装的技能),弹窗只拿它交回 toggleItem、toggleOverwrite。
+export type CopyItemRef = string & { readonly copyItem: unique symbol };
+
+// readingCopy 是还没读出安装计划时的确认框：什么都没勾，标题的勾选框点不了、确认按钮点不了。
+export function readingCopy(places: CopyPlace[], byDefault: (p: CopyPlace) => boolean): CopyChoices {
+  return { [state]: { places, byDefault, plans: null, checked: new Set(), overwrite: new Set() } };
+}
+
+// CopyPlanRead 是要读的一项安装计划：哪个技能直接安装、或哪个组组安装到哪个作用域。项目不在这台机器上的那几处不读。
+export type CopyPlanRead = { scope: Scope } & ({ skill: Skill } | { group: Group });
+
+const readsOf = (c: CopyChoices) =>
+  c[state].places
+    .filter((p) => !p.missing)
+    .flatMap((p) => [
+      ...p.skills.map((x) => ({ key: skillKey(p, x.id), read: { scope: p.to, skill: x } as CopyPlanRead })),
+      ...p.groups.map((g) => ({ key: groupKey(p, g.id), read: { scope: p.to, group: g } as CopyPlanRead })),
+    ]);
+
+// plansToRead 是打开确认框(或换了照着谁)之后要逐项读的安装计划，读到的按同样的先后交给 plansRead。
+export const plansToRead = (c: CopyChoices): CopyPlanRead[] => readsOf(c).map((x) => x.read);
+
+// plansRead 是读完安装计划之后的确认框：planned 与 plansToRead 一一对应。默认勾的那几处(byDefault)按 copyDefaults 勾上，
+// 其余各处照样列出，点那一处的标题才按默认规则整处勾上;组安装的「覆盖」默认一个都不勾。
+export function plansRead(c: CopyChoices, planned: readonly Planned[]): CopyChoices {
+  const { places, byDefault } = c[state];
+  const entries = readsOf(c).map((x, i): [string, Planned] => [x.key, planned[i]]);
+  const meant = new Set(places.filter((p) => !p.missing && byDefault(p)).flatMap(placeKeys));
+  const defaults = copyDefaults(entries.filter(([key]) => meant.has(key)));
+  return { [state]: { places, byDefault, plans: new Map(entries), checked: defaults.checked, overwrite: defaults.overwrite } };
+}
+
+// CopySkillItem 是确认框里一个直接安装的技能：can 是能不能勾，untracked 是这里有不是库装的同名文件夹(勾上即覆盖,
+// 值是文件夹，按界面惯例缩写),reason 是读不出计划或被占用、装不了的原因。
+export interface CopySkillItem {
+  ref: CopyItemRef;
+  skill: Skill;
+  on: boolean;
+  can: boolean;
+  untracked?: string;
+  reason?: string;
+}
+
+// CopyGroupItem 是确认框里一个组安装：can 是读出了计划、能勾;coming 是要装过来的成员数(已装着的不算，读出计划才有);
+// reason 是读不出计划的原因;overwrite 是勾没勾「覆盖」,untracked 是要装过来的成员里有不是库装的同名文件夹的(勾上组安装时问要不要覆盖),
+// blocked 是被占用、装不了的成员。
+export interface CopyGroupItem {
+  ref: CopyItemRef;
+  group: Group;
+  on: boolean;
+  can: boolean;
+  coming?: number;
+  reason?: string;
+  overwrite: boolean;
+  untracked: string[];
+  blocked: string[];
+}
+
+// CopyPlaceView 是确认框里的一处：key 区分各处;on 是标题的勾选框勾不勾(有勾上的项就勾),mixed 是只勾了能勾的一部分(半勾);
+// count 是这一处要装的项数(每个组安装、每个直接安装的技能各算一项)。项目不在这台机器上的一处(place.missing)没有可勾的项。
+export interface CopyPlaceView {
+  key: string;
+  place: CopyPlace;
+  on: boolean;
+  mixed: boolean;
+  count: number;
+  groups: CopyGroupItem[];
+  skills: CopySkillItem[];
+}
+
+// CopyView 是确认框要显示的全部内容。reading 是安装计划还没读完;confirm 是确认按钮上的直接安装的技能数、组安装数、
+// 会覆盖几个不是库装的同名文件夹(见 consent.ts 的 copyOverwriteCount),ready 是能不能点;
+// edited、newer 是勾上的项里会装过来的技能(直接安装勾上了，或随勾上的组安装装过来)里，原来那里被改过的、在 app 外更新到作者新版的，按名字去重。
+export interface CopyView {
+  reading: boolean;
+  places: CopyPlaceView[];
+  confirm: { skills: number; groups: number; overwrites: number; ready: boolean };
+  edited: string[];
+  newer: string[];
+}
+
+export function copyView(s: Snapshot, c: CopyChoices): CopyView {
+  const { places, plans, checked, overwrite } = c[state];
+  const skillItem = (p: CopyPlace, x: Skill): CopySkillItem => {
+    const key = skillKey(p, x.id);
+    const planned = plans?.get(key);
+    const single = planned && "plan" in planned ? planned.plan : undefined;
+    const reason =
+      planned && "error" in planned ? describeError(planned.error) : single && !copyable(single.status) ? occupied(s, x.id, single).reason : undefined;
+    return {
+      ref: key as CopyItemRef,
+      skill: x,
+      on: checked.has(key),
+      can: !!single && !reason,
+      untracked: single && copyOverwrites(single.status) ? shortPath(s, single.folder) : undefined,
+      reason,
+    };
+  };
+  const groupItem = (p: CopyPlace, g: Group): CopyGroupItem => {
+    const key = groupKey(p, g.id);
+    const planned = plans?.get(key);
+    const members = planned && "members" in planned ? planned.members : undefined;
+    const coming = members?.filter((x) => x.status !== InstallPlanStatus.InstallAlreadyInstalled) ?? [];
+    return {
+      ref: key as CopyItemRef,
+      group: g,
+      on: checked.has(key),
+      can: !!members,
+      coming: members ? coming.length : undefined,
+      reason: planned && "error" in planned ? describeError(planned.error) : undefined,
+      overwrite: overwrite.has(key),
+      untracked: coming.filter((x) => copyOverwrites(x.status)).map((x) => x.name),
+      blocked: coming.filter((x) => !copyable(x.status)).map((x) => x.name),
+    };
+  };
+  const placeView = (p: CopyPlace): CopyPlaceView => {
+    const groups = p.groups.map((g) => groupItem(p, g));
+    const skills = p.skills.map((x) => skillItem(p, x));
+    const items = [...groups, ...skills];
+    const on = items.filter((i) => i.on).length;
+    return {
+      key: scopeKey(p.to),
+      place: p,
+      on: on > 0,
+      mixed: on > 0 && on < items.filter((i) => i.can).length,
+      count: copyItems(p),
+      groups,
+      skills,
+    };
+  };
+  const counted = [...checked];
+  const skills = counted.filter((k) => k.startsWith("s:")).length;
   const coming = (p: CopyPlace, id: number) =>
     checked.has(skillKey(p, id)) || p.groups.some((g) => checked.has(groupKey(p, g.id)) && (g.members ?? []).includes(id));
   const names = (pick: (p: CopyPlace) => Skill[]) => [...new Set(places.flatMap((p) => pick(p).filter((x) => coming(p, x.id)).map((x) => x.name)))];
-  return { edited: names((p) => p.edited), newer: names((p) => p.newer) };
+  return {
+    reading: !plans,
+    places: places.map(placeView),
+    confirm: {
+      skills,
+      groups: checked.size - skills,
+      overwrites: plans ? copyOverwriteCount(plans, checked, overwrite) : 0,
+      ready: !!plans && checked.size > 0,
+    },
+    edited: names((p) => p.edited),
+    newer: names((p) => p.newer),
+  };
 }
 
-// togglePlace 是一处标题上的勾选(keys 是这一处的各项):有勾上的就全部取消;一个都没勾时按 copyDefaults 整处勾上
-// (不管这一处打开时默认勾不勾，不替用户勾上要覆盖的),读不出计划的项不勾。
-export function togglePlace(checked: ReadonlySet<string>, keys: string[], plans: Plans | null): Set<string> {
+const withChecked = (c: CopyChoices, change: Partial<Pick<CopyChoices[typeof state], "checked" | "overwrite">>): CopyChoices => ({
+  [state]: { ...c[state], ...change },
+});
+
+// toggleItem 勾上或取消一项;组安装的「覆盖」不跟着变，再勾上组安装时还是原来的样子。
+export const toggleItem = (c: CopyChoices, ref: CopyItemRef) => withChecked(c, { checked: toggled(c[state].checked, ref) });
+
+// toggleOverwrite 勾上或取消一个组安装的「覆盖」。
+export const toggleOverwrite = (c: CopyChoices, ref: CopyItemRef) => withChecked(c, { overwrite: toggled(c[state].overwrite, ref) });
+
+// togglePlace 是点一处的标题：有勾上的就整处取消;一个都没勾时按 copyDefaults 整处勾上(不管这一处打开时默认勾不勾，
+// 不替用户勾上要覆盖的),读不出计划的项不勾。还没读完安装计划时不变。
+export function togglePlace(c: CopyChoices, place: CopyPlace): CopyChoices {
+  const { plans, checked } = c[state];
+  if (!plans) return c;
+  const keys = placeKeys(place);
   const next = new Set(checked);
   const any = keys.some((k) => next.has(k));
   const entries = keys.flatMap((k): [string, Planned][] => {
-    const v = plans?.get(k);
+    const v = plans.get(k);
     return v ? [[k, v]] : [];
   });
   const defaults = copyDefaults(entries).checked;
@@ -214,13 +414,10 @@ export function togglePlace(checked: ReadonlySet<string>, keys: string[], plans:
     if (any) next.delete(k);
     else if (defaults.has(k)) next.add(k);
   }
-  return next;
+  return withChecked(c, { checked: next });
 }
 
-// meantPlaces 是确认后结果里要算的那几处：默认勾的，和用户勾了东西的;其余各处装不了、读不出计划的不算没装上。
-export function meantPlaces(places: CopyPlace[], byDefault: (p: CopyPlace) => boolean, checked: ReadonlySet<string>): CopyPlace[] {
-  return places.filter((p) => byDefault(p) || placeKeys(p).some((k) => checked.has(k)));
-}
+// ---------- 确认后 ----------
 
 // CopyStep 是确认后的一步:skip 是不装、直接写进结果的一行(项目不在这台机器上、读不出计划、被占用);
 // group 是一次组安装(overwrite 是勾了"覆盖",untracked 是其中有不是库装的同名文件夹的成员),skill 是一次直接安装。label 是结果里的写法。
@@ -229,12 +426,16 @@ export type CopyStep =
   | { group: Group; scope: Scope; label: string; overwrite: boolean; untracked: Set<SkillID> }
   | { skill: Skill; scope: Scope; label: string; overwrite: boolean };
 
-// copySteps 按勾选逐处要做的事：每一处先组安装，再直接安装;没勾的项不装，读不出计划、被占用的照样写进结果。
-export function copySteps(s: Snapshot, places: CopyPlace[], plans: Plans, checked: ReadonlySet<string>, overwrite: ReadonlySet<string>): CopyStep[] {
+// copySteps 按勾选逐处要做的事：只算默认勾的那几处和用户勾了东西的那几处，其余各处装不了、读不出计划的不算没装上;
+// 每一处先组安装，再直接安装;没勾的项不装，读不出计划、被占用的照样写进结果。还没读完安装计划时什么都不做。
+export function copySteps(s: Snapshot, c: CopyChoices): CopyStep[] {
+  const { places, byDefault, plans, checked, overwrite } = c[state];
+  if (!plans) return [];
   const t = messages().copy;
   const a = messages().actions;
   const skip = (label: string, reason: string, occupier?: SkillID): CopyStep => ({ skip: { label, outcome: a.memberSkipped, tone: "warn", reason, occupier } });
-  return places.flatMap((p): CopyStep[] => {
+  const meant = places.filter((p) => byDefault(p) || placeKeys(p).some((k) => checked.has(k)));
+  return meant.flatMap((p): CopyStep[] => {
     const scope = p.to;
     const where = scopeLabel(s, scope);
     if (p.missing) return [skip(where, t.missingPlace)];
@@ -292,7 +493,7 @@ export function copyResults(s: Snapshot, steps: CopyStep[], outcomes: readonly (
       return;
     }
     if ("skill" in step) {
-      installed.add(`${scopeKey(step.scope)}:${step.skill.id}`);
+      installed.add(placeKey({ skill_id: step.skill.id, scope: step.scope }));
       placed.push({ skill_id: step.skill.id, scope: step.scope });
       return;
     }
@@ -300,7 +501,7 @@ export function copyResults(s: Snapshot, steps: CopyStep[], outcomes: readonly (
     const results = o.value;
     for (const r of results) {
       if (r.outcome !== GroupMemberOutcome.MemberInstalled) continue;
-      installed.add(`${scopeKey(step.scope)}:${r.skill_id}`);
+      installed.add(placeKey({ skill_id: r.skill_id, scope: step.scope }));
       placed.push({ skill_id: r.skill_id, scope: step.scope });
     }
     const skipped = results.filter((r) => r.outcome === GroupMemberOutcome.MemberSkipped);

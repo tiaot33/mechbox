@@ -1,5 +1,5 @@
 // 更新流程里的判断：更新计划弹窗(update-dialog.tsx)列哪几节、要不要提醒留在旧版本，
-// 本地目录来源的"重新读取"(update.tsx)是更新、补装还是转去更新计划由用户拿主意，补装时哪几处算进带来当前版本的那次更新，
+// 本地目录来源的"重新读取"(update.ts)是更新、补装还是转去更新计划由用户拿主意，补装时哪几处算进带来当前版本的那次更新，
 // 更新完成后的汇报(report.tsx)给不给回滚、重试时怎么分批，以及一次更新的结果怎么汇总(UpdateOutcome)。
 // 默认勾哪些技能、哪些地方见 lib/consent.ts。不碰界面、不调技能库，单元测试见 update-rules.test.ts。
 import {
@@ -19,12 +19,12 @@ import {
   type UpdateRecordID,
   type UpdateResult,
 } from "@bindings/internal/library";
-import { defaultSkills, placeKey } from "@/lib/consent";
+import { defaultSkills } from "@/lib/consent";
 import type { LibraryError, Snapshot } from "@/lib/library";
 import { isLocal } from "@/lib/source";
 import { placeCount, sameMergedScope } from "@/lib/places";
 import { scopeKey } from "@/lib/scope";
-import { skillScopesOf } from "@/lib/installs";
+import { placeKey, skillScopesOf } from "@/lib/installs";
 
 export interface UpdateOutcome {
   label: string;

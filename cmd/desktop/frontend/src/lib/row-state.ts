@@ -5,17 +5,17 @@
 // 第一条就是行上画的那一条，点图标做的也是它的事;components/ui/badge 的 AlertIcon 照这个先后画。
 // 来源那边的情况取 lib/source-state 的结论，和节标题的计数、更新页、左栏的更新数说的是同一回事。
 import { SkillScopeStatus, type MissingMention, type Skill, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
-import { messages } from "@/lib/i18n";
-import { installedWhere, needsReinstall, reinstallAlerts, skillScopeIn, placesAt, skillScopeStatus } from "@/lib/installs";
-import { byLevel, byUrgency, type Mark } from "@/lib/level";
-import type { Snapshot } from "@/lib/library";
-import { missingAt, missingNames } from "@/lib/mentions";
-import { shortPath } from "@/lib/paths";
-import { eachPlace, globalScopesSeenFrom, placeLabel } from "@/lib/places";
-import { sameNameInLibrary, sameNameNote, skillSameNameNote } from "@/lib/same-name";
-import { groupName, scopeKey, type ScopeKey } from "@/lib/scope";
-import { sourceState } from "@/lib/source-state";
-import { extraCopyNote, folderNotes, identicalIn, identicalState, notTakenOver, skillFileProblemText, unmanagedIn } from "@/lib/unmanaged";
+import { messages } from "./i18n";
+import { installedWhere, needsReinstall, reinstallAlerts, skillScopeIn, placesAt, skillScopeStatus } from "./installs";
+import { byLevel, byUrgency, type Mark } from "./level";
+import type { Snapshot } from "./library";
+import { missingAt, missingNames } from "./mentions";
+import { shortPath } from "./paths";
+import { eachPlace, globalScopesSeenFrom, placeLabel } from "./places";
+import { sameNameInLibrary, sameNameNote, skillSameNameNote } from "./same-name";
+import { groupName, scopeKey, type ScopeKey } from "./scope";
+import { sourceState } from "./source-state";
+import { extraCopyNote, folderNotes, identicalIn, identicalState, notTakenOver, skillFileProblemText, unmanagedIn } from "./unmanaged";
 
 // RowAlert 是一行状态里的一条：级别、一句话(label)、悬停的说明(tip);className 是测试钩子。
 // plan 表示点它打开这个技能所在集合的更新计划;twins 是库里同名的另外几个技能，点它弹出菜单选一个打开。这两样由行组件接上。
@@ -118,7 +118,7 @@ export function skillRowState(s: Snapshot, skill: Skill, install: RowInstall, el
   if (!identical) return { alerts: inOrder(alerts, true), plain: scopePlain(install, !!at.fromGlobal) };
   // 这里那一份不是 app 装的：先写这一句和归谁管，提醒只跟一个图标;和库里的旧版本一样时标出来。归项目仓库、作者自己管的不跟库里的版本走，和旧版本一样也不提醒。
   const state = identicalState(skill, identical, s.info.home_dir);
-  const stale = skillScopeStatus(SkillScopeStatus.SkillScopeStale);
+  const stale = skillScopeStatus({ status: SkillScopeStatus.SkillScopeStale });
   return {
     alerts: inOrder([...(state.stale && !foreign ? [{ tone: stale.tone as Mark, label: stale.label }] : []), ...alerts], false),
     plain: { text: state.text, title: state.title },
@@ -163,7 +163,7 @@ function skillAlerts(s: Snapshot, skill: Skill, { at, here, places: covered }: R
 function placeAlerts(s: Snapshot, places: SkillScopeInspection[]): RowAlert[] {
   const by = new Map<string, RowAlert>();
   for (const p of places.filter(needsReinstall)) {
-    const st = skillScopeStatus(p.status, p.source_latest);
+    const st = skillScopeStatus(p);
     const had = by.get(st.label);
     const at = places.length > 1 ? placeLabel(s, p) : undefined;
     by.set(st.label, had ? { ...had, tip: [had.tip, at].filter(Boolean).join("\n") } : ({ ...st, tip: at } as RowAlert));
