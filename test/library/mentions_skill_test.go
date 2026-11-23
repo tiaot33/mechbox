@@ -225,6 +225,28 @@ func TestListLostMentionsCountsOnlyWhatTheRemovalBreaks(t *testing.T) {
 	requireLibraryError(t, err, library.InvalidArgument)
 }
 
+// Cursor 和 Codex 共用 ~/.agents/skills,ship 装在这里,Cursor 自己的目录里还有一个指回它的旧链接:卸载时旧链接随真实文件夹一并删掉,
+// 所以 Cursor 里提到 ship 的技能也会找不到它,和 Codex 的一起列出。
+func TestListLostMentionsCountsStaleLinksAsGone(t *testing.T) {
+	t.Parallel()
+	lib, agents, cursor := cursorHome(t)
+	skills := fetchMentionSource(t, lib, mentionSource(t, map[string]string{"entry": "Run /ship.\n", "ship": "# ship\n"}))
+	codex := library.GlobalScope(library.AgentCodex)
+	entry, ship := skills["entry"].ID, skills["ship"].ID
+	install(t, lib, ship, codex)
+	install(t, lib, entry, codex)
+	if err := os.MkdirAll(cursor, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(agents, "ship"), filepath.Join(cursor, "ship")); err != nil {
+		t.Fatal(err)
+	}
+	requireMissingMentions(t, listLostMentions(t, lib, library.SkillInScope{SkillID: ship, Scope: codex}), []library.MissingMention{
+		{SkillID: entry, Scope: codex, Name: "ship", MentionedSkillID: ship},
+		{SkillID: entry, Scope: library.GlobalScope("cursor"), Name: "ship", MentionedSkillID: ship},
+	})
+}
+
 // 装着的技能自己的文件夹被删掉了时,它已经不在那里,不再提示它找不到别的技能。
 func TestListMissingMentionsSkipsSkillsWhoseFolderIsGone(t *testing.T) {
 	t.Parallel()
