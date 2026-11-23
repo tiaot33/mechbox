@@ -374,7 +374,7 @@ func (s *LibraryService) PlanFetchUnmanaged(ctx context.Context, req library.Pla
 }
 
 func (s *LibraryService) FindUnmanagedSources(ctx context.Context, req library.FindUnmanagedSourcesRequest) (found []library.FoundUnmanagedSource, err error) {
-	s.inBackground(ctx, func() { found, err = s.lib.FindUnmanagedSources(ctx, req) })
+	s.reads.take(ctx, func() { found, err = s.lib.FindUnmanagedSources(ctx, req) })
 	return settle(found, err)(ctx)
 }
 
@@ -444,11 +444,11 @@ func (s *LibraryService) SyncSettings(ctx context.Context) (library.SyncSettings
 	return settle(s.lib.SyncSettings(ctx))(ctx)
 }
 
-// SetSyncSettings 存好以后让应用设置服务按新设置重新判断要不要自动推送，不再等上次失败后的重试间隔。
+// SetSyncSettings 存好以后让自动推送按新设置重新判断要不要推送，不再等上次失败后的重试间隔。
 func (s *LibraryService) SetSyncSettings(ctx context.Context, settings library.SyncSettings) error {
 	err := s.lib.SetSyncSettings(ctx, settings)
-	if err == nil && s.afterSyncSettings != nil {
-		s.afterSyncSettings()
+	if err == nil {
+		s.pushes.syncSettingsChanged()
 	}
 	return settleErr(ctx, err)
 }
@@ -457,11 +457,11 @@ func (s *LibraryService) SyncStatus(ctx context.Context) (library.SyncStatus, er
 	return settle(s.lib.SyncStatus(ctx))(ctx)
 }
 
-// SyncPush 推送后让应用设置服务记下这次出的问题(或清掉上次的):手动推送和自动推送共用一份提示。
+// SyncPush 推送后让自动推送记下这次出的问题(或清掉上次的):手动推送和自动推送共用一份提示。
 func (s *LibraryService) SyncPush(ctx context.Context) (library.SyncPushResult, error) {
 	result, err := s.lib.SyncPush(ctx)
-	if ctx.Err() == nil && s.afterSyncPush != nil {
-		s.afterSyncPush(result, err)
+	if ctx.Err() == nil {
+		s.pushes.record(result, err)
 	}
 	return settle(result, err)(ctx)
 }
@@ -474,11 +474,11 @@ func (s *LibraryService) PlanSyncPull(ctx context.Context, backup library.SyncBa
 	return settle(s.lib.PlanSyncPull(ctx, backup))(ctx)
 }
 
-// SyncPull 拉回后让应用设置服务重新读出设置:拉回的库带着推送那台机器的设置。
+// SyncPull 拉回后重新读出应用设置并立即生效:拉回的库带着推送那台机器的设置。
 func (s *LibraryService) SyncPull(ctx context.Context, backup library.SyncBackupID) error {
 	err := s.lib.SyncPull(ctx, backup)
-	if err == nil && s.afterPull != nil {
-		s.afterPull(context.WithoutCancel(ctx))
+	if err == nil {
+		s.settings.reload(context.WithoutCancel(ctx))
 	}
 	return settleErr(ctx, err)
 }

@@ -114,7 +114,7 @@ jobs:
           path: dist
           merge-multiple: true
 
-      # SHA256SUMS.txt 这个文件名也是 app 里的更新依赖的约定(cmd/desktop/release.go)。
+      # SHA256SUMS.txt 这个文件名也是 app 里的更新依赖的约定(cmd/desktop/internal/release)。
       - name: Checksums
         working-directory: dist
         run: sha256sum -- * > ../SHA256SUMS.txt && mv ../SHA256SUMS.txt .
@@ -142,7 +142,7 @@ jobs:
             --generate-notes \
             "${flags[@]}"
 
-      # release.json 是 app 检查新版本时读的发布信息(cmd/desktop/release.go):发布后从 GitHub 读回这个版本(含生成的更新说明)
+      # release.json 是 app 检查新版本时读的发布信息(cmd/desktop/internal/release):发布后从 GitHub 读回这个版本(含生成的更新说明)
       # 再作为附件传上去。app 从 releases/latest/download 下载它，不经 GitHub API,不占 API 的匿名额度。
       - name: Release manifest
         env:

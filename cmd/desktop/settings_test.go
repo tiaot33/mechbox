@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/tiaot33/mechbox/internal/library"
 	"github.com/tiaot33/mechbox/internal/library/platformtest"
@@ -52,11 +51,12 @@ func TestSettingsFillUnreadableValuesWithDefaults(t *testing.T) {
 }
 
 func TestSettingsFromOldDatabaseIgnoreAndDropGlassTint(t *testing.T) {
-	lib := startLibrary(t)
+	s := newTestServices(t, tempLibrary(t))
+	lib := s.lib
 	if err := lib.lib.SetAppSettings(t.Context(), map[string]string{"dock_badge": "false", "glass_tint": "0.4", "glass_tint_dark": "1.2"}); err != nil {
 		t.Fatal(err)
 	}
-	service := startApp(t, lib)
+	service := s.start(t).app
 	want := defaultSettings()
 	want.DockBadge = false
 	got := service.Settings()
@@ -80,9 +80,10 @@ func TestSettingsFromOldDatabaseIgnoreAndDropGlassTint(t *testing.T) {
 	}
 }
 
+// 不认得的取值不保存，也不生效;存成了的立即生效(菜单文字跟着换、自动检查被唤醒)。
 func TestSaveSettingsRejectsUnknownValues(t *testing.T) {
-	lib := startLibrary(t)
-	service := startApp(t, lib)
+	s := newTestServices(t, tempLibrary(t))
+	lib, service := s.lib, s.app
 	for _, change := range []func(*Settings){
 		func(s *Settings) { s.CheckInterval = "sometimes" },
 		func(s *Settings) { s.Language = "fr" },
@@ -91,13 +92,19 @@ func TestSaveSettingsRejectsUnknownValues(t *testing.T) {
 		func(s *Settings) { s.FoldBelow = 11 },
 	} {
 		settings := defaultSettings()
+		settings.Language = LanguageEn
 		change(&settings)
 		if _, err := service.SaveSettings(t.Context(), settings); err == nil {
 			t.Fatalf("SaveSettings(%+v) accepted an unknown value", settings)
 		}
 	}
-	if values, err := lib.lib.AppSettings(t.Context()); err != nil || len(values) != 0 {
-		t.Fatalf("app settings = %v, %v; want nothing written for rejected changes", values, err)
+	if values, err := lib.lib.AppSettings(t.Context()); err != nil || len(values) != 0 || woken(service.checks) || menuLanguage(service) != "" {
+		t.Fatalf("app settings = %v, %v; want nothing written or applied for rejected changes", values, err)
+	}
+	saved := defaultSettings()
+	saved.Language = LanguageEn
+	if _, err := service.SaveSettings(t.Context(), saved); err != nil || !woken(service.checks) || menuLanguage(service) != LanguageEn {
+		t.Fatalf("SaveSettings = %v; want the saved settings applied", err)
 	}
 }
 
@@ -131,8 +138,8 @@ func TestWSLDistroSetting(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	platformtest.EmulateWSL(t, "sh")
-	lib := startLibrary(t)
-	app := startApp(t, lib)
+	s := startServices(t, tempLibrary(t))
+	lib, app := s.lib, s.app
 
 	settings := app.Settings()
 	settings.WSLDistro = "saved-distro"
@@ -164,11 +171,11 @@ func TestWSLDistroUnavailableAtStartup(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	platformtest.EmulateWSL(t, "/nonexistent/sh")
 	path := filepath.Join(t.TempDir(), "library.db")
-	created := NewLibraryService(path)
-	if err := created.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
+	created, err := openLibrary(path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := created.ServiceShutdown(); err != nil {
+	if err := created.Close(); err != nil {
 		t.Fatal(err)
 	}
 	db, err := sql.Open("sqlite3", path)
@@ -181,12 +188,8 @@ func TestWSLDistroUnavailableAtStartup(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	lib := NewLibraryService(path)
-	if err := lib.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lib.ServiceShutdown() })
-	app := startApp(t, lib)
+	s := startServices(t, path)
+	lib, app := s.lib, s.app
 	if got := app.Settings().WSLDistro; got != "late-distro" {
 		t.Fatalf("WSLDistro = %q; want the stored one", got)
 	}
@@ -207,5 +210,38 @@ func TestWSLDistroUnavailableAtStartup(t *testing.T) {
 	}
 	if app.WSLDistroError() != "" || !strings.HasPrefix(lib.lib.HomeDirectory(), `\\wsl.localhost\late-distro\`) {
 		t.Fatalf("after retry: error %q, home %q", app.WSLDistroError(), lib.lib.HomeDirectory())
+	}
+}
+
+// 设置里选的 WSL 发行版启动时没能打开时，检测的是 Windows 本机，先不提示添加 Agent,也不记下;重试打开了再提示。
+func TestAgentPoolWaitsForTheChosenDistro(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	platformtest.EmulateWSL(t, "/nonexistent/sh")
+	path := tempLibrary(t)
+	upgraded := newTestServices(t, path)
+	if err := upgraded.lib.lib.SetAppSettings(t.Context(), map[string]string{firstOpenDoneKey: "true"}); err != nil {
+		t.Fatal(err)
+	}
+	upgraded.stop(t)
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO config(key, value) VALUES ('wsl_distro', 'pool-distro')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	app := startServices(t, path).app
+	if app.WSLDistroError() == "" || app.AgentPoolPending() {
+		t.Fatalf("distro error %q, AgentPoolPending() = %v; want the offer held back while the chosen distro is unavailable", app.WSLDistroError(), app.AgentPoolPending())
+	}
+	platformtest.EmulateWSL(t, "sh")
+	if err := app.RetryWSLDistro(t.Context()); err != nil {
+		t.Fatalf("RetryWSLDistro: %v", err)
+	}
+	if !app.AgentPoolPending() {
+		t.Fatal("AgentPoolPending() once the distro opened = false; want true")
 	}
 }

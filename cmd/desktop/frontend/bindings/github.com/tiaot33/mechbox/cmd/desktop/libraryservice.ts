@@ -378,7 +378,7 @@ export function SetSkillNote(id: library$0.SkillID, note: string): $CancellableP
 }
 
 /**
- * SetSyncSettings 存好以后让应用设置服务按新设置重新判断要不要自动推送，不再等上次失败后的重试间隔。
+ * SetSyncSettings 存好以后让自动推送按新设置重新判断要不要推送，不再等上次失败后的重试间隔。
  */
 export function SetSyncSettings(settings: library$0.SyncSettings): $CancellablePromise<void> {
     return $Call.ByID(1864003768, settings);
@@ -393,14 +393,14 @@ export function SkipUpdate(req: library$0.SkipRequest): $CancellablePromise<void
 }
 
 /**
- * SyncPull 拉回后让应用设置服务重新读出设置:拉回的库带着推送那台机器的设置。
+ * SyncPull 拉回后重新读出应用设置并立即生效:拉回的库带着推送那台机器的设置。
  */
 export function SyncPull(backup: library$0.SyncBackupID): $CancellablePromise<void> {
     return $Call.ByID(4037992934, backup);
 }
 
 /**
- * SyncPush 推送后让应用设置服务记下这次出的问题(或清掉上次的):手动推送和自动推送共用一份提示。
+ * SyncPush 推送后让自动推送记下这次出的问题(或清掉上次的):手动推送和自动推送共用一份提示。
  */
 export function SyncPush(): $CancellablePromise<library$0.SyncPushResult> {
     return $Call.ByID(377176661);

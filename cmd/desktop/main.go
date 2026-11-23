@@ -14,13 +14,18 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/updater"
 
+	"github.com/tiaot33/mechbox/cmd/desktop/internal/release"
+	"github.com/tiaot33/mechbox/cmd/desktop/internal/system"
 	"github.com/tiaot33/mechbox/internal/library"
 )
 
@@ -44,32 +49,30 @@ func main() {
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		showStartupError(err, path)
+		system.ShowStartupError(startupErrorText(err, path))
 		os.Exit(1)
 	}
 }
 
+// run 先建好 app(单实例检查在这里，第二个实例随即退出，不会打开技能库),再打开技能库，
+// 然后建好设置、自动检查更新、自动推送、Dock 角标、卸载与新版本这几块，交给两个绑定服务后运行。
 func run(path string) error {
-	libraryService := NewLibraryService(path)
-	appService := NewAppService(libraryService)
+	var shell atomic.Pointer[AppService]
+	var removal *uninstaller
 	app := application.New(application.Options{
 		Name:        "Mechbox",
 		Description: "管理 coding agent 的 Agent Skills",
-		// 绑定方法返回的错误只经服务自己的 MarshalError 编码(下面应用级的那个管不到方法调用);
-		// 不挂上时 Wails 直接编码 error 值，errors.Join 包着的 *library.Error 会编成 {},前端拿不到 code 与 details。
-		Services: []application.Service{
-			application.NewServiceWithOptions(libraryService, application.ServiceOptions{MarshalError: marshalError}),
-			application.NewServiceWithOptions(appService, application.ServiceOptions{MarshalError: marshalError}),
-		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
 		},
 		MarshalError: marshalError,
-		// 单实例锁在 application.New 里检查：第二个实例在这里就退出，不会打开技能库。
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: singleInstanceID(path),
+			// 技能库打开(升级数据库可能要一会儿)前窗口还没交给 AppService,这时再启动一份不用做什么：窗口随后就会显示。
 			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
-				appService.showWindow()
+				if a := shell.Load(); a != nil {
+					a.showWindow()
+				}
 			},
 		},
 		// 不让 macOS 在最后一个窗口关闭时退出：留在菜单栏时窗口只是隐藏，退出与否由 AppService 按设置决定。
@@ -78,8 +81,13 @@ func run(path string) error {
 		},
 		// 卸载时等各服务关闭、技能库关上以后才删数据库。macOS 上 Run 不返回，只能放在 PostShutdown;
 		// server 模式下 PostShutdown 在 Quit 的 goroutine 里跑,Run 可能先返回、进程随即退出，所以 Run 之后再调一次(只做一遍)。
-		PostShutdown: appService.afterShutdown,
+		// 两处都在 Run 开始以后，那时 removal 已经建好。
+		PostShutdown: func() { removal.afterShutdown() },
 	})
+	lib, err := openLibrary(path)
+	if err != nil {
+		return err
+	}
 
 	windowOptions := application.WebviewWindowOptions{
 		Name:      mainWindowName,
@@ -95,17 +103,47 @@ func run(path string) error {
 			Backdrop: application.MacBackdropTranslucent,
 			TitleBar: application.MacTitleBarHiddenInset,
 		},
-		// 透明背景让 macOS 原生毛玻璃透出来;底色由前端的半透明层给出。Windows 上的标题栏与底色见 setPlatformWindowOptions。
+		// 透明背景让 macOS 原生毛玻璃透出来;底色由前端的半透明层给出。Windows 上的标题栏与底色见 system.SetWindowOptions。
 		BackgroundColour: application.NewRGBA(0, 0, 0, 0),
 		URL:              "/",
 	}
-	setPlatformWindowOptions(&windowOptions)
+	system.SetWindowOptions(&windowOptions)
 	window := app.Window.NewWithOptions(windowOptions)
-	appService.attach(app, window)
 
-	err := app.Run()
-	appService.afterShutdown()
+	libraryService, appService := newServices(path, lib, app.Event, app.Logger, func() { go app.Quit() })
+	removal = appService.removal
+	appService.attach(app, window, release.New(appVersion(), filepath.Dir(path), app.Updater, library.ProxyFunc(lib), func(next http.RoundTripper) http.RoundTripper {
+		return library.GitHubMirrorTransport(lib, next)
+	}))
+	// 绑定方法返回的错误只经服务自己的 MarshalError 编码(上面应用级的那个管不到方法调用);
+	// 不挂上时 Wails 直接编码 error 值，errors.Join 包着的 *library.Error 会编成 {},前端拿不到 code 与 details。
+	// LibraryService 先启动、后关闭：AppService 启动时读设置，关闭时停下后台的检查与推送，都要技能库开着。
+	app.RegisterService(application.NewServiceWithOptions(libraryService, application.ServiceOptions{MarshalError: marshalError}))
+	app.RegisterService(application.NewServiceWithOptions(appService, application.ServiceOptions{MarshalError: marshalError}))
+	shell.Store(appService)
+
+	err = app.Run()
+	removal.afterShutdown()
 	return err
+}
+
+// newServices 建好两个绑定服务和它们共用的几块：应用设置、轮流读来源、Dock 角标、自动检查更新、自动推送与卸载。
+// app、窗口与新版本由 run 经 AppService.attach 补上;测试用它得到和运行时同样接好的一套。
+func newServices(path string, lib *library.Library, events emitter, log *slog.Logger, quit func()) (*LibraryService, *AppService) {
+	settings := newSettingsStore(lib, events, log)
+	reads := newSourceReads()
+	badge := &dockBadge{lib: lib, settings: settings}
+	pushes := newAutoPush(lib, events, log)
+	libraryService := &LibraryService{path: path, lib: lib, settings: settings, pushes: pushes, reads: reads}
+	appService := &AppService{
+		settings: settings,
+		checks:   newAutoCheck(lib, settings, reads, badge, events, log),
+		pushes:   pushes,
+		badge:    badge,
+		removal:  newUninstaller(lib, path, quit),
+	}
+	settings.changed = appService.settingsChanged
+	return libraryService, appService
 }
 
 // singleInstanceID 是单实例锁的 ID:打开真实技能库时是 bundleID,不管是装好的 app 还是用 MECHBOX_LIBRARY 指向它的开发版;
@@ -128,7 +166,7 @@ func resolveLibraryPath(path string) string {
 	for {
 		if resolved, err := filepath.EvalSymlinks(existing); err == nil {
 			path = filepath.Join(resolved, missing)
-			if !caseSensitive(resolved) {
+			if !system.CaseSensitive(resolved) {
 				path = strings.ToLower(path)
 			}
 			return path

@@ -9,7 +9,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
+	"github.com/tiaot33/mechbox/cmd/desktop/internal/system"
+	"github.com/tiaot33/mechbox/cmd/desktop/internal/trash"
 	"github.com/tiaot33/mechbox/internal/library"
 )
 
@@ -37,46 +40,52 @@ type UninstallResult struct {
 	Uninstalled bool `json:"uninstalled"`
 }
 
-// UninstallApp 卸载 Mechbox：按选项把装出去的技能文件夹移到废纸篓
-// (先现查各处状态：已经不在的、在不在这台机器上的项目里的跳过，选了保留改过的时跳过用户改过的),然后退出;
-// 退出时技能库关上以后，再删除数据库(连同存在里面的设置、令牌与同步设置)与系统给应用留下的数据，
-// 并把应用移到废纸篓(移不动时在 Finder 中选中它)。
-// 移文件夹中途失败时返回错误、不退出，数据库还在，已经移走的那几处之后巡检为文件夹不在了，重试时跳过。S3 上的备份不动。
-func (a *AppService) UninstallApp(ctx context.Context, opts UninstallOptions) (UninstallResult, error) {
+// uninstaller 是卸载 Mechbox:按选项移走装出去的技能文件夹，然后退出;退出时技能库关上以后，再删除数据库与系统给应用留下的数据。
+type uninstaller struct {
+	lib     *library.Library
+	path    string
+	discard func(path string) error
+	quit    func()
+
+	mu           sync.Mutex
+	uninstalling bool
+	uninstalled  bool
+	removeOnce   sync.Once
+}
+
+func newUninstaller(lib *library.Library, path string, quit func()) *uninstaller {
+	return &uninstaller{lib: lib, path: path, discard: trash.Discard, quit: quit}
+}
+
+// uninstall 见 AppService.UninstallApp。
+func (u *uninstaller) uninstall(ctx context.Context, opts UninstallOptions) (UninstallResult, error) {
 	if !opts.Folders.valid() {
 		return UninstallResult{}, fmt.Errorf("unknown folders option %q", opts.Folders)
 	}
-	a.mu.Lock()
-	if a.uninstalling {
-		a.mu.Unlock()
+	u.mu.Lock()
+	if u.uninstalling {
+		u.mu.Unlock()
 		return UninstallResult{}, errors.New("uninstall already in progress")
 	}
-	a.uninstalling = true
-	a.mu.Unlock()
+	u.uninstalling = true
+	u.mu.Unlock()
 	if opts.Folders != "" && opts.Folders != FoldersKeep {
-		if err := a.trashFolders(ctx, opts.Folders == FoldersKeepModified); err != nil {
-			a.stopUninstalling()
+		if err := u.trashFolders(ctx, opts.Folders == FoldersKeepModified); err != nil {
+			u.mu.Lock()
+			u.uninstalling = false
+			u.mu.Unlock()
 			return UninstallResult{}, err
 		}
 	}
-	a.mu.Lock()
-	a.uninstalled = true
-	a.mu.Unlock()
-	if a.app != nil {
-		// 在另一个 goroutine 里退出，这次调用先返回给前端。
-		go a.app.Quit()
-	}
+	u.mu.Lock()
+	u.uninstalled = true
+	u.mu.Unlock()
+	u.quit()
 	return UninstallResult{Uninstalled: true}, nil
 }
 
-func (a *AppService) stopUninstalling() {
-	a.mu.Lock()
-	a.uninstalling = false
-	a.mu.Unlock()
-}
-
-func (a *AppService) trashFolders(ctx context.Context, keepModified bool) error {
-	places, err := a.library.lib.InspectSkillScopes(ctx, library.SkillScopeFilter{})
+func (u *uninstaller) trashFolders(ctx context.Context, keepModified bool) error {
+	places, err := u.lib.InspectSkillScopes(ctx, library.SkillScopeFilter{})
 	if err != nil {
 		return err
 	}
@@ -88,7 +97,7 @@ func (a *AppService) trashFolders(ctx context.Context, keepModified bool) error 
 		case keepModified && place.Status == library.SkillScopeModified:
 			continue
 		}
-		if err := a.discard(place.Folder); err != nil {
+		if err := u.discard(place.Folder); err != nil {
 			return err
 		}
 		done[place.Folder] = true
@@ -96,15 +105,16 @@ func (a *AppService) trashFolders(ctx context.Context, keepModified bool) error 
 	return nil
 }
 
-func (a *AppService) afterShutdown() {
-	a.mu.Lock()
-	uninstalled := a.uninstalled
-	a.mu.Unlock()
+// afterShutdown 在各服务关闭、技能库关上以后删数据库与系统给应用留下的数据;只在卸载确认了时做，只做一遍。
+func (u *uninstaller) afterShutdown() {
+	u.mu.Lock()
+	uninstalled := u.uninstalled
+	u.mu.Unlock()
 	if !uninstalled {
 		return
 	}
-	a.removeOnce.Do(func() {
-		if err := errors.Join(removeAppData(a.library.path), removeFromSystem()); err != nil {
+	u.removeOnce.Do(func() {
+		if err := errors.Join(removeAppData(u.path), system.RemoveFromSystem(bundleID)); err != nil {
 			fmt.Fprintln(os.Stderr, "uninstall:", err)
 		}
 	})
