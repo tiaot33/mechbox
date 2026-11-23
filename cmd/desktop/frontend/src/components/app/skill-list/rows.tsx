@@ -333,13 +333,15 @@ function Where({ skill }: { skill: Skill }) {
   return (
     <span
       className={cn(
-        "skill-where flex min-w-0 items-center gap-[0.3em] text-caption",
+        "skill-where flex min-w-0 items-center gap-[0.3em] overflow-hidden text-caption",
         w.bad ? "text-foreground" : w.text ? "text-foreground-secondary" : "text-muted-foreground",
       )}
       title={w.title || undefined}
     >
+      {/* 只有名字一段收缩:「全局」和项目名不缩，比整列(减去两段间距)还长时才截;两段之间的空格不占位(间距由 gap 给),读屏和复制时有它。 */}
       {w.agents && <span className="min-w-0 truncate">{w.agents}</span>}
-      <span className="min-w-0 shrink-[0.001] truncate">{w.level || t.notInstalled}</span>
+      {w.agents && " "}
+      <span className={cn("shrink-0 truncate", w.agents ? "max-w-[calc(100%-0.3em)]" : "max-w-full")}>{w.level || t.notInstalled}</span>
     </span>
   );
 }
