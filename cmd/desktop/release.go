@@ -85,7 +85,19 @@ func releaseOf(r *release.Release) *Release {
 	if r == nil {
 		return nil
 	}
-	return &Release{Version: r.Version, Notes: r.Notes, PublishedAt: r.PublishedAt, PageURL: r.PageURL, Manual: ManualReason(r.Manual)}
+	return &Release{Version: r.Version, Notes: r.Notes, PublishedAt: r.PublishedAt, PageURL: r.PageURL, Manual: manualOf(r.Manual)}
+}
+
+func manualOf(reason release.ManualReason) ManualReason {
+	switch reason {
+	case release.ManualPackage:
+		return ManualPackage
+	case release.ManualLocation:
+		return ManualLocation
+	case release.ManualAsset:
+		return ManualAsset
+	}
+	return ""
 }
 
 func failureOf(f *release.InstallFailure) *InstallFailure {

@@ -23,6 +23,7 @@ type autoCheck struct {
 	log      *slog.Logger
 	wake     chan struct{}
 
+	// mu 也包住读设置：同一份设置下消费「刚打开」的标记。
 	mu          sync.Mutex
 	opened      bool
 	lastAttempt time.Time
@@ -32,25 +33,14 @@ func newAutoCheck(lib *library.Library, settings *settingsStore, reads *sourceRe
 	return &autoCheck{lib: lib, settings: settings, reads: reads, badge: badge, events: events, log: log, wake: make(chan struct{}, 1), opened: true}
 }
 
-// run 在 ctx 取消前一直定时检查;刚开始时算作打开了一次。
-func (c *autoCheck) run(ctx context.Context) {
-	c.badge.refresh(ctx)
-	tick := time.NewTicker(time.Minute)
-	defer tick.Stop()
-	for {
-		if collections := c.due(ctx, time.Now()); len(collections) > 0 {
-			c.check(ctx, collections)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		case <-c.wake:
-		}
+// tick 看一次是否到了，到了就检查;由 AppService 的后台循环每分钟(或被唤醒时)调用。
+func (c *autoCheck) tick(ctx context.Context) {
+	if collections := c.due(ctx, time.Now()); len(collections) > 0 {
+		c.check(ctx, collections)
 	}
 }
 
-// poke 让 run 不等下一分钟、马上再看一次(设置变了时)。
+// poke 让后台循环不等下一分钟、马上再看一次(设置变了时)。
 func (c *autoCheck) poke() {
 	select {
 	case c.wake <- struct{}{}:
@@ -67,8 +57,8 @@ func (c *autoCheck) reopened() {
 }
 
 func (c *autoCheck) due(ctx context.Context, now time.Time) []library.CollectionID {
-	settings := c.settings.current()
 	c.mu.Lock()
+	settings := c.settings.current()
 	opened, last := c.opened, c.lastAttempt
 	c.opened = false
 	c.mu.Unlock()

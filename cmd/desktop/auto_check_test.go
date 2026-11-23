@@ -64,7 +64,12 @@ func TestAutoCheckDue(t *testing.T) {
 
 	c := s.app.checks
 	due := func(settings Settings, opened bool, last time.Time, now time.Time) []library.CollectionID {
-		c.settings.settings, c.opened, c.lastAttempt = settings, opened, last
+		c.settings.mu.Lock()
+		c.settings.settings = settings
+		c.settings.mu.Unlock()
+		c.mu.Lock()
+		c.opened, c.lastAttempt = opened, last
+		c.mu.Unlock()
 		return c.due(t.Context(), now)
 	}
 	daily := defaultSettings()
@@ -131,7 +136,6 @@ func TestAutoCheckTellsFrontendWhenChecked(t *testing.T) {
 func TestReopenedWindowCountsAsOpening(t *testing.T) {
 	s := newTestServices(t, tempLibrary(t))
 	c := s.app.checks
-	c.settings.settings.CheckInterval = CheckOnOpen
 	c.mu.Lock()
 	c.opened = false
 	c.mu.Unlock()

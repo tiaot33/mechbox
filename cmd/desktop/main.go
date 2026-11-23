@@ -111,12 +111,10 @@ func run(path string) error {
 	window := app.Window.NewWithOptions(windowOptions)
 
 	libraryService, appService := newServices(path, lib, app.Event, app.Logger, func() { go app.Quit() })
-	appService.app, appService.window = app, window
-	appService.releases = release.New(release.FeedURL(), appVersion(), filepath.Dir(path), app.Updater, library.ProxyFunc(lib), func(next http.RoundTripper) http.RoundTripper {
-		return library.GitHubMirrorTransport(lib, next)
-	})
 	removal = appService.removal
-	appService.attach()
+	appService.attach(app, window, release.New(appVersion(), filepath.Dir(path), app.Updater, library.ProxyFunc(lib), func(next http.RoundTripper) http.RoundTripper {
+		return library.GitHubMirrorTransport(lib, next)
+	}))
 	// 绑定方法返回的错误只经服务自己的 MarshalError 编码(上面应用级的那个管不到方法调用);
 	// 不挂上时 Wails 直接编码 error 值，errors.Join 包着的 *library.Error 会编成 {},前端拿不到 code 与 details。
 	// LibraryService 先启动、后关闭：AppService 启动时读设置，关闭时停下后台的检查与推送，都要技能库开着。
@@ -130,7 +128,7 @@ func run(path string) error {
 }
 
 // newServices 建好两个绑定服务和它们共用的几块：应用设置、轮流读来源、Dock 角标、自动检查更新、自动推送与卸载。
-// app、窗口与新版本由 run 补上;测试用它得到和运行时同样接好的一套。
+// app、窗口与新版本由 run 经 AppService.attach 补上;测试用它得到和运行时同样接好的一套。
 func newServices(path string, lib *library.Library, events emitter, log *slog.Logger, quit func()) (*LibraryService, *AppService) {
 	settings := newSettingsStore(lib, events, log)
 	reads := newSourceReads()
@@ -144,6 +142,7 @@ func newServices(path string, lib *library.Library, events emitter, log *slog.Lo
 		badge:    badge,
 		removal:  newUninstaller(lib, path, quit),
 	}
+	settings.changed = appService.settingsChanged
 	return libraryService, appService
 }
 

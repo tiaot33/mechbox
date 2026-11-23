@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"slices"
 	"sync"
 
 	"github.com/tiaot33/mechbox/internal/library"
@@ -12,11 +11,12 @@ import (
 
 // settingsStore 是应用设置的读写：设置页里的一组设置(存在技能库的应用设置里)、这台机器上已经做过的一次性的事
 // (第一次打开、按检测结果提示添加 Agent),以及各 Agent 全局目录所在的 WSL 发行版和它启动时没能打开的原因。
-// 设置换了(保存或拉回)以后，依次交给 onChange 登记的各方，让它们立即生效。
+// 设置换了(保存或拉回)以后交给 changed,让它立即生效;changed 由 newServices 在开始运行前填上。
 type settingsStore struct {
-	lib    *library.Library
-	events emitter
-	log    *slog.Logger
+	lib     *library.Library
+	events  emitter
+	log     *slog.Logger
+	changed func(context.Context, Settings)
 
 	saveMu sync.Mutex
 
@@ -25,18 +25,10 @@ type settingsStore struct {
 	firstOpen   bool
 	offerPool   bool
 	distroError string
-	changed     []func(context.Context, Settings)
 }
 
 func newSettingsStore(lib *library.Library, events emitter, log *slog.Logger) *settingsStore {
 	return &settingsStore{lib: lib, events: events, log: log, settings: defaultSettings()}
-}
-
-// onChange 登记设置换了以后要做的事;保存、拉回之后按登记的先后调用。
-func (s *settingsStore) onChange(f func(context.Context, Settings)) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.changed = append(s.changed, f)
 }
 
 // load 在启动时从技能库读出设置，换到存着的 WSL 发行版;选了发行版而打不开时，技能库留在 Windows 本机的全局目录，
@@ -100,7 +92,7 @@ func (s *settingsStore) save(ctx context.Context, settings Settings) (Settings, 
 		s.distroError = ""
 		s.mu.Unlock()
 	}
-	s.notify(ctx, settings)
+	s.changed(context.WithoutCancel(ctx), settings)
 	return settings, nil
 }
 
@@ -148,17 +140,8 @@ func (s *settingsStore) reload(ctx context.Context) {
 	if keep != pulled {
 		warn(s.log, s.write(ctx, settings, &keep), "settings unwritable, first open not kept after pull")
 	}
-	s.notify(ctx, settings)
+	s.changed(context.WithoutCancel(ctx), settings)
 	go s.events.Emit(settingsReloadedEvent)
-}
-
-func (s *settingsStore) notify(ctx context.Context, settings Settings) {
-	s.mu.Lock()
-	changed := slices.Clone(s.changed)
-	s.mu.Unlock()
-	for _, f := range changed {
-		f(context.WithoutCancel(ctx), settings)
-	}
 }
 
 // takeFirstOpen 见 AppService.FirstOpen。

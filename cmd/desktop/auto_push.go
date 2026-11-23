@@ -36,20 +36,10 @@ func newAutoPush(lib *library.Library, events emitter, log *slog.Logger) *autoPu
 	return &autoPush{lib: lib, events: events, log: log, wake: make(chan struct{}, 1)}
 }
 
-// run 在 ctx 取消前一直定时推送。
-func (p *autoPush) run(ctx context.Context) {
-	tick := time.NewTicker(time.Minute)
-	defer tick.Stop()
-	for {
-		if p.due(ctx, time.Now()) {
-			p.push(ctx)
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-tick.C:
-		case <-p.wake:
-		}
+// tick 看一次是否到了，到了就推送;由 AppService 的后台循环在自动检查之后调用。
+func (p *autoPush) tick(ctx context.Context) {
+	if p.due(ctx, time.Now()) {
+		p.push(ctx)
 	}
 }
 

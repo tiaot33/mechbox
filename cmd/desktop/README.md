@@ -160,11 +160,12 @@ cmd/desktop/
 ├── startup_error.go        启动失败时提示框的文字：原因与数据库位置，按系统语言(各平台怎么弹见 internal/system)
 ├── library_service.go      绑定服务：数据库位置(含 MECHBOX_LIBRARY)与打开、环境信息（含应用版本）、配置状态
 ├── library_methods.go      绑定服务：逐个转发 Library 的全部方法;拉回后让应用设置重读，推送、改同步设置后告诉自动推送
-├── app_service.go          绑定服务：开放给前端的应用方法，窗口与菜单栏图标(关闭窗口后留在菜单栏、重新打开),设置变了时让菜单文字、外观与 Dock 角标跟着变
+├── app_service.go          绑定服务：开放给前端的应用方法，窗口与菜单栏图标(关闭窗口后留在菜单栏、重新打开),设置变了时让菜单文字、外观与 Dock 角标跟着变;
+│                           自动检查更新与自动推送的后台循环(每分钟一轮，同一轮先检查、后推送)
 ├── settings.go             应用设置：字段、默认值(含界面语言、外观的设置值),与技能库应用设置(Library.AppSettings)之间的转换
 ├── settings_store.go       应用设置的读写：保存、拉回后重读，这台机器打开过 app 与提示过添加 Agent 的记录，WSL 发行版与它打不开的原因
-├── auto_check.go           自动检查更新的定时，读来源的几件事轮流进行(与给未纳管技能找来源共用),Dock 角标
-├── auto_push.go            自动推送的定时与上一次推送出的问题
+├── auto_check.go           自动检查更新是否到期与检查，读来源的几件事轮流进行(与给未纳管技能找来源共用),Dock 角标
+├── auto_push.go            自动推送是否到期与推送，上一次推送出的问题
 ├── uninstall.go            卸载 Mechbox：移走文件夹，退出后删数据库与系统给应用留下的数据
 ├── release.go              Mechbox 新版本给前端的类型与方法(检查、下载、安装在 internal/release)
 ├── menu.go                 Go 这边画的菜单文字(菜单栏图标的菜单、macOS 顶部菜单栏),随界面语言切换

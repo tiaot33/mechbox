@@ -1,8 +1,12 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -103,6 +107,23 @@ func (s *testServices) stop(t *testing.T) {
 func startServices(t *testing.T, path string) *testServices {
 	t.Helper()
 	return newTestServices(t, path).start(t)
+}
+
+// woken 报告自动检查是否被唤醒过，并清掉这次唤醒;只在没启动后台循环时用。
+func woken(c *autoCheck) bool {
+	select {
+	case <-c.wake:
+		return true
+	default:
+		return false
+	}
+}
+
+// menuLanguage 是 Go 这边画的菜单现在用的语言。
+func menuLanguage(a *AppService) Language {
+	a.menus.mu.Lock()
+	defer a.menus.mu.Unlock()
+	return a.menus.language
 }
 
 // startLibrary 打开一个临时的技能库，返回接好的 LibraryService。
@@ -225,27 +246,6 @@ func TestAgentPoolIsOfferedOnceAfterUpgrade(t *testing.T) {
 	}
 }
 
-// 设置里选的 WSL 发行版启动时没能打开时,检测的是 Windows 本机,先不提示添加 Agent,也不记下;发行版打开后再提示。
-func TestAgentPoolWaitsForTheChosenDistro(t *testing.T) {
-	s := newTestServices(t, tempLibrary(t))
-	if err := s.lib.lib.SetAppSettings(t.Context(), map[string]string{firstOpenDoneKey: "true"}); err != nil {
-		t.Fatal(err)
-	}
-	app := s.start(t).app
-	app.settings.mu.Lock()
-	app.settings.distroError = "distro unavailable"
-	app.settings.mu.Unlock()
-	if app.AgentPoolPending() {
-		t.Fatal("AgentPoolPending() while the chosen distro is unavailable = true; want false")
-	}
-	app.settings.mu.Lock()
-	app.settings.distroError = ""
-	app.settings.mu.Unlock()
-	if !app.AgentPoolPending() {
-		t.Fatal("AgentPoolPending() once the distro opened = false; want true")
-	}
-}
-
 // 设置读不出时用默认值，不当作第一次打开，也不拿默认值覆盖库里的设置。
 func TestFirstOpenLeavesUnreadableSettingsAlone(t *testing.T) {
 	s := newTestServices(t, tempLibrary(t))
@@ -270,15 +270,14 @@ func TestFirstOpenLeavesUnreadableSettingsAlone(t *testing.T) {
 	}
 }
 
-// 拉回后设置换成拉回的那份库里的，立即生效;这台机器已经打开过的记录保留，WSL 发行版不变。
+// 拉回后设置换成拉回的那份库里的，立即生效(菜单文字跟着换、自动检查被唤醒);这台机器已经打开过的记录保留，WSL 发行版不变。
 func TestSettingsFollowPulledLibrary(t *testing.T) {
-	s := startServices(t, tempLibrary(t))
+	s := newTestServices(t, tempLibrary(t))
 	lib, app := s.lib, s.app
+	app.settings.load(t.Context())
 	if !app.FirstOpen() {
 		t.Fatal("FirstOpen() = false; want true")
 	}
-	var applied []Settings
-	app.settings.onChange(func(_ context.Context, settings Settings) { applied = append(applied, settings) })
 	if err := lib.lib.SetAppSettings(t.Context(), map[string]string{"language": "en", "dock_badge": "false"}); err != nil {
 		t.Fatal(err)
 	}
@@ -288,11 +287,64 @@ func TestSettingsFollowPulledLibrary(t *testing.T) {
 	if got := app.Settings(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Settings after pull = %+v; want %+v", got, want)
 	}
-	if len(applied) != 1 || !reflect.DeepEqual(applied[0], want) {
-		t.Fatalf("settings applied after pull = %+v; want the pulled ones once", applied)
+	if got := menuLanguage(app); got != LanguageEn || !woken(app.checks) {
+		t.Fatalf("after pull: menu language %q, auto check woken %v; want the pulled settings applied", got, !woken(app.checks))
 	}
 	s.events.waitFor(t, settingsReloadedEvent)
 	if values, err := lib.lib.AppSettings(t.Context()); err != nil || values[firstOpenDoneKey] != "true" {
 		t.Fatalf("app settings after pull = %v, %v; want first open kept", values, err)
+	}
+}
+
+// 同一轮自动检查更新与自动推送都到期时，先检查、后推送：推送出去的备份带着这次检查的结论。
+func TestBackgroundChecksBeforePushingInTheSameRound(t *testing.T) {
+	var mu sync.Mutex
+	var order []string
+	var recording atomic.Bool
+	note := func(what string) {
+		if recording.Load() {
+			mu.Lock()
+			order = append(order, what)
+			mu.Unlock()
+		}
+	}
+	var archive bytes.Buffer
+	w := zip.NewWriter(&archive)
+	f, _ := w.Create("remote/SKILL.md")
+	_, _ = f.Write([]byte("---\nname: remote\ndescription: remote\n---\n"))
+	_ = w.Close()
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		note("check")
+		_, _ = w.Write(archive.Bytes())
+	}))
+	t.Cleanup(source.Close)
+	bucket := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			_, _ = w.Write([]byte("<ListBucketResult></ListBucketResult>"))
+		case http.MethodPut:
+			note("push")
+			w.Header().Set("ETag", `"pushed"`)
+		}
+	}))
+	t.Cleanup(bucket.Close)
+
+	s := newTestServices(t, tempLibrary(t))
+	fetchSkill(t, s.lib.lib, library.PreviewFetchRequest{Input: source.URL + "/remote.zip"}, "remote")
+	onOpen := defaultSettings()
+	onOpen.CheckInterval = CheckOnOpen
+	if _, err := s.app.SaveSettings(t.Context(), onOpen); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.lib.SetSyncSettings(t.Context(), library.SyncSettings{Endpoint: bucket.URL, Bucket: "bucket", AccessKeyID: "key", SecretAccessKey: "secret", AutoPush: library.SyncDaily}); err != nil {
+		t.Fatal(err)
+	}
+	recording.Store(true)
+	s.start(t)
+	s.events.waitFor(t, syncPushedEvent)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(order) == 0 || order[0] != "check" || order[len(order)-1] != "push" {
+		t.Fatalf("requests in the first round = %v; want the update check before the push", order)
 	}
 }

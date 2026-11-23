@@ -2,4 +2,4 @@
 
 package release
 
-func FeedURL() string { return releaseFeed }
+func feedURL() string { return releaseFeed }

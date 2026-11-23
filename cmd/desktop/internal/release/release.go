@@ -100,8 +100,8 @@ type Releases struct {
 
 // mirror 为 nil 时检查和下载都直连;否则新版本信息与安装包经它包过的 transport 发出(GitHub 镜像加速),
 // 校验值仍直连这个版本在 GitHub 上的固定地址(见 checksumURL)。
-func New(feedURL, current, stateDir string, u *updater.Updater, proxyFunc func(*http.Request) (*url.URL, error), mirror func(http.RoundTripper) http.RoundTripper) *Releases {
-	return newReleases(feedURL, current, stateDir, u, releaseTarget, proxyFunc, mirror)
+func New(current, stateDir string, u *updater.Updater, proxyFunc func(*http.Request) (*url.URL, error), mirror func(http.RoundTripper) http.RoundTripper) *Releases {
+	return newReleases(feedURL(), current, stateDir, u, releaseTarget, proxyFunc, mirror)
 }
 
 func newReleases(feedURL, current, stateDir string, u *updater.Updater, target func() installTarget, proxyFunc func(*http.Request) (*url.URL, error), mirror func(http.RoundTripper) http.RoundTripper) *Releases {
@@ -126,9 +126,6 @@ func newReleases(feedURL, current, stateDir string, u *updater.Updater, target f
 }
 
 func (r *Releases) Status() (latest *Release, failed *InstallFailure) {
-	if r == nil {
-		return nil, nil
-	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.latest, r.failed

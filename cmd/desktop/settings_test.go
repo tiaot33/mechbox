@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"database/sql"
 	"path/filepath"
 	"reflect"
@@ -81,11 +80,10 @@ func TestSettingsFromOldDatabaseIgnoreAndDropGlassTint(t *testing.T) {
 	}
 }
 
+// 不认得的取值不保存，也不生效;存成了的立即生效(菜单文字跟着换、自动检查被唤醒)。
 func TestSaveSettingsRejectsUnknownValues(t *testing.T) {
-	s := startServices(t, tempLibrary(t))
+	s := newTestServices(t, tempLibrary(t))
 	lib, service := s.lib, s.app
-	var applied int
-	service.settings.onChange(func(context.Context, Settings) { applied++ })
 	for _, change := range []func(*Settings){
 		func(s *Settings) { s.CheckInterval = "sometimes" },
 		func(s *Settings) { s.Language = "fr" },
@@ -94,16 +92,19 @@ func TestSaveSettingsRejectsUnknownValues(t *testing.T) {
 		func(s *Settings) { s.FoldBelow = 11 },
 	} {
 		settings := defaultSettings()
+		settings.Language = LanguageEn
 		change(&settings)
 		if _, err := service.SaveSettings(t.Context(), settings); err == nil {
 			t.Fatalf("SaveSettings(%+v) accepted an unknown value", settings)
 		}
 	}
-	if values, err := lib.lib.AppSettings(t.Context()); err != nil || len(values) != 0 || applied != 0 {
-		t.Fatalf("app settings = %v, %v, applied %d times; want nothing written or applied for rejected changes", values, err, applied)
+	if values, err := lib.lib.AppSettings(t.Context()); err != nil || len(values) != 0 || woken(service.checks) || menuLanguage(service) != "" {
+		t.Fatalf("app settings = %v, %v; want nothing written or applied for rejected changes", values, err)
 	}
-	if _, err := service.SaveSettings(t.Context(), defaultSettings()); err != nil || applied != 1 {
-		t.Fatalf("SaveSettings = %v, applied %d times; want saved settings applied once", err, applied)
+	saved := defaultSettings()
+	saved.Language = LanguageEn
+	if _, err := service.SaveSettings(t.Context(), saved); err != nil || !woken(service.checks) || menuLanguage(service) != LanguageEn {
+		t.Fatalf("SaveSettings = %v; want the saved settings applied", err)
 	}
 }
 
@@ -209,5 +210,38 @@ func TestWSLDistroUnavailableAtStartup(t *testing.T) {
 	}
 	if app.WSLDistroError() != "" || !strings.HasPrefix(lib.lib.HomeDirectory(), `\\wsl.localhost\late-distro\`) {
 		t.Fatalf("after retry: error %q, home %q", app.WSLDistroError(), lib.lib.HomeDirectory())
+	}
+}
+
+// 设置里选的 WSL 发行版启动时没能打开时，检测的是 Windows 本机，先不提示添加 Agent,也不记下;重试打开了再提示。
+func TestAgentPoolWaitsForTheChosenDistro(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	platformtest.EmulateWSL(t, "/nonexistent/sh")
+	path := tempLibrary(t)
+	upgraded := newTestServices(t, path)
+	if err := upgraded.lib.lib.SetAppSettings(t.Context(), map[string]string{firstOpenDoneKey: "true"}); err != nil {
+		t.Fatal(err)
+	}
+	upgraded.stop(t)
+	db, err := sql.Open("sqlite3", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO config(key, value) VALUES ('wsl_distro', 'pool-distro')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	app := startServices(t, path).app
+	if app.WSLDistroError() == "" || app.AgentPoolPending() {
+		t.Fatalf("distro error %q, AgentPoolPending() = %v; want the offer held back while the chosen distro is unavailable", app.WSLDistroError(), app.AgentPoolPending())
+	}
+	platformtest.EmulateWSL(t, "sh")
+	if err := app.RetryWSLDistro(t.Context()); err != nil {
+		t.Fatalf("RetryWSLDistro: %v", err)
+	}
+	if !app.AgentPoolPending() {
+		t.Fatal("AgentPoolPending() once the distro opened = false; want true")
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -51,32 +52,50 @@ type AppService struct {
 	hidden   bool
 	menus    nativeMenus
 
-	stop  context.CancelFunc
-	loops sync.WaitGroup
+	stop context.CancelFunc
+	done chan struct{}
 }
 
 // ServiceStartup 从技能库读出设置并让它生效，然后开始自动检查更新、自动推送，以及检查 Mechbox 的新版本(这个构建检查时)。
 // 它排在 LibraryService 之后启动。
 func (a *AppService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
 	a.settings.load(ctx)
-	settings := a.settings.current()
-	a.menus.setLanguage(settings.Language.resolve())
-	a.applyAppearance(settings.Appearance)
+	a.showSettings(a.settings.current())
 	loop, stop := context.WithCancel(context.Background())
-	a.stop = stop
-	a.loops.Go(func() { a.checks.run(loop) })
-	a.loops.Go(func() { a.pushes.run(loop) })
+	a.stop, a.done = stop, make(chan struct{})
+	go a.background(loop)
 	if a.releases != nil {
-		a.loops.Go(func() { a.releases.Watch(loop, a.releaseChecked) })
+		go a.releases.Watch(loop, a.releaseChecked)
 	}
 	return nil
 }
 
-// ServiceShutdown 停下后台的几件事;它先于 LibraryService 关闭，进行中的检查与推送随之取消，技能库在它们停下后才关上。
+// ServiceShutdown 停下后台的检查与推送;它先于 LibraryService 关闭，进行中的检查与推送随之取消，技能库在它们停下后才关上。
+// 检查新版本不碰技能库，不等它。
 func (a *AppService) ServiceShutdown() error {
 	a.stop()
-	a.loops.Wait()
+	<-a.done
 	return nil
+}
+
+// background 是自动检查更新与自动推送的后台循环：每分钟(或其中一块被唤醒时)先看自动检查、再看自动推送，
+// 同一轮都到期时，推送出去的备份带着这次检查的结论。刚开始时先按技能库现在的检查结论设好 Dock 角标。
+func (a *AppService) background(ctx context.Context) {
+	defer close(a.done)
+	a.badge.refresh(ctx)
+	tick := time.NewTicker(time.Minute)
+	defer tick.Stop()
+	for {
+		a.checks.tick(ctx)
+		a.pushes.tick(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		case <-a.checks.wake:
+		case <-a.pushes.wake:
+		}
+	}
 }
 
 // Settings 返回当前设置。
@@ -163,8 +182,9 @@ func (a *AppService) UninstallApp(ctx context.Context, opts UninstallOptions) (U
 	return a.removal.uninstall(ctx, opts)
 }
 
-// attach 装好顶部菜单栏、窗口与应用的事件，并登记设置换了以后让界面语言、外观与 Dock 角标跟着变。在 app 运行前调用一次。
-func (a *AppService) attach() {
+// attach 交给 AppService 它的 app、窗口与检查新版本(这个构建不检查时为 nil),装好顶部菜单栏、窗口与应用的事件。在 app 运行前调用一次。
+func (a *AppService) attach(app *application.App, window *application.WebviewWindow, releases *release.Releases) {
+	a.app, a.window, a.releases = app, window, releases
 	var checkRelease func()
 	if a.releases != nil {
 		checkRelease = a.requestReleaseCheck
@@ -177,15 +197,19 @@ func (a *AppService) attach() {
 			a.showWindow()
 		}
 	})
-	a.settings.onChange(a.settingsChanged)
 }
 
 // settingsChanged 让保存或拉回的设置立即生效：菜单文字、窗口背后的系统材质、自动检查更新的间隔与 Dock 角标。
 func (a *AppService) settingsChanged(ctx context.Context, settings Settings) {
-	a.menus.setLanguage(settings.Language.resolve())
-	a.applyAppearance(settings.Appearance)
+	a.showSettings(settings)
 	a.checks.poke()
 	a.badge.refresh(ctx)
+}
+
+// showSettings 让菜单文字与窗口背后的系统材质跟着设置变;启动时与设置换了以后都经这里。
+func (a *AppService) showSettings(settings Settings) {
+	a.menus.setLanguage(settings.Language.resolve())
+	a.applyAppearance(settings.Appearance)
 }
 
 // applyAppearance 让窗口背后的系统材质跟着外观变：macOS 上是整个 app 的外观(窗口背后的毛玻璃、菜单与系统弹窗),
