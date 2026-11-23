@@ -3701,7 +3701,15 @@ await step("设置页 Agent 分区：显示勾选、手填添加(改了出错的
   await modal().locator('[data-slot="input"]').nth(0).fill("My Agent");
   await fieldError("填写名称").waitFor({ state: "detached" });
   assert((await fieldError("用户主目录里面").count()) === 1, "只改名称，全局目录的报错应还在");
-  await modal().locator('[data-slot="input"]').nth(1).fill("~/.my-agent/skills");
+  // 报错写出了 /opt/my-agent/skills 这一行：添加空行、填别的行、去掉别的行都不算改了它，报错还在。
+  const globalDirs = modal().locator(".agent-directories.global_directories");
+  await globalDirs.locator(".add-directory").click();
+  assert((await fieldError("用户主目录里面").count()) === 1, "添加一个空行不应清掉报错");
+  await globalDirs.locator('[data-slot="input"]').nth(1).fill("~/.my-agent-extra/skills");
+  assert((await fieldError("用户主目录里面").count()) === 1, "改了别的行，写出那一行的报错应还在");
+  await globalDirs.locator(".remove-directory").nth(1).click();
+  assert((await fieldError("用户主目录里面").count()) === 1, "去掉别的行，写出那一行的报错应还在");
+  await globalDirs.locator('[data-slot="input"]').first().fill("~/.my-agent/skills");
   await fieldError("用户主目录里面").waitFor({ state: "detached" });
   // 项目里的技能目录一个在另一个里面：去掉多出来的那一行，报错不再显示。
   const projectDirs = modal().locator(".agent-directories.project_directories");
@@ -3714,7 +3722,6 @@ await step("设置页 Agent 分区：显示勾选、手填添加(改了出错的
   // 经符号链接才算同一个的全局目录界面查不出，由技能库按字段报在全局技能目录下面;去掉那一行，报错同样不再显示。
   fs.mkdirSync(`${HOME}/.my-agent/skills`, { recursive: true });
   fs.symlinkSync(`${HOME}/.my-agent`, `${HOME}/.my-agent-link`);
-  const globalDirs = modal().locator(".agent-directories.global_directories");
   await globalDirs.locator(".add-directory").click();
   await globalDirs.locator('[data-slot="input"]').nth(1).fill("~/.my-agent-link/skills");
   await btn(modal(), "添加").click();

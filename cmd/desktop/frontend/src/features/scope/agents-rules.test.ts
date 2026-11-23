@@ -15,7 +15,7 @@ import {
 } from "@bindings/internal/library";
 import { messages } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
-import { agentDelete, agentEdit, agentFieldError, agentReset, alreadyRead, asksWhere, directoryKey, enterSubmits, detectedPicks, directoryOptions, filterDirectoryOptions, migrationReport, opensWhileTyping, overlappingDirectories, poolMatches, sortPool, undetected } from "./agents-rules";
+import { agentDelete, agentEdit, agentFieldError, agentReset, alreadyRead, asksWhere, directoryKey, enterSubmits, detectedPicks, directoryOptions, filterDirectoryOptions, keepsFieldError, migrationReport, opensWhileTyping, overlappingDirectories, poolMatches, sortPool, undetected } from "./agents-rules";
 
 const mine = "my-agent" as AgentCode;
 const claude = AgentCode.AgentClaudeCode;
@@ -371,5 +371,30 @@ describe("技能目录重复或一个在另一个里面", () => {
 
   it("名字只是前缀相同的不算在里面", () => {
     expect(overlappingDirectories(["/home/.a/skills", "/home/.a/skills-old", "/home/.b/skills"], windows(true))).toBe(false);
+  });
+});
+
+describe("改了出错的那一项之后报错还显示不显示", () => {
+  const whole = { text: "填写全局技能目录" };
+  const row = { text: "/opt/bad/skills：要在用户主目录里面", input: "/opt/bad/skills" };
+
+  it("内容没变时保留：添加、去掉空行，重新选回原来的目录，只敲空格", () => {
+    expect(keepsFieldError(whole, [""], ["", ""])).toBe(true);
+    expect(keepsFieldError(row, ["~/.a/skills", "/opt/bad/skills", ""], ["~/.a/skills", "/opt/bad/skills"])).toBe(true);
+    expect(keepsFieldError(row, ["~/.a/skills", "/opt/bad/skills"], ["~/.a/skills", "/opt/bad/skills"])).toBe(true);
+    expect(keepsFieldError({ text: "填写名称" }, [""], [" "])).toBe(true);
+  });
+
+  it("整项的报错改了就不再显示", () => {
+    expect(keepsFieldError(whole, [""], ["~"])).toBe(false);
+    expect(keepsFieldError({ text: "填写名称" }, [""], ["C"])).toBe(false);
+    expect(keepsFieldError({ text: "有两个目录是同一个，或一个在另一个里面" }, ["~/.a", "~/.a/skills"], ["~/.a"])).toBe(false);
+  });
+
+  it("写出了某一行的报错：那一行改掉或去掉才不再显示，改别的行时保留", () => {
+    expect(keepsFieldError(row, ["/opt/bad/skills", "~/.b/skills"], ["/opt/bad/skills", "~/.c/skills"])).toBe(true);
+    expect(keepsFieldError(row, ["/opt/bad/skills", "~/.b/skills"], ["/opt/bad/skills"])).toBe(true);
+    expect(keepsFieldError(row, ["/opt/bad/skills", "~/.b/skills"], ["~/.bad/skills", "~/.b/skills"])).toBe(false);
+    expect(keepsFieldError(row, ["/opt/bad/skills", "~/.b/skills"], ["~/.b/skills"])).toBe(false);
   });
 });

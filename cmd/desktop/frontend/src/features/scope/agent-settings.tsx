@@ -15,12 +15,14 @@ import {
   enterSubmits,
   directoryOptions,
   filterDirectoryOptions,
+  keepsFieldError,
   opensWhileTyping,
   overlappingDirectories,
   directoryRules,
   poolMatches,
   sortPool,
   undetected,
+  type AgentFieldError,
   type DirectoryKind,
   type DirectoryOptions,
   type DirectoryRules,
@@ -272,7 +274,7 @@ export function AgentDialog({ agent, onClose, onBack }: { agent?: Agent; onClose
     project_directories: agent ? directoriesAt(agent, 1).map(nativePath) : [""],
     detect_directories: agent ? (agent.detect_directories ?? []).map((d) => shortPath(s, d)) : [],
   });
-  const [errors, setErrors] = useState<Partial<Record<AgentField, string>>>({});
+  const [errors, setErrors] = useState<Partial<Record<AgentField, AgentFieldError>>>({});
   const [working, setWorking] = useState(false);
   // 目录下拉的候选来自应用内置的收录表(不是数据库里那一行):先列这个 Agent 的默认目录，再列其他 Agent 用到的。
   const defaults = useQuery({ queryKey: ["agent-defaults"], queryFn: () => LibraryService.ListAgentDefaults(), gcTime: 0, staleTime: 0 });
@@ -300,25 +302,25 @@ export function AgentDialog({ agent, onClose, onBack }: { agent?: Agent; onClose
   };
 
   const validate = () => {
-    const found: Partial<Record<AgentField, string>> = {};
+    const found: Partial<Record<AgentField, AgentFieldError>> = {};
     const out: Record<DirectoryKind, string[]> = { global_directories: [], project_directories: [], detect_directories: [] };
-    if (!name.trim()) found.name = t.nameRequired;
+    if (!name.trim()) found.name = { text: t.nameRequired };
     for (const kind of ["global_directories", "project_directories", "detect_directories"] as const) {
       // 空着的一行不算;技能目录至少要有一个。
       for (const input of dirs[kind].filter((d) => d.trim())) {
         const r = kind === "project_directories" ? projectDirectory(input) : homeDirectory(input);
         if (r.error) {
-          found[kind] ??= `${input.trim()}：${r.error}`;
+          found[kind] ??= { text: `${input.trim()}：${r.error}`, input: input.trim() };
           continue;
         }
         out[kind].push(r.path!);
       }
       if (kind !== "detect_directories" && !found[kind] && !out[kind].length) {
-        found[kind] = kind === "global_directories" ? t.globalRequired : t.projectRequired;
+        found[kind] = { text: kind === "global_directories" ? t.globalRequired : t.projectRequired };
       }
       // 技能目录不能重复，也不能一个在另一个里面;只差大小写的在不区分大小写的卷上算同一个。
       if (kind !== "detect_directories" && !found[kind] && overlappingDirectories(out[kind], directoryRules(s))) {
-        found[kind] = t.directoriesOverlap;
+        found[kind] = { text: t.directoriesOverlap };
       }
     }
     return { found, out };
@@ -334,7 +336,7 @@ export function AgentDialog({ agent, onClose, onBack }: { agent?: Agent; onClose
     const onInvalid = (err: LibraryError) => {
       const field = err.details?.field as AgentField | undefined;
       if (err.code !== ErrorCode.InvalidArgument || !field || !(field in input)) return false;
-      setErrors({ [field]: agentFieldError(err) });
+      setErrors({ [field]: { text: agentFieldError(err) } });
       return true;
     };
     submitting.current = true;
@@ -348,9 +350,13 @@ export function AgentDialog({ agent, onClose, onBack }: { agent?: Agent; onClose
     }
   };
 
-  const error = (field: AgentField) => errors[field] && <FieldError>{errors[field]}</FieldError>;
-  // 改了出错的那一项，那一项的报错就不再显示(和入库弹窗一样);改得对不对，再点保存时重新检查。
-  const changed = (field: AgentField) => setErrors((e) => (e[field] ? { ...e, [field]: undefined } : e));
+  const error = (field: AgentField) => errors[field] && <FieldError>{errors[field].text}</FieldError>;
+  // 改了出错的那一项，那一项的报错就不再显示(和入库弹窗一样;什么时候算改了见 keepsFieldError);改得对不对，再点保存时重新检查。
+  const changed = (field: AgentField, before: string[], after: string[]) =>
+    setErrors((e) => {
+      const shown = e[field];
+      return shown && !keepsFieldError(shown, before, after) ? { ...e, [field]: undefined } : e;
+    });
   const list = (kind: DirectoryKind, label: string, hint: string, chooseTitle?: string) => (
     <DirectoryList
       kind={kind}
@@ -359,7 +365,7 @@ export function AgentDialog({ agent, onClose, onBack }: { agent?: Agent; onClose
       values={dirs[kind]}
       onChange={(values) => {
         setDirs((d) => ({ ...d, [kind]: values }));
-        changed(kind);
+        changed(kind, dirs[kind], values);
       }}
       placeholder={kind === "project_directories" ? nativePath(".my-agent/skills") : shortPath(s, home + nativePath("/.my-agent/skills"))}
       chooseTitle={chooseTitle}
@@ -402,7 +408,7 @@ export function AgentDialog({ agent, onClose, onBack }: { agent?: Agent; onClose
             value={name}
             onChange={(e) => {
               setName(e.target.value);
-              changed("name");
+              changed("name", [name], [e.target.value]);
             }}
             onKeyDown={(e) => enterSubmits(keystroke(e)) && submit()}
           />
