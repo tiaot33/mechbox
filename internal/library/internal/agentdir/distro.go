@@ -282,6 +282,8 @@ func (d distro) sameEntry(a, b string) (bool, bool) {
 	return d.test(sameEntryScript, d.linux(a), d.linux(b))
 }
 
+func (distro) foldsCase(string) bool { return false }
+
 func (d distro) sameFolder(a, b string) (bool, bool) {
 	return d.test(sameFolderScript, d.linux(a), d.linux(b))
 }

@@ -210,6 +210,10 @@ func SameFolder(a, b string) bool {
 	return Canonical(a) == Canonical(b)
 }
 
+func FoldsCase(path string) bool {
+	return on(path).foldsCase(path)
+}
+
 func Canonical(path string) string {
 	return CanonicalAll([]string{path})[0]
 }

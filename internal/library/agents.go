@@ -60,10 +60,11 @@ type AgentInput struct {
 	Name string `json:"name"`
 	// GlobalDirectories 是全局技能目录,至少 1 个,第 1 个装新技能:每项是绝对路径,或以 ~/ 开头表示用户主目录下。
 	// 必须在用户主目录里面(不能是主目录本身),按相对主目录的路径记录,同步到别的机器后对应到那台机器的主目录。
-	// 规范化后不能重复,也不能一项在另一项里面。目录不必已经存在,安装时创建。
+	// 规范化后不能重复,也不能一项在另一项里面;用户主目录所在的文件系统不区分大小写(macOS、Windows 默认)时,只差大小写的算同一个目录。
+	// 目录不必已经存在,安装时创建。
 	GlobalDirectories []string `json:"global_directories"`
 	// ProjectDirectories 是项目里的技能目录,至少 1 个,第 1 个装新技能:每项是相对已登记项目根的路径,不能是绝对路径,
-	// 也不能是项目根本身或在项目外面。规范化后不能重复,也不能一项在另一项里面。
+	// 也不能是项目根本身或在项目外面。规范化后不能重复,也不能一项在另一项里面;只差大小写的按 GlobalDirectories 的规则算。
 	ProjectDirectories []string `json:"project_directories"`
 	// DetectDirectories 是检测这个 Agent 有没有装时看的目录,写法与 GlobalDirectories 相同;可以为空,为空时不检测。重复的只算一次。
 	DetectDirectories []string `json:"detect_directories"`
@@ -809,7 +810,7 @@ func (l *Library) agentRow(operation string, agent AgentInput) (store.Agent, err
 		}
 		projectPaths = append(projectPaths, path)
 	}
-	if err := distinctDirectories(operation, "project_directories", projectPaths, nil); err != nil {
+	if err := distinctDirectories(operation, "project_directories", projectPaths, nil, agentdir.FoldsCase(l.home.Root())); err != nil {
 		return store.Agent{}, err
 	}
 	detectPaths, err := l.homeDirectories(operation, "detect_directories", agent.DetectDirectories, false)
@@ -840,12 +841,13 @@ func (l *Library) homeDirectories(operation, field string, directories []string,
 	if !skills {
 		return paths, nil
 	}
-	return paths, distinctDirectories(operation, field, paths, l.home.Join)
+	return paths, distinctDirectories(operation, field, paths, l.home.Join, agentdir.FoldsCase(l.home.Root()))
 }
 
-func distinctDirectories(operation, field string, paths []string, absolute func(string) string) error {
+func distinctDirectories(operation, field string, paths []string, absolute func(string) string, foldsCase bool) error {
 	overlap := func(a, b string) bool {
-		if a == b || strings.HasPrefix(b, a+"/") || strings.HasPrefix(a, b+"/") {
+		written := func(a, b string) bool { return a == b || strings.HasPrefix(b, a+"/") || strings.HasPrefix(a, b+"/") }
+		if written(a, b) || foldsCase && written(strings.ToLower(a), strings.ToLower(b)) {
 			return true
 		}
 		if absolute == nil {
