@@ -277,6 +277,7 @@ export const zh = {
     missingNotice: (n: number) => `有 ${n} 处的文件夹不在了。可能是你在 app 之外删掉的，也可能是误删，或者这台机器还没装过。`,
     missingPlace: (skill: string, scopes: string[]) => `${skill} · ${scopes.join("、")}`,
     missingShared: (agents: string[]) => `和 ${agents.join("、")} 共用一个文件夹，一起装回去或卸载`,
+    missingStaleLinks: (links: string[]) => `选「卸载」时，指向它的旧链接 ${links.join("、")} 一并删掉`,
     missingGrouped: (groups: string[]) => `随「${groups.join("」「")}」安装，不能单独卸载`,
     leaveAlone: "不动",
     putBack: "装回去",

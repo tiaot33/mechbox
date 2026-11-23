@@ -271,8 +271,14 @@ describe("重新安装", () => {
   it("文件夹不在了的选卸载：卸载这一处，不装回去", () => {
     const { targets } = reinstallTargets(inspected, false);
     const r = planReinstall(targets, false, { overwrite: new Set(), missing: new Map([[folderKey(missing), "uninstall"]]) });
-    expect(r.uninstalls).toEqual([missing]);
+    expect(r.uninstalls.map((x) => x.place)).toEqual([missing]);
     expect(r.requests.some((x) => x.skill_id === 2)).toBe(false);
+  });
+
+  it("文件夹不在了的选卸载：指向它的旧链接交给技能库一并删掉", () => {
+    const gone = { ...missing, stale_links: ["/home/.cursor/skills/s2"] };
+    const r = planReinstall([gone], false, { overwrite: new Set(), missing: new Map([[folderKey(gone), "uninstall"]]) });
+    expect(r.uninstalls).toEqual([{ place: gone, consent: { discard_edits: [], delete_links: ["/home/.cursor/skills/s2"] } }]);
   });
 
   it("只点了一处时，文件夹不在了也直接装回去，不再问", () => {

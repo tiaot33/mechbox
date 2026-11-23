@@ -9,7 +9,7 @@ import {
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import { toggled } from "@/lib/utils";
-import { overwriteKey, placeKey, planReinstall, reinstallsNothing, reinstallTargets, type MissingChoice, type ReinstallChoices } from "@/lib/consent";
+import { overwriteKey, placeKey, planReinstall, reinstallsNothing, reinstallTargets, staleLinksOf, type MissingChoice, type ReinstallChoices } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, useSnapshot } from "@/lib/library";
 import { agentName, groupName, skillName } from "@/lib/scope";
@@ -63,8 +63,8 @@ export async function reinstall(filter: SkillScopeFilter | SkillScopeFilter[], w
   if (requests.length && !(await confirmLinkWrites(inspected ?? [], written, t.reinstallTitle(what), t.reinstall, explained))) return;
   const done = await ui.run(async () => {
     const results = requests.length ? ((await LibraryService.Reinstall(requests)) ?? []) : [];
-    const removed = await eachCall(uninstalls, (p) => LibraryService.Uninstall(p.skill_id, p.scope, {}));
-    const rows = failedAttemptRows(removed, (i) => `${skillName(s, uninstalls[i].skill_id)} · ${scopeLabel(s, uninstalls[i].scope)}`, t.notUninstalled);
+    const removed = await eachCall(uninstalls, ({ place: p, consent }) => LibraryService.Uninstall(p.skill_id, p.scope, consent));
+    const rows = failedAttemptRows(removed, (i) => `${skillName(s, uninstalls[i].place.skill_id)} · ${scopeLabel(s, uninstalls[i].place.scope)}`, t.notUninstalled);
     return { results, rows, uninstalled: removed.length - rows.length };
   }, { failed: (d) => d.rows.length > 0 || d.results.some((r) => r.outcome === ReinstallOutcome.ReinstallFailed) });
   if (!done) return;
@@ -145,6 +145,11 @@ function ReinstallDialog({
                     )}
                     {groups.length > 0 && (
                       <div className="text-caption text-muted-foreground">{t.actions.missingGrouped(groups.map((g) => groupName(s, g)))}</div>
+                    )}
+                    {!groups.length && staleLinksOf(places).length > 0 && (
+                      <div className="missing-stale-links text-caption text-muted-foreground">
+                        {t.actions.missingStaleLinks(staleLinksOf(places).map((link) => shortPath(s, link)))}
+                      </div>
                     )}
                   </div>
                   <Segmented

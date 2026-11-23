@@ -137,6 +137,7 @@ export function reinstallTargets(inspected: SkillScopeInspection[], single: bool
 
 // planReinstall 按确认框里的选择算出要重新安装的几处与要卸载的文件夹:被改过的只覆盖勾上的，文件夹不在了的默认不动，
 // 选"装回去"的才装回去、选"卸载"的才卸载(共用一个文件夹的几处只卸载一处)。kept* 是保持原样的数目，完成提示里说。
+// 要卸载的每一处带着交给技能库的 consent:确认框里那一行写出的旧链接(文件夹不在了，指向它的旧链接还在，卸载时一并删掉)。
 // reinstallsNothing 是确认框里这样选下去什么都不会做：没有要重新安装的，也没有要卸载的(确认按钮点不了)。
 export function reinstallsNothing(targets: SkillScopeInspection[], single: boolean, chosen: ReinstallChoices): boolean {
   const r = planReinstall(targets, single, chosen);
@@ -160,7 +161,10 @@ export function planReinstall(targets: SkillScopeInspection[], single: boolean, 
   }));
   return {
     requests,
-    uninstalls: [...new Map(missing.filter((p) => choice(p) === "uninstall").map((p) => [folderKey(p), p])).values()],
+    uninstalls: [...new Map(missing.filter((p) => choice(p) === "uninstall").map((p) => [folderKey(p), p])).values()].map((p) => ({
+      place: p,
+      consent: deleteConsent([p]),
+    })),
     keptModified: new Set(modified.filter((p) => !wanted(p)).map(overwriteKey)).size,
     keptMissing: new Set(missing.filter((p) => choice(p) === "keep").map(folderKey)).size,
   };

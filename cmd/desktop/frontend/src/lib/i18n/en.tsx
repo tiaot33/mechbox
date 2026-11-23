@@ -298,6 +298,7 @@ export const en = {
       `The folder is gone in ${count(n, "place")}. You may have deleted it outside the app or by mistake, or it was never installed on this machine.`,
     missingPlace: (skill: string, scopes: string[]) => `${skill} · ${scopes.join(", ")}`,
     missingShared: (agents: string[]) => `Shares a folder with ${and(agents)}; put back or uninstalled together`,
+    missingStaleLinks: (links: string[]) => `If you uninstall, the old ${links.length === 1 ? "link" : "links"} pointing to it (${and(links)}) ${links.length === 1 ? "is" : "are"} deleted too`,
     missingGrouped: (groups: string[]) =>
       `Installed through the ${and(groups.map((g) => `“${g}”`))} Group${groups.length > 1 ? "s" : ""}; can't be uninstalled on its own`,
     leaveAlone: "Leave",
