@@ -303,13 +303,11 @@ func TestConfigStatusOnlyCountsStoredSettings(t *testing.T) {
 	}
 }
 
-// 编辑 Agent 时界面按主目录所在的卷是否区分大小写比较目录,和技能库一样:发行版里的主目录总是区分,本机的看卷。
+// 编辑 Agent 时界面比较全局目录用的「主目录所在的卷不区分大小写」就是技能库自己的判断,不另算一份。
 func TestInfoTellsWhetherHomeFoldsCase(t *testing.T) {
-	if foldsCase(`\\wsl.localhost\Ubuntu\home\me`) || foldsCase(`\\wsl$\Ubuntu\home\me`) {
-		t.Fatal("foldsCase(a WSL home) = true; want false")
-	}
-	home := t.TempDir()
-	if got, want := foldsCase(home), !caseSensitive(home); got != want {
-		t.Fatalf("foldsCase(%q) = %v; want %v", home, got, want)
+	service := startLibrary(t)
+	info, err := service.Info()
+	if err != nil || info.HomeFoldsCase != service.HomeFoldsCase() {
+		t.Fatalf("Info() = %+v, %v; want HomeFoldsCase %v as the library judges it", info, err, service.HomeFoldsCase())
 	}
 }

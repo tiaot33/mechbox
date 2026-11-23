@@ -295,6 +295,10 @@ func (s *LibraryService) HomeDirectory() string {
 	return s.lib.HomeDirectory()
 }
 
+func (s *LibraryService) HomeFoldsCase() bool {
+	return s.lib.HomeFoldsCase()
+}
+
 func (s *LibraryService) ListWSLDistros(ctx context.Context) ([]string, error) {
 	return settle(s.lib.ListWSLDistros(ctx))(ctx)
 }

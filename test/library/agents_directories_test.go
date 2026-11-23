@@ -413,3 +413,32 @@ func TestEditAgentChangingOnlyTheCaseOfAProjectDirectoryOnACaseSensitiveVolumeIs
 	}
 	requireInstalledFolder(t, filepath.Join(dir, ".agents", "skills"), "foo", "# foo\n")
 }
+
+// HomeFoldsCase 和编辑 Agent 时的判断一致:为 true 时只改全局目录的大小写,安装照常算已装;为 false 时算去掉了那个目录。
+// 主目录在 WSL 发行版里时总是 false。
+func TestHomeFoldsCaseIsHowEditingAgentsComparesGlobalDirectories(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	setTestHome(t, home)
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	foo := fetchNamedSkill(t, lib, "foo")
+	codex := library.GlobalScope(library.AgentCodex)
+	if err := lib.Install(ctx, foo.ID, codex, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	folds := lib.HomeFoldsCase()
+	if _, err := lib.EditAgent(ctx, library.AgentCodex, library.AgentInput{Name: "Codex", GlobalDirectories: []string{"~/.Agents/skills"}, ProjectDirectories: []string{".agents/skills"}}, library.EditAgentOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, kept := skillScopesOf(t, lib, foo.ID)[codex]; kept != folds {
+		t.Fatalf("HomeFoldsCase() = %v but the install kept after changing only the case = %v", folds, kept)
+	}
+}
+
+func TestHomeFoldsCaseIsFalseInAWSLDistro(t *testing.T) {
+	lib, _ := openWSLLibrary(t)
+	if lib.HomeFoldsCase() {
+		t.Fatal("HomeFoldsCase() in a WSL distro = true; want false")
+	}
+}

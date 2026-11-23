@@ -209,6 +209,13 @@ func (l *Library) HomeDirectory() string {
 	return l.home.Root()
 }
 
+// HomeFoldsCase 返回 [Library.HomeDirectory] 所在的卷是否不区分大小写(Windows 本机、macOS 默认的卷);在 WSL 发行版里时总是 false。
+// 为 true 时技能库把只差大小写的两个全局目录当作同一个:[Library.EditAgent] 只改全局目录的大小写不算去掉了那个目录,
+// 一个 Agent 的全局目录也不能只差大小写。项目目录按各项目所在的卷判断,不看这里。
+func (l *Library) HomeFoldsCase() bool {
+	return agentdir.FoldsCase(l.HomeDirectory())
+}
+
 // ListWSLDistros 列出这台机器上装的 WSL 发行版的名字,设置里据此给出各 Agent 的全局目录可以放在哪。
 // 不在 Windows 上或没装 WSL 时返回空列表;Docker Desktop 自带的发行版不列出。
 func (l *Library) ListWSLDistros(ctx context.Context) (distros []string, err error) {
