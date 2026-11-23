@@ -97,23 +97,8 @@ func ReadFolders(ctx context.Context, folders []string, maxFiles int, maxBytes i
 }
 
 func inspect(ctx context.Context, folders []string, read *limits, visit func(int, FolderState) error) error {
-	groups := map[string][]int{}
-	var order []string
-	for i, folder := range folders {
-		key := on(folder).key()
-		if _, ok := groups[key]; !ok {
-			order = append(order, key)
-		}
-		groups[key] = append(groups[key], i)
-	}
-	for _, key := range order {
-		indexes := groups[key]
-		paths := make([]string, len(indexes))
-		for i, index := range indexes {
-			paths[i] = folders[index]
-		}
-		system := on(paths[0])
-		err := system.inspect(ctx, paths, read, func(i int, state FolderState) error {
+	return bySystem(folders, func(system fileSystem, group []string, indexes []int) error {
+		return system.inspect(ctx, group, read, func(i int, state FolderState) error {
 			if !system.modes() {
 				state.NoModes = true
 				for j := range state.Files {
@@ -122,7 +107,26 @@ func inspect(ctx context.Context, folders []string, read *limits, visit func(int
 			}
 			return visit(indexes[i], state)
 		})
-		if err != nil {
+	})
+}
+
+func bySystem(paths []string, each func(system fileSystem, group []string, indexes []int) error) error {
+	groups := map[string][]int{}
+	var order []string
+	for i, path := range paths {
+		key := on(path).key()
+		if _, ok := groups[key]; !ok {
+			order = append(order, key)
+		}
+		groups[key] = append(groups[key], i)
+	}
+	for _, key := range order {
+		indexes := groups[key]
+		group := make([]string, len(indexes))
+		for i, index := range indexes {
+			group[i] = paths[index]
+		}
+		if err := each(on(group[0]), group, indexes); err != nil {
 			return err
 		}
 	}
@@ -184,20 +188,31 @@ func SameEntry(a, b string) bool {
 	return system.base(a) == system.base(b) && Canonical(system.dir(a)) == Canonical(system.dir(b))
 }
 
-func Within(directories []string) func(resolved string) bool {
-	matchers := map[string]func(string) bool{}
-	groups := map[string][]string{}
-	for _, directory := range directories {
-		key := on(directory).key()
-		groups[key] = append(groups[key], directory)
+func Within(ctx context.Context, directories, targets []string) ([]bool, error) {
+	inside := make([]bool, len(targets))
+	err := bySystem(targets, func(system fileSystem, group []string, indexes []int) error {
+		var same []string
+		for _, directory := range directories {
+			if on(directory).key() == system.key() {
+				same = append(same, directory)
+			}
+		}
+		if len(same) == 0 {
+			return nil
+		}
+		found, err := system.within(ctx, same, group)
+		if err != nil {
+			return err
+		}
+		for i, in := range found {
+			inside[indexes[i]] = in
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	for key, group := range groups {
-		matchers[key] = on(group[0]).within(group)
-	}
-	return func(resolved string) bool {
-		match, ok := matchers[on(resolved).key()]
-		return ok && match(resolved)
-	}
+	return inside, nil
 }
 
 func SameFolder(a, b string) bool {
@@ -215,29 +230,24 @@ func FoldsCase(path string) bool {
 }
 
 func Canonical(path string) string {
-	return CanonicalAll([]string{path})[0]
+	canonical, _ := CanonicalAll(context.Background(), []string{path})
+	return canonical[0]
 }
 
-func CanonicalAll(paths []string) []string {
+func CanonicalAll(ctx context.Context, paths []string) ([]string, error) {
 	canonical := make([]string, len(paths))
-	groups := map[string][]int{}
-	var order []string
-	for i, path := range paths {
-		key := on(path).key()
-		if _, ok := groups[key]; !ok {
-			order = append(order, key)
+	err := bySystem(paths, func(system fileSystem, group []string, indexes []int) error {
+		resolved, err := system.canonicalAll(ctx, group)
+		if err != nil {
+			return err
 		}
-		groups[key] = append(groups[key], i)
-	}
-	for _, key := range order {
-		indexes := groups[key]
-		group := make([]string, len(indexes))
-		for i, index := range indexes {
-			group[i] = paths[index]
-		}
-		for i, path := range on(group[0]).canonicalAll(group) {
+		for i, path := range resolved {
 			canonical[indexes[i]] = path
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	return canonical
+	return canonical, nil
 }

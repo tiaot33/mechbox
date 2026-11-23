@@ -209,7 +209,7 @@ func (l *Library) unmanagedFolder(ctx context.Context, operation string, req Fol
 		return unmanagedFolder{}, err
 	}
 	path := agentdir.FolderPath(target.directory, req.Name)
-	folders, err := agentdir.List(target.directory)
+	folders, err := agentdir.List(ctx, target.directory)
 	if err != nil {
 		return unmanagedFolder{}, err
 	}
@@ -221,7 +221,7 @@ func (l *Library) unmanagedFolder(ctx context.Context, operation string, req Fol
 		return unmanagedFolder{}, err
 	}
 	for _, other := range claimants {
-		if other.Directory == target.relative && sameProject(other.Scope.ProjectID, target.ProjectID) {
+		if sameProject(other.Scope.ProjectID, target.ProjectID) && target.reads(other.Directory) {
 			return unmanagedFolder{}, preconditionError(operation, "the folder is installed by the library", ErrorDetails{Path: path, SkillID: SkillID(other.SkillID)})
 		}
 	}
@@ -242,7 +242,10 @@ func (l *Library) withSameFolders(ctx context.Context, operation string, folders
 	for i, folder := range folders {
 		paths[i] = folder.path
 	}
-	canonical := agentdir.CanonicalAll(paths)
+	canonical, err := agentdir.CanonicalAll(ctx, paths)
+	if err != nil {
+		return nil, err
+	}
 	result := slices.Clone(folders)
 	for i, folder := range folders {
 		for _, other := range same.of(ctx, folder.target, canonical[i]) {
@@ -361,7 +364,7 @@ func (l *Library) fetchWithSource(ctx context.Context, operation string, folders
 	untouched, editedLatest := false, false
 	records := l.sourceRecords()
 	for _, each := range folders {
-		if entry, ok := records.find(each.target, each.parsed.Name, each.name); ok {
+		if entry, ok := records.find(ctx, each.target, each.parsed.Name, each.name); ok {
 			if !entry.from(input, ref) {
 				continue
 			}
@@ -765,7 +768,7 @@ func (l *Library) validateFetchUnmanaged(ctx context.Context, operation string, 
 
 func recordFetchedFolders(ctx context.Context, tx *store.Tx, id int64, folders []unmanagedFolder, now time.Time) error {
 	for _, folder := range folders {
-		if _, err := tx.RecordFetchedSkillScope(ctx, store.NewSkillScope{SkillID: id, Scope: folder.target.Scope, Directory: folder.target.relative, Folder: folder.name, CreatedAt: now}); err != nil {
+		if _, err := tx.RecordFetchedSkillScope(ctx, store.NewSkillScope{SkillID: id, Scope: folder.target.Scope, Directory: folder.target.relative, Folder: folder.name, CreatedAt: now}, folder.target.sameDirectory); err != nil {
 			return err
 		}
 	}
@@ -832,7 +835,7 @@ func (r sourceRecord) from(input, ref string) bool {
 	return r.recognized && r.input == input && r.ref == ref
 }
 
-func (f *sourceRecords) find(target resolvedScope, names ...string) (sourceRecord, bool) {
+func (f *sourceRecords) find(ctx context.Context, target resolvedScope, names ...string) (sourceRecord, bool) {
 	root := ""
 	if target.ProjectID != nil {
 		root = target.root
@@ -840,10 +843,10 @@ func (f *sourceRecords) find(target resolvedScope, names ...string) (sourceRecor
 	records, ok := f.read[root]
 	if !ok {
 		if root == "" {
-			content, _ := agentdir.ReadFile(f.home.Join(skilllock.GlobalFile))
+			content, _ := agentdir.ReadFile(ctx, f.home.Join(skilllock.GlobalFile))
 			records = skilllock.ParseGlobal(content)
 		} else {
-			content, _ := agentdir.ReadFile(agentdir.Join(root, skilllock.ProjectFile))
+			content, _ := agentdir.ReadFile(ctx, agentdir.Join(root, skilllock.ProjectFile))
 			records = skilllock.ParseProject(content)
 		}
 		f.read[root] = records

@@ -79,6 +79,14 @@ describe("insideHome", () => {
     expect(insideHome("C:\\Users\\me", windowsHome)).toBe(false);
     expect(insideHome("/Users/me/.x", "/Users/me")).toBe(true);
   });
+
+  it("Windows 上的主目录不分大小写,/ 也是分隔符;macOS、Linux 上照字面比较", () => {
+    expect(insideHome("c:\\users\\me\\.x\\skills", windowsHome)).toBe(true);
+    expect(insideHome("C:/Users/me/.x/skills", windowsHome)).toBe(true);
+    expect(insideHome("C:/Users/me", windowsHome)).toBe(false);
+    expect(insideHome("c:\\users\\melody\\x", windowsHome)).toBe(false);
+    expect(insideHome("/users/me/.x", "/Users/me")).toBe(false);
+  });
 });
 
 describe("pathParts", () => {

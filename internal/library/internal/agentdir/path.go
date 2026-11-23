@@ -1,6 +1,7 @@
 package agentdir
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -76,6 +77,6 @@ func ProjectName(root string) string {
 	return on(root).base(root)
 }
 
-func ReadFile(path string) ([]byte, error) {
-	return on(path).readFile(path)
+func ReadFile(ctx context.Context, path string) ([]byte, error) {
+	return on(path).readFile(ctx, path)
 }

@@ -129,7 +129,7 @@ func (l *Library) sourceRecordsOf(ctx context.Context, id SkillID, name, input, 
 		if folder.skillID != id && (folder.skillID != 0 || skillName(folder.Folder) != name) {
 			continue
 		}
-		if record, ok := records.find(folder.target, name, folder.Name); ok && record.from(input, ref) {
+		if record, ok := records.find(ctx, folder.target, name, folder.Name); ok && record.from(input, ref) {
 			found = append(found, record)
 		}
 	}

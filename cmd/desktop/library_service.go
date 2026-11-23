@@ -117,12 +117,15 @@ func (s *LibraryService) ServiceShutdown() error {
 type AppInfo struct {
 	LibraryPath string `json:"library_path"` // 当前打开的技能库文件
 	HomeDir     string `json:"home_dir"`     // 用户主目录，界面据此把路径缩写成 ~
-	Version     string `json:"version"`      // 应用版本
+	// HomeFoldsCase 是 [library.Library.HomeFoldsCase]:技能库在主目录所在的卷上是否把只差大小写的两个全局目录当作同一个,
+	// 界面比较 Agent 的全局目录时照着做。
+	HomeFoldsCase bool   `json:"home_folds_case"`
+	Version       string `json:"version"` // 应用版本
 }
 
 // Info 返回技能库路径、技能库所用的用户主目录与应用版本。
 func (s *LibraryService) Info() (AppInfo, error) {
-	return AppInfo{LibraryPath: s.path, HomeDir: s.lib.HomeDirectory(), Version: appVersion()}, nil
+	return AppInfo{LibraryPath: s.path, HomeDir: s.lib.HomeDirectory(), HomeFoldsCase: s.lib.HomeFoldsCase(), Version: appVersion()}, nil
 }
 
 //go:embed build/config.yml

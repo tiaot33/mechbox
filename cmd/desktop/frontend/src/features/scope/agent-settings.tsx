@@ -7,6 +7,7 @@ import { AppService, LibraryService } from "@bindings/cmd/desktop";
 import { ErrorCode, type Agent, type AgentInput } from "@bindings/internal/library";
 import { addAgent, addAgentsFromPool, editAgent, removeAgent } from "./agents";
 import {
+  agentFieldError,
   alreadyRead,
   asksWhere,
   detectedPicks,
@@ -15,11 +16,14 @@ import {
   directoryOptions,
   filterDirectoryOptions,
   opensWhileTyping,
+  overlappingDirectories,
+  directoryRules,
   poolMatches,
   sortPool,
   undetected,
   type DirectoryKind,
   type DirectoryOptions,
+  type DirectoryRules,
 } from "./agents-rules";
 import { describeError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
@@ -312,6 +316,10 @@ export function AgentDialog({ agent, onClose, onBack }: { agent?: Agent; onClose
       if (kind !== "detect_directories" && !found[kind] && !out[kind].length) {
         found[kind] = kind === "global_directories" ? t.globalRequired : t.projectRequired;
       }
+      // 技能目录不能重复，也不能一个在另一个里面;只差大小写的在不区分大小写的卷上算同一个。
+      if (kind !== "detect_directories" && !found[kind] && overlappingDirectories(out[kind], directoryRules(s))) {
+        found[kind] = t.directoriesOverlap;
+      }
     }
     return { found, out };
   };
@@ -326,7 +334,7 @@ export function AgentDialog({ agent, onClose, onBack }: { agent?: Agent; onClose
     const onInvalid = (err: LibraryError) => {
       const field = err.details?.field as AgentField | undefined;
       if (err.code !== ErrorCode.InvalidArgument || !field || !(field in input)) return false;
-      setErrors({ [field]: describeError(err) });
+      setErrors({ [field]: agentFieldError(err) });
       return true;
     };
     submitting.current = true;
@@ -443,6 +451,7 @@ function DirectoryList({
               options={options}
               own={own}
               taken={values.filter((_, j) => j !== i)}
+              rules={directoryRules(s)}
             />
             {/* 有几行时第 1 行标「装新技能」;每行留同样宽的位置，输入框对齐。 */}
             {first && values.length > 1 && (
@@ -491,6 +500,7 @@ function DirectoryInput({
   options,
   own,
   taken,
+  rules,
 }: {
   label: string;
   placeholder: string;
@@ -498,6 +508,7 @@ function DirectoryInput({
   onChange: (value: string) => void;
   onEnter: () => void;
   options: DirectoryOptions;
+  rules: DirectoryRules;
   own: boolean;
   taken: string[];
 }) {
@@ -507,7 +518,7 @@ function DirectoryInput({
   const [typed, setTyped] = useState("");
   const [active, setActive] = useState(-1);
   const anchor = useRef<HTMLDivElement>(null);
-  const shown = filterDirectoryOptions(options, typed, taken);
+  const shown = filterDirectoryOptions(options, typed, taken, rules);
   const items = [...shown.defaults, ...shown.others];
   const show = (on: boolean) => {
     setOpen(on);
@@ -583,7 +594,7 @@ function DirectoryInput({
               onChange(e.target.value);
               setTyped(e.target.value);
               setActive(-1);
-              if (!open && opensWhileTyping(options, e.target.value, taken)) setOpen(true);
+              if (!open && opensWhileTyping(options, e.target.value, taken, rules)) setOpen(true);
             }}
             onKeyDown={onKeyDown}
           />

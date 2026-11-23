@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/agentdir"
 	"github.com/tiaot33/mechbox/internal/library/internal/store"
@@ -112,11 +113,35 @@ func (s resolvedScope) in(relative string) resolvedScope {
 	return s
 }
 
+func (s resolvedScope) readers(agents []store.Agent) []store.Agent {
+	var readers []store.Agent
+	for _, agent := range agents {
+		if agent.Enabled && slices.ContainsFunc(agent.Paths(s.ProjectID != nil), s.reads) {
+			readers = append(readers, agent)
+		}
+	}
+	return readers
+}
+
+func (s resolvedScope) reads(relative string) bool {
+	return s.sameDirectory(s.relative, relative)
+}
+
+func (s resolvedScope) sameDirectory(a, b string) bool {
+	return sameDirectoryIn(s.root)(a, b)
+}
+
+func sameDirectoryIn(root string) store.SameDirectory {
+	return func(a, b string) bool {
+		return a == b || strings.EqualFold(a, b) && agentdir.FoldsCase(root)
+	}
+}
+
 func (s resolvedScope) sharesFolderWith(other resolvedScope) bool {
-	if (s.ProjectID == nil) != (other.ProjectID == nil) || s.relative != other.relative {
+	if (s.ProjectID == nil) != (other.ProjectID == nil) || s.ProjectID != nil && *s.ProjectID != *other.ProjectID {
 		return false
 	}
-	return s.ProjectID == nil || *s.ProjectID == *other.ProjectID
+	return s.reads(other.relative)
 }
 
 func (s resolvedScope) rootMissing(operation string) (*Error, error) {

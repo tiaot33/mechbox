@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+type SameDirectory func(a, b string) bool
+
 type Scope struct {
 	Agent     string
 	ProjectID *int64
@@ -114,7 +116,7 @@ func (q queries) levelSkillScopes(ctx context.Context, skillID int64, projectID 
 	return level, nil
 }
 
-func (q queries) PlaceSkillScopes(ctx context.Context, skillID int64, scope Scope) ([]PlaceSkillScope, error) {
+func (q queries) PlaceSkillScopes(ctx context.Context, skillID int64, scope Scope, same SameDirectory) ([]PlaceSkillScope, error) {
 	agent, err := q.GetAgent(ctx, scope.Agent)
 	if err != nil {
 		return nil, err
@@ -129,26 +131,26 @@ func (q queries) PlaceSkillScopes(ctx context.Context, skillID int64, scope Scop
 		ownDirectory = level[own].Directory
 	}
 	directory, ok := Recognize(agent.Paths(scope.ProjectID != nil), ownDirectory, own >= 0, func(path string) bool {
-		return slices.ContainsFunc(level, func(row PlaceSkillScope) bool { return row.Directory == path })
+		return slices.ContainsFunc(level, func(row PlaceSkillScope) bool { return same(row.Directory, path) })
 	})
 	if !ok {
 		return nil, nil
 	}
-	return placeRows(level, directory, scope.Agent), nil
+	return placeRows(level, directory, scope.Agent, same), nil
 }
 
-func (q queries) SkillScopesIn(ctx context.Context, skillID int64, projectID *int64, directory string) ([]PlaceSkillScope, error) {
+func (q queries) SkillScopesIn(ctx context.Context, skillID int64, projectID *int64, directory string, same SameDirectory) ([]PlaceSkillScope, error) {
 	level, err := q.levelSkillScopes(ctx, skillID, projectID)
 	if err != nil {
 		return nil, err
 	}
-	return placeRows(level, directory, ""), nil
+	return placeRows(level, directory, "", same), nil
 }
 
-func placeRows(level []PlaceSkillScope, directory, first string) []PlaceSkillScope {
+func placeRows(level []PlaceSkillScope, directory, first string, same SameDirectory) []PlaceSkillScope {
 	var place []PlaceSkillScope
 	for _, row := range level {
-		if row.Directory == directory {
+		if same(row.Directory, directory) {
 			place = append(place, row)
 		}
 	}
@@ -389,8 +391,8 @@ func (t *Tx) RecordSkillScope(ctx context.Context, row NewSkillScope) error {
 	return nil
 }
 
-func (t *Tx) RecordFetchedSkillScope(ctx context.Context, row NewSkillScope) (bool, error) {
-	place, err := t.PlaceSkillScopes(ctx, row.SkillID, row.Scope)
+func (t *Tx) RecordFetchedSkillScope(ctx context.Context, row NewSkillScope, same SameDirectory) (bool, error) {
+	place, err := t.PlaceSkillScopes(ctx, row.SkillID, row.Scope, same)
 	if err != nil || len(place) > 0 {
 		return false, err
 	}
@@ -453,7 +455,7 @@ func (t *Tx) RemoveSkillScope(ctx context.Context, skillScopeID int64) error {
 	return nil
 }
 
-func (t *Tx) HandOverSkillScope(ctx context.Context, skillScopeID int64, agent string) error {
+func (t *Tx) HandOverSkillScope(ctx context.Context, skillScopeID int64, agent string, same SameDirectory) error {
 	var skillID int64
 	var projectID *int64
 	var direct bool
@@ -464,7 +466,7 @@ func (t *Tx) HandOverSkillScope(ctx context.Context, skillScopeID int64, agent s
 		return fmt.Errorf("read skill scope to hand over: %w", wrap(err))
 	}
 	receiver := Scope{Agent: agent, ProjectID: projectID}
-	place, err := t.PlaceSkillScopes(ctx, skillID, receiver)
+	place, err := t.PlaceSkillScopes(ctx, skillID, receiver, same)
 	if err != nil {
 		return err
 	}
@@ -474,13 +476,18 @@ func (t *Tx) HandOverSkillScope(ctx context.Context, skillScopeID int64, agent s
 		if _, err := t.q.ExecContext(ctx, `UPDATE skill_scopes SET direct = max(direct, ?) WHERE id = ?`, direct, place[own].ID); err != nil {
 			return fmt.Errorf("hand over skill scope: %w", wrap(err))
 		}
-	case len(place) > 0 && place[0].Directory != directory:
+	case len(place) > 0 && !same(place[0].Directory, directory):
 		return nil
 	default:
-		stored, err := t.storedDirectory(ctx, receiver, directory)
+		row, err := t.GetAgent(ctx, agent)
 		if err != nil {
 			return err
 		}
+		paths := row.Paths(projectID != nil)
+		if i := slices.IndexFunc(paths, func(path string) bool { return same(path, directory) }); i >= 0 {
+			directory = paths[i]
+		}
+		stored := StoredDirectory(row, projectID != nil, directory)
 		if _, err := t.q.ExecContext(ctx, `INSERT INTO skill_scopes(skill_id, agent, project_id, direct, created_at, directory, folder) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 			skillID, agent, projectID, direct, createdAt, stored, folder); err != nil {
 			return fmt.Errorf("hand over skill scope: %w", wrap(err))

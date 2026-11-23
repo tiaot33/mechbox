@@ -302,3 +302,12 @@ func TestConfigStatusOnlyCountsStoredSettings(t *testing.T) {
 		t.Fatalf("Config with stored settings = %+v, %v", got, err)
 	}
 }
+
+// 编辑 Agent 时界面比较全局目录用的「主目录所在的卷不区分大小写」就是技能库自己的判断,不另算一份。
+func TestInfoTellsWhetherHomeFoldsCase(t *testing.T) {
+	service := startLibrary(t)
+	info, err := service.Info()
+	if err != nil || info.HomeFoldsCase != service.HomeFoldsCase() {
+		t.Fatalf("Info() = %+v, %v; want HomeFoldsCase %v as the library judges it", info, err, service.HomeFoldsCase())
+	}
+}

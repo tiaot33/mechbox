@@ -20,6 +20,12 @@ export interface AppInfo {
     "home_dir": string;
 
     /**
+     * HomeFoldsCase 是 [library.Library.HomeFoldsCase]:技能库在主目录所在的卷上是否把只差大小写的两个全局目录当作同一个,
+     * 界面比较 Agent 的全局目录时照着做。
+     */
+    "home_folds_case": boolean;
+
+    /**
      * 应用版本
      */
     "version": string;

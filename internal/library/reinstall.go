@@ -296,7 +296,7 @@ func (l *Library) recordedSources(ctx context.Context, operation string, inspect
 		if err != nil {
 			return err
 		}
-		if record, ok := records.find(target, name, agentdir.FolderName(inspection.Folder)); ok && record.recognized {
+		if record, ok := records.find(ctx, target, name, agentdir.FolderName(inspection.Folder)); ok && record.recognized {
 			inspection.SourceInput, inspection.SourceRef = record.input, record.ref
 		}
 	}

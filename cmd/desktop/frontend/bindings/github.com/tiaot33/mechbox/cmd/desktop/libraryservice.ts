@@ -134,6 +134,10 @@ export function HomeDirectory(): $CancellablePromise<string> {
     return $Call.ByID(4228136540);
 }
 
+export function HomeFoldsCase(): $CancellablePromise<boolean> {
+    return $Call.ByID(1127233315);
+}
+
 /**
  * Info 返回技能库路径、技能库所用的用户主目录与应用版本。
  */

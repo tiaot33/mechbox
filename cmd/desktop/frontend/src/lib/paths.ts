@@ -30,7 +30,7 @@ export function resolveLocalPath(input: string, home: string, wsl: boolean): Pat
 }
 
 // windowsHome 按主目录的写法判断是不是 Windows 上的主目录：带盘符，或 \\ 开头的网络路径(含选了发行版时的 \\wsl.localhost\...)。
-function windowsHome(home: string): boolean {
+export function windowsHome(home: string): boolean {
   return /^([A-Za-z]:|\\\\|\/\/)/.test(home);
 }
 
@@ -41,11 +41,15 @@ export function isLocalPath(path: string): boolean {
 
 // insideHome 判断 path 是否在主目录 home 里面(不含主目录本身);Windows 与 WSL 发行版的路径用反斜杠分隔。
 // 两边都在发行版里时按 wslLocation 比较：发行版名不分大小写，\\wsl$ 与 \\wsl.localhost 算同一处。
+// Windows 上的主目录不区分大小写，/ 和 \ 都是分隔符:c:\users\...、C:/Users/... 也在 C:\Users\... 里面。
 export function insideHome(path: string, home: string): boolean {
   const rest = wslRest(path, home);
   if (rest !== null) return rest !== "" && rest !== "/";
-  const base = home.replace(/[\\/]+$/, "");
-  const tail = path.startsWith(base + "/") || path.startsWith(base + "\\") ? path.slice(base.length) : "";
+  const windows = windowsHome(home);
+  const key = (p: string) => (windows ? p.replaceAll("/", "\\").replace(/[A-Z]/g, (c) => c.toLowerCase()) : p);
+  const base = key(home).replace(/[\\/]+$/, "");
+  const at = key(path);
+  const tail = at.startsWith(base + "/") || at.startsWith(base + "\\") ? at.slice(base.length) : "";
   return tail.replace(/[\\/]+/g, "") !== "";
 }
 
