@@ -349,13 +349,18 @@ export function AgentDialog({ agent, onClose, onBack }: { agent?: Agent; onClose
   };
 
   const error = (field: AgentField) => errors[field] && <FieldError>{errors[field]}</FieldError>;
+  // 改了出错的那一项，那一项的报错就不再显示(和入库弹窗一样);改得对不对，再点保存时重新检查。
+  const changed = (field: AgentField) => setErrors((e) => (e[field] ? { ...e, [field]: undefined } : e));
   const list = (kind: DirectoryKind, label: string, hint: string, chooseTitle?: string) => (
     <DirectoryList
       kind={kind}
       label={label}
       hint={hint}
       values={dirs[kind]}
-      onChange={(values) => setDirs((d) => ({ ...d, [kind]: values }))}
+      onChange={(values) => {
+        setDirs((d) => ({ ...d, [kind]: values }));
+        changed(kind);
+      }}
       placeholder={kind === "project_directories" ? nativePath(".my-agent/skills") : shortPath(s, home + nativePath("/.my-agent/skills"))}
       chooseTitle={chooseTitle}
       options={options(kind)}
@@ -391,7 +396,16 @@ export function AgentDialog({ agent, onClose, onBack }: { agent?: Agent; onClose
         {/* 图标按名字认，边输入边预览。 */}
         <div className="flex min-w-0 items-center gap-2">
           <AgentMark name={name} className="size-6 rounded-control" />
-          <Input className="grow" autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => enterSubmits(keystroke(e)) && submit()} />
+          <Input
+            className="grow"
+            autoFocus
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              changed("name");
+            }}
+            onKeyDown={(e) => enterSubmits(keystroke(e)) && submit()}
+          />
         </div>
         {error("name")}
       </label>
