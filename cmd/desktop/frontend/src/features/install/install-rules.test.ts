@@ -238,7 +238,7 @@ describe("卸载一处", () => {
     const shared = place(1, global(claude), { shared_with: [codex] });
     const s = snapshot({ skillScopes: [shared, { ...place(1, global(codex), { shared_with: [claude] }), folder: shared.folder }] });
     const r = uninstallPlace(s, 1, global(claude));
-    expect(r.shared).toEqual([codex]);
+    expect(r.shared).toEqual([{ place: shared, agents: [codex] }]);
     expect(r.deleted.map((p) => p.scope.agent)).toEqual([claude, codex]);
     expect(asksBeforeUninstall(r, [])).toBe(true);
   });
@@ -273,7 +273,7 @@ describe("卸载一处", () => {
     const s = snapshot({ agents, skillScopes: [place(1, project(claude, 7), { shared_with: [codex] })] });
     expect(uninstallPlace(s, 1, project(claude, 7)).shared).toEqual([]);
     const partly = snapshot({ agents: [agents[0], { ...agents[1], project_directories: [".agents/skills", ".codex/skills"] }], skillScopes: s.skillScopes });
-    expect(uninstallPlace(partly, 1, project(claude, 7)).shared).toEqual([codex]);
+    expect(uninstallPlace(partly, 1, project(claude, 7)).shared.map((x) => x.agents)).toEqual([[codex]]);
     expect(asksBeforeUninstall(uninstallPlace(s, 2, project(claude, 7)), [{ skill_id: 2, scope: global(claude), name: "x" } as MissingMention])).toBe(false);
   });
 });
@@ -296,6 +296,18 @@ describe("合成一处的几个 Agent 各自装在不同目录时卸载", () => 
     const s = snapshot({ agents: merged, skills: [skill(1)], skillScopes: [mine, theirs] });
     expect(uninstallPlace(s, 1, global(claude))).toMatchObject({ direct: [mine], deleted: [mine] });
     expect(uninstallPlace(s, 1, global(codex))).toMatchObject({ direct: [theirs], deleted: [theirs] });
+  });
+
+  it("共用提示按每一处各自的文件夹、组安装说明：只读第二个目录的别的 Agent 只出现在那一处", () => {
+    // Cursor 只读 .dir2,目录列表和合成一处的 Claude Code、Codex 不同。Claude Code 在 .dir1 还有组安装，Codex 在 .dir2 只有直接安装。
+    const cursor = "cursor" as AgentCode;
+    const agents = [...merged, { code: cursor, name: "Cursor", global_directories: ["/home/.dir2"], project_directories: [".cursor/skills"] } as Agent];
+    const grouped = { ...mine, groups: [5] };
+    const read = { ...theirs, shared_with: [cursor] };
+    const s = snapshot({ agents, skills: [skill(1)], skillScopes: [grouped, read] });
+    const r = uninstallPlace(s, 1, global(claude), true);
+    expect(r.shared).toEqual([{ place: read, agents: [cursor] }]);
+    expect(r.deleted).toEqual([read]);
   });
 
   it("另一处只随组安装时只撤有直接安装的那一处，它的文件夹留着", () => {

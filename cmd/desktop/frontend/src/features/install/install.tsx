@@ -324,11 +324,15 @@ export async function uninstallSkill(id: SkillID, scope: Scope, merged = false) 
         <>
           {shared.length > 0 && (
             <Notice alert>
-              {t.uninstallShared(
-                shortPath(s, place.folder),
-                shared.map((code) => agentName(s, code)),
-                !!place.groups?.length,
-              )}
+              {shared.map(({ place: p, agents }) => (
+                <span key={p.folder} className="block">
+                  {t.uninstallShared(
+                    shortPath(s, p.folder),
+                    agents.map((code) => agentName(s, code)),
+                    !!p.groups?.length,
+                  )}
+                </span>
+              ))}
             </Notice>
           )}
           <DeleteNotes deleted={deleted} />

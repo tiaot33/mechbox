@@ -171,8 +171,9 @@ export function groupInstalled(results: GroupMemberResult[], blocked: InstallPla
 // ---------- 卸载 ----------
 
 // uninstallPlace 是从 scope 卸载一个技能会动到的:place 是这一处(合成一处的几个 Agent 各自装在不同目录时是其中有直接安装的第一处);
-// direct 是要撤销直接安装的各处;shared 是全局共用目录里还读着它的别的 Agent(卸载会撤销它们的直接安装，文件夹随之删除;
-// 目录列表相同、合成一处的几个 Agent 在界面上本来就是一处，不算);deleted 是会删掉文件夹的各处：直接安装、没有组安装留着时才删。
+// direct 是要撤销直接安装的各处;shared 是其中还被别的 Agent 读着的(全局共用目录，卸载会撤销它们的直接安装，没有组安装留着时文件夹随之删除;
+// 目录列表相同、合成一处的几个 Agent 在界面上本来就是一处，不算),每一处带着读它的那几个 Agent,按各自的文件夹和组安装说明;
+// deleted 是会删掉文件夹的各处：直接安装、没有组安装留着时才删。
 // merged 时(作用域页一行的开关)卸载合成一处里各 Agent 各自装的每一处，不然关掉后又认到另一个 Agent 的那一份;
 // 不 merged 时(技能详情里按文件夹分开的一行)只卸载 scope 自己认的那一处。
 export function uninstallPlace(s: Snapshot, id: SkillID, scope: Scope, merged = false) {
@@ -183,7 +184,7 @@ export function uninstallPlace(s: Snapshot, id: SkillID, scope: Scope, merged = 
   return {
     place,
     direct,
-    shared: [...new Set(direct.flatMap((p) => sharedWithNote(s, p)))],
+    shared: direct.map((p) => ({ place: p, agents: sharedWithNote(s, p) })).filter((x) => x.agents.length > 0),
     deleted: folderPlaces(s, direct.filter((p) => !p.groups?.length)),
   };
 }
