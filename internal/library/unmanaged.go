@@ -172,27 +172,15 @@ func (l *Library) adoptedUnmanaged(ctx context.Context, only map[Scope]bool) ([]
 }
 
 func (l *Library) withoutCopies(ctx context.Context, entries []unmanagedEntry) ([]unmanagedEntry, error) {
-	if !slices.ContainsFunc(entries, func(entry unmanagedEntry) bool { return entry.SkillID != 0 }) {
-		return entries, nil
+	folders := make([]scopeFolder, len(entries))
+	for i, entry := range entries {
+		folders[i] = entry.found
 	}
-	installed, err := l.listSkillScopes(ctx, 0, nil)
+	copies, err := l.currentCopies(ctx, folders)
 	if err != nil {
 		return nil, err
 	}
-	heads := map[SkillID]int64{}
-	return slices.DeleteFunc(entries, func(entry unmanagedEntry) bool {
-		if entry.SkillID == 0 || !slices.ContainsFunc(installed, func(skillScope SkillScope) bool {
-			return skillScope.SkillID == entry.SkillID && skillScope.Scope == entry.Scope && skillScope.Directory != entry.Directory
-		}) {
-			return false
-		}
-		head, ok := heads[entry.SkillID]
-		if !ok {
-			_, head, err = l.store.SkillHead(ctx, int64(entry.SkillID))
-			heads[entry.SkillID] = head
-		}
-		return err == nil && int64(entry.VersionID) == head
-	}), err
+	return withoutMarked(entries, copies), nil
 }
 
 func (l *Library) adoptMatching(ctx context.Context, entries []unmanagedEntry) (bool, error) {
@@ -244,12 +232,11 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 		return nil, err
 	}
 	committed := l.committedFolders()
-	directories, err := l.agentDirectories(ctx)
+	outside, err := l.linksOutside(ctx, folders)
 	if err != nil {
 		return nil, err
 	}
 	records := l.sourceRecords()
-	within := agentdir.Within(directories)
 	var entries []unmanagedEntry
 	for _, found := range folders {
 		if found.skillID != 0 {
@@ -257,7 +244,7 @@ func (l *Library) unmanagedSkills(ctx context.Context, only map[Scope]bool) ([]u
 		}
 		target := found.target
 		entry := unmanagedEntry{UnmanagedSkill: UnmanagedSkill{Scope: target.scope(), Directory: l.displayDirectory(target), Name: found.Name, Folder: found.Path, LinkTarget: found.Target}, found: found}
-		entry.LinkOutside = found.Target != "" && !within(found.Target)
+		entry.LinkOutside = outside[found.Target]
 		entry.AgentSettings = agentSettingsOf(found.SkillMD, found.CodexMetadata)
 		if found.SkillMD != nil {
 			if candidate, err := discovery.ParseSkillMD(found.SkillMD, found.Name); err == nil {
@@ -399,6 +386,31 @@ func (u *UnmanagedSkill) recognized(found recognition, sourceless map[int64]stri
 	}
 }
 
+func (l *Library) linksOutside(ctx context.Context, folders []scopeFolder) (map[string]bool, error) {
+	var targets []string
+	for _, found := range folders {
+		if found.skillID == 0 && found.Target != "" && !slices.Contains(targets, found.Target) {
+			targets = append(targets, found.Target)
+		}
+	}
+	if len(targets) == 0 {
+		return nil, nil
+	}
+	directories, err := l.agentDirectories(ctx)
+	if err != nil {
+		return nil, err
+	}
+	inside, err := agentdir.Within(ctx, directories, targets)
+	if err != nil {
+		return nil, err
+	}
+	outside := map[string]bool{}
+	for i, target := range targets {
+		outside[target] = !inside[i]
+	}
+	return outside, nil
+}
+
 func (l *Library) agentDirectories(ctx context.Context) ([]string, error) {
 	agents, err := l.store.ListAgents(ctx)
 	if err != nil {
@@ -494,10 +506,11 @@ func (l *Library) ListSameNameSkills(ctx context.Context) (skills []SameNameSkil
 	if err != nil {
 		return nil, err
 	}
-	folders, err = l.withoutCurrentCopies(ctx, folders)
+	copies, err := l.currentCopies(ctx, folders)
 	if err != nil {
 		return nil, err
 	}
+	folders = withoutMarked(folders, copies)
 	type named struct {
 		scope Scope
 		name  string
@@ -543,71 +556,70 @@ func (l *Library) ListSameNameSkills(ctx context.Context) (skills []SameNameSkil
 	return skills, nil
 }
 
-func (l *Library) withoutCurrentCopies(ctx context.Context, folders []scopeFolder) ([]scopeFolder, error) {
-	type named struct {
-		scope Scope
-		name  string
+func (l *Library) currentCopies(ctx context.Context, folders []scopeFolder) ([]bool, error) {
+	copies := make([]bool, len(folders))
+	installed, err := l.listSkillScopes(ctx, 0, nil)
+	if err != nil {
+		return nil, err
 	}
-	type claim struct {
-		skillID   SkillID
-		directory string
-	}
-	claimed := map[named][]claim{}
-	for _, found := range folders {
-		if found.skillID != 0 {
-			key := named{found.target.scope(), skillName(found.Folder)}
-			claimed[key] = append(claimed[key], claim{found.skillID, found.target.relative})
+	heads := map[SkillID]map[string]skillfile.Digest{}
+	current := func(id SkillID) (map[string]skillfile.Digest, error) {
+		if digests, ok := heads[id]; ok {
+			return digests, nil
 		}
-	}
-	elsewhere := func(found scopeFolder) []SkillID {
-		var ids []SkillID
-		for _, other := range claimed[named{found.target.scope(), skillName(found.Folder)}] {
-			if other.directory != found.target.relative {
-				ids = append(ids, other.skillID)
-			}
+		_, head, err := l.store.SkillHead(ctx, int64(id))
+		if err != nil {
+			return nil, err
 		}
-		return ids
+		heads[id], err = l.store.VersionDigests(ctx, head)
+		return heads[id], err
 	}
 	var paths []string
 	var indexes []int
+	var candidates [][]map[string]skillfile.Digest
 	for i, found := range folders {
-		if found.skillID == 0 && len(elsewhere(found)) > 0 {
+		if found.skillID != 0 {
+			continue
+		}
+		var versions []map[string]skillfile.Digest
+		for _, skillScope := range installed {
+			if skillScope.Scope != found.target.scope() || skillScope.Directory == l.displayDirectory(found.target) {
+				continue
+			}
+			digests, err := current(skillScope.SkillID)
+			if err != nil {
+				return nil, err
+			}
+			if found.SkillMD == nil || digests["SKILL.md"].Fingerprint == skillfile.Fingerprint(found.SkillMD) {
+				versions = append(versions, digests)
+			}
+		}
+		if len(versions) > 0 {
 			paths = append(paths, found.Path)
 			indexes = append(indexes, i)
+			candidates = append(candidates, versions)
 		}
 	}
-	copies := map[int]bool{}
-	err := agentdir.ReadFolders(ctx, paths, maxFetchFiles, maxFetchSize, func(index int, state agentdir.FolderState) error {
-		if !state.Exists || state.Err != nil {
-			return nil
-		}
-		i := indexes[index]
-		disk := diskOf(state)
-		for _, id := range elsewhere(folders[i]) {
-			_, head, err := l.store.SkillHead(ctx, int64(id))
-			if err != nil {
-				return err
-			}
-			current, err := l.store.VersionDigests(ctx, head)
-			if err != nil {
-				return err
-			}
-			if disk.same(current) {
-				copies[i] = true
-			}
+	err = agentdir.ReadFolders(ctx, paths, maxFetchFiles, maxFetchSize, func(index int, state agentdir.FolderState) error {
+		if state.Exists && state.Err == nil {
+			copies[indexes[index]] = slices.ContainsFunc(candidates[index], diskOf(state).same)
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	var kept []scopeFolder
-	for i, found := range folders {
-		if !copies[i] {
-			kept = append(kept, found)
+	return copies, nil
+}
+
+func withoutMarked[T any](items []T, marked []bool) []T {
+	kept := make([]T, 0, len(items))
+	for i, item := range items {
+		if !marked[i] {
+			kept = append(kept, item)
 		}
 	}
-	return kept, nil
+	return kept
 }
 
 func skillName(folder agentdir.Folder) string {
@@ -706,8 +718,12 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 			}
 		}
 	}
+	resolved, err := agentdir.CanonicalAll(ctx, directories)
+	if err != nil {
+		return nil, err
+	}
 	canonical := map[string]string{}
-	for i, directory := range agentdir.CanonicalAll(directories) {
+	for i, directory := range resolved {
 		canonical[directories[i]] = directory
 	}
 	type listed struct {
@@ -932,7 +948,7 @@ func (l *Library) FindUnmanagedSources(ctx context.Context, req FindUnmanagedSou
 			}
 		}
 		if best != nil {
-			found = append(found, FoundUnmanagedSource{Scope: folder.Scope, Directory: folder.directory, Name: folder.Name, SourceInput: best.input})
+			found = append(found, FoundUnmanagedSource{Scope: folder.Scope, Directory: folder.Directory, Name: folder.Name, SourceInput: best.input})
 		}
 	}
 	return found, nil
@@ -978,9 +994,8 @@ func (p parallelLimit) do(ctx context.Context, work func()) {
 
 type sourcelessFolder struct {
 	FolderInScope
-	directory string
-	name      string
-	files     []skillfile.File
+	name  string
+	files []skillfile.File
 }
 
 func (l *Library) sourcelessFolders(ctx context.Context, requested []FolderInScope) ([]sourcelessFolder, error) {
@@ -1034,7 +1049,7 @@ func (l *Library) sourcelessFolders(ctx context.Context, requested []FolderInSco
 	err = agentdir.ReadFolders(ctx, paths, maxFetchFiles, maxFetchSize, func(i int, state agentdir.FolderState) error {
 		if disk, parsed, err := parseSkillFolder(operation, state.Path, found[i].Name, state); err == nil {
 			folder := FolderInScope{Scope: found[i].Scope, Directory: found[i].Directory, Name: found[i].Name}
-			read[i] = &sourcelessFolder{FolderInScope: folder, directory: found[i].Directory, name: parsed.Name, files: disk.files}
+			read[i] = &sourcelessFolder{FolderInScope: folder, name: parsed.Name, files: disk.files}
 		}
 		return nil
 	})

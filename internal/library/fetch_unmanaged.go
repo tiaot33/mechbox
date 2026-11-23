@@ -242,7 +242,10 @@ func (l *Library) withSameFolders(ctx context.Context, operation string, folders
 	for i, folder := range folders {
 		paths[i] = folder.path
 	}
-	canonical := agentdir.CanonicalAll(paths)
+	canonical, err := agentdir.CanonicalAll(ctx, paths)
+	if err != nil {
+		return nil, err
+	}
 	result := slices.Clone(folders)
 	for i, folder := range folders {
 		for _, other := range same.of(ctx, folder.target, canonical[i]) {

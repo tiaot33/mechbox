@@ -43,16 +43,23 @@ fi`
 	canonicalScript = `for c in "$@"; do
 	rest=
 	while :; do
+		if cd -P -- "$c" 2>/dev/null; then
+			r=$PWD
+			break
+		fi
 		if [ -e "$c" ] && r=$(readlink -f -- "$c"); then
 			break
 		fi
-		p=$(dirname -- "$c")
-		if [ "$p" = "$c" ]; then
+		case $c in
+		*/*) ;;
+		*)
 			r=$c
 			break
-		fi
-		rest=$(basename -- "$c")${rest:+/$rest}
-		c=$p
+			;;
+		esac
+		rest=${c##*/}${rest:+/$rest}
+		c=${c%/*}
+		[ -n "$c" ] || c=/
 	done
 	printf '%s\0%s\0' "$r" "$rest"
 done`
@@ -288,26 +295,34 @@ func (d distro) sameFolder(a, b string) (bool, bool) {
 	return d.test(sameFolderScript, d.linux(a), d.linux(b))
 }
 
-func (d distro) within(directories []string) func(string) bool {
-	canonical := d.canonicalAll(directories)
-	return func(resolved string) bool {
-		return slices.ContainsFunc(canonical, func(directory string) bool {
-			_, inside := d.relative(directory, resolved)
-			return inside
+func (d distro) within(ctx context.Context, directories, targets []string) ([]bool, error) {
+	canonical, err := d.canonicalAll(ctx, directories)
+	if err != nil {
+		return nil, err
+	}
+	inside := make([]bool, len(targets))
+	for i, target := range targets {
+		inside[i] = slices.ContainsFunc(canonical, func(directory string) bool {
+			_, in := d.relative(directory, target)
+			return in
 		})
 	}
+	return inside, nil
 }
 
-func (d distro) canonicalAll(paths []string) []string {
+func (d distro) canonicalAll(ctx context.Context, paths []string) ([]string, error) {
 	canonical := make([]string, len(paths))
 	args := make([]string, len(paths))
 	for i, p := range paths {
 		canonical[i] = d.clean(p)
 		args[i] = d.linux(p)
 	}
-	output, err := d.run(context.Background(), "canonical", paths[0], canonicalScript, args...)
+	output, err := d.run(ctx, "canonical", paths[0], canonicalScript, args...)
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	if err != nil {
-		return canonical
+		return canonical, nil
 	}
 	fields := strings.Split(string(output), "\x00")
 	for i := range paths {
@@ -315,7 +330,7 @@ func (d distro) canonicalAll(paths []string) []string {
 			canonical[i] = d.path(path.Join(fields[2*i], fields[2*i+1]))
 		}
 	}
-	return canonical
+	return canonical, nil
 }
 
 func (d distro) inspect(ctx context.Context, folders []string, read *limits, visit func(int, FolderState) error) error {

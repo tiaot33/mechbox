@@ -117,41 +117,48 @@ func swapCase(name string) string {
 	}, name)
 }
 
-func (native) within(directories []string) func(string) bool {
-	return func(resolved string) bool {
-		return slices.ContainsFunc(directories, func(directory string) bool {
-			if inside, known := nativeWithin(resolved, directory); known {
-				return inside
+func (native) within(ctx context.Context, directories, targets []string) ([]bool, error) {
+	var existing []os.FileInfo
+	for _, directory := range directories {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if info, err := os.Stat(directory); err == nil && info.IsDir() {
+			existing = append(existing, info)
+		}
+	}
+	inside := make([]bool, len(targets))
+	if len(existing) == 0 {
+		return inside, nil
+	}
+	for i, target := range targets {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if resolved, err := filepath.EvalSymlinks(target); err == nil {
+			target = resolved
+		}
+		for current := filepath.Dir(target); !inside[i]; current = filepath.Dir(current) {
+			if info, err := os.Stat(current); err == nil {
+				inside[i] = slices.ContainsFunc(existing, func(directory os.FileInfo) bool { return os.SameFile(info, directory) })
 			}
-			return Inside(directory, resolved)
-		})
-	}
-}
-
-func nativeWithin(path, directory string) (bool, bool) {
-	info, err := os.Stat(directory)
-	if err != nil {
-		return false, false
-	}
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		path = resolved
-	}
-	for current := filepath.Dir(path); ; current = filepath.Dir(current) {
-		if parent, err := os.Stat(current); err == nil && os.SameFile(parent, info) {
-			return true, true
-		}
-		if filepath.Dir(current) == current {
-			return false, true
+			if filepath.Dir(current) == current {
+				break
+			}
 		}
 	}
+	return inside, nil
 }
 
-func (n native) canonicalAll(paths []string) []string {
+func (n native) canonicalAll(ctx context.Context, paths []string) ([]string, error) {
 	canonical := make([]string, len(paths))
 	for i, path := range paths {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		canonical[i] = n.canonical(path)
 	}
-	return canonical
+	return canonical, nil
 }
 
 func (native) canonical(path string) string {

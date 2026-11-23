@@ -762,8 +762,8 @@ func (l *Library) agentInstalls(ctx context.Context, code AgentCode, others []st
 		if i := slices.IndexFunc(skillScope.SharedWith, other); item.receiver == "" && i >= 0 {
 			item.receiver = skillScope.SharedWith[i]
 		}
-		for _, agent := range others {
-			if agent.Code != string(code) && slices.Contains(agent.Paths(item.project()), place.target.relative) {
+		for _, agent := range place.target.readers(others) {
+			if agent.Code != string(code) {
 				item.readers = append(item.readers, AgentCode(agent.Code))
 			}
 		}

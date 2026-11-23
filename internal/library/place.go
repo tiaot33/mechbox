@@ -285,8 +285,8 @@ func (l *Library) readsTwice(ctx context.Context, id SkillID, target resolvedSco
 		return nil, err
 	}
 	var scopes []Scope
-	for _, agent := range agents {
-		if !agent.Enabled || agent.Code == target.Agent || !slices.Contains(agent.Paths(target.ProjectID != nil), target.relative) {
+	for _, agent := range target.readers(agents) {
+		if agent.Code == target.Agent {
 			continue
 		}
 		reader := store.Scope{Agent: agent.Code, ProjectID: target.ProjectID}
@@ -386,11 +386,8 @@ func (l *Library) foldersElsewhere(ctx context.Context, places []installedPlace)
 			}
 		}
 		var seen []string
-		for _, agent := range agents {
+		for _, agent := range place.target.readers(agents) {
 			paths := agent.Paths(place.target.ProjectID != nil)
-			if !agent.Enabled || !slices.Contains(paths, place.target.relative) {
-				continue
-			}
 			recognized, err := l.store.PlaceSkillScopes(ctx, int64(place.skillID), store.Scope{Agent: agent.Code, ProjectID: place.target.ProjectID})
 			if err != nil {
 				return nil, err
@@ -407,7 +404,10 @@ func (l *Library) foldersElsewhere(ctx context.Context, places []installedPlace)
 			}
 		}
 	}
-	canonical := agentdir.CanonicalAll(directories)
+	canonical, err := agentdir.CanonicalAll(ctx, directories)
+	if err != nil {
+		return nil, err
+	}
 	for _, c := range candidates {
 		name := places[c.place].rows[0].Folder
 		recorded := slices.ContainsFunc(recordedAt[name], func(at int) bool { return canonical[at] == canonical[c.directory] })

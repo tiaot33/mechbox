@@ -309,7 +309,7 @@ func wslCommandsSince(t *testing.T, log string, skip int) []string {
 // 往发行版发的几种命令的脚本里各有一句别的脚本没有的,按它数命令。
 const (
 	wslListCommand      = `[ -f "$e/SKILL.md" ]`
-	wslCanonicalCommand = `rest=$(basename -- "$c")`
+	wslCanonicalCommand = `rest=${c##*/}`
 	wslInspectCommand   = `printf 'irregular\0'`
 )
 
@@ -390,9 +390,9 @@ func TestWSLDistroListsSharedDirectoryOnce(t *testing.T) {
 	if got := countWSLCommands(commands, wslListCommand); got != distinct {
 		t.Errorf("ListUnmanagedSkills listed %d directories, want %d", got, distinct)
 	}
-	// 一次给列出的目录规范化,一次给判断链接是否指向 Agent 目录外面。
-	if got := countWSLCommands(commands, wslCanonicalCommand); got != 2 {
-		t.Errorf("ListUnmanagedSkills ran %d canonical commands, want 2", got)
+	// 只给列出的目录规范化一次:没有是符号链接的技能文件夹,不用判断链接是否指向 Agent 目录外面。
+	if got := countWSLCommands(commands, wslCanonicalCommand); got != 1 {
+		t.Errorf("ListUnmanagedSkills ran %d canonical commands, want 1", got)
 	}
 	var want []string
 	for _, agent := range sharing {
@@ -438,6 +438,56 @@ func TestWSLDistroListsSharedDirectoryOnce(t *testing.T) {
 		if skill.Kind != library.SameNameGlobalAndProject || skill.First.Folder != folderIn(agent, nil) || skill.Second.Folder != folderIn(agent, &project) {
 			t.Errorf("same-name skill = %+v", skill)
 		}
+	}
+}
+
+// 技能文件夹是符号链接时,判断它是否指向 Agent 目录外面要用到全部收录 Agent 在全局和每个已登记项目里的目录:
+// 项目多时这些目录有几千个,在发行版里一条命令规范化完,不为每条路径启动进程。
+func TestWSLDistroChecksLinkTargetsInOneCommand(t *testing.T) {
+	lib, home := openWSLLibrary(t)
+	ctx := t.Context()
+	log := recordWSLCommands(t)
+	writeFile(t, filepath.Join(home, ".agents/skills/inside/SKILL.md"), []byte(skillDocument("inside", "v1")), 0o644)
+	writeFile(t, filepath.Join(home, "code/outside/SKILL.md"), []byte(skillDocument("outside", "v1")), 0o644)
+	for _, name := range []string{"inside", "outside"} {
+		target := filepath.Join(home, ".agents/skills", name)
+		if name == "outside" {
+			target = filepath.Join(home, "code/outside")
+		}
+		if err := os.MkdirAll(filepath.Join(home, ".claude/skills"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, filepath.Join(home, ".claude/skills", name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i := range 25 {
+		root := filepath.Join(home, "projects", fmt.Sprintf("p%02d", i))
+		writeFile(t, filepath.Join(root, ".claude/skills", fmt.Sprintf("own-%02d", i), "SKILL.md"), []byte(skillDocument(fmt.Sprintf("own-%02d", i), "v1")), 0o644)
+		if _, err := lib.RegisterProject(ctx, wslPath(t, root)); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var unmanaged []library.UnmanagedSkill
+	var err error
+	commands := wslCommandsDuring(t, log, func() {
+		if unmanaged, err = lib.ListUnmanagedSkills(ctx); err != nil {
+			t.Fatal(err)
+		}
+	})
+	outside := map[string]bool{}
+	for _, skill := range unmanaged {
+		if skill.Scope == library.GlobalScope(library.AgentClaudeCode) {
+			outside[skill.Name] = skill.LinkOutside
+		}
+	}
+	if !maps.Equal(outside, map[string]bool{"inside": false, "outside": true}) {
+		t.Errorf("Claude Code global LinkOutside = %v", outside)
+	}
+	// 一次给列出的目录规范化,一次给判断链接是否指向 Agent 目录外面。
+	if got := countWSLCommands(commands, wslCanonicalCommand); got != 2 {
+		t.Errorf("ListUnmanagedSkills ran %d canonical commands, want 2", got)
 	}
 }
 

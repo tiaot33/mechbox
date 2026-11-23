@@ -3,8 +3,10 @@
 package agentdir
 
 import (
+	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"os/exec"
@@ -272,11 +274,11 @@ func TestDistroPathQueries(t *testing.T) {
 	if !SameEntry(unc(filepath.Join(home, ".claude/../.claude/skills/shared")), unc(link)) {
 		t.Error("SameEntry through ..")
 	}
-	if within := Within([]string{unc(filepath.Join(home, ".agents"))}); !within(unc(target)) || within(unc(link)) {
-		t.Error("Within compares resolved paths")
+	if inside, err := Within(context.Background(), []string{unc(filepath.Join(home, ".agents"))}, []string{unc(target), unc(link)}); err != nil || !slices.Equal(inside, []bool{true, false}) {
+		t.Errorf("Within compares resolved paths: %v %v", inside, err)
 	}
-	if within := Within([]string{unc(filepath.Join(home, ".claude/../.agents")), filepath.Join(home, ".claude")}); !within(unc(target)) || within(target) {
-		t.Error("Within with directories on both systems")
+	if inside, err := Within(context.Background(), []string{unc(filepath.Join(home, ".claude/../.agents")), filepath.Join(home, ".claude")}, []string{unc(target), target}); err != nil || !slices.Equal(inside, []bool{true, false}) {
+		t.Errorf("Within with directories on both systems: %v %v", inside, err)
 	}
 	if got := Canonical(unc(filepath.Join(link, "new/deeper"))); got != unc(filepath.Join(target, "new/deeper")) {
 		t.Errorf("Canonical = %q", got)
@@ -286,7 +288,10 @@ func TestDistroPathQueries(t *testing.T) {
 	for _, path := range paths {
 		mixed = append(mixed, unc(path), path)
 	}
-	all := CanonicalAll(mixed)
+	all, err := CanonicalAll(context.Background(), mixed)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for i, path := range mixed {
 		if want := Canonical(path); all[i] != want {
 			t.Errorf("CanonicalAll[%d] = %q, Canonical(%q) = %q", i, all[i], path, want)
@@ -462,4 +467,49 @@ func folderErr(ctx context.Context, root string, maxFiles int, maxBytes int64) e
 		return err
 	}
 	return state.Err
+}
+
+func TestDistroCanonicalStartsNoProcessForDirectoriesAndMissingPaths(t *testing.T) {
+	home := npxLayout(t)
+	shims := t.TempDir()
+	log := filepath.Join(t.TempDir(), "commands")
+	for _, command := range []string{"dirname", "basename", "readlink"} {
+		real, err := exec.LookPath(command)
+		if err != nil {
+			t.Skip(command + " not found")
+		}
+		write(t, filepath.Join(shims, command), "#!/bin/sh\necho "+command+" >> '"+log+"'\nexec '"+real+"' \"$@\"\n", 0o755)
+	}
+	shell := filepath.Join(t.TempDir(), "sh")
+	base := cmp.Or(os.Getenv("AGENTDIR_TEST_SHELL"), "sh")
+	write(t, shell, "#!/bin/sh\nPATH='"+shims+"':$PATH exec "+base+"\n", 0o755)
+	defer wsl.Emulate(shell)()
+
+	var paths []string
+	for i := range 200 {
+		paths = append(paths, unc(filepath.Join(home, fmt.Sprintf("projects/p%d/.agent-%d/skills", i%20, i))))
+	}
+	paths = append(paths, unc(filepath.Join(home, ".claude/skills/shared")), unc(filepath.Join(home, ".claude/skills")))
+	canonical, err := CanonicalAll(context.Background(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := unc(filepath.Join(home, "projects/p3/.agent-3/skills")); canonical[3] != want {
+		t.Errorf("canonical[3] = %q, want %q", canonical[3], want)
+	}
+	if want := unc(filepath.Join(home, ".agents/skills/shared")); canonical[200] != want {
+		t.Errorf("canonical link = %q, want %q", canonical[200], want)
+	}
+	if started, err := os.ReadFile(log); err == nil {
+		t.Errorf("canonicalizing directories and missing paths started processes:\n%s", started)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := CanonicalAll(ctx, paths); !errors.Is(err, context.Canceled) {
+		t.Errorf("CanonicalAll after cancel = %v", err)
+	}
+	if _, err := Within(ctx, paths, []string{unc(filepath.Join(home, ".agents/skills/shared"))}); !errors.Is(err, context.Canceled) {
+		t.Errorf("Within after cancel = %v", err)
+	}
 }

@@ -229,12 +229,18 @@
 // agentdir.ReadFolders / StatFolders,发行版里的按批执行(一批的内容有上限,超过的下一批再读),不逐个文件夹执行命令。
 // 几个 Agent 共用目录时,一次调用里同一个技能目录只列一次(先经 agentdir.CanonicalAll 一次规范化一批目录,规范化后相同的算同一个),
 // 同一个技能文件夹只读一次,结果分给共用它的各个作用域,路径仍按各作用域自己的写法;检测各 Agent 是否装了也一次查完全部检测目录。
+// 发行版里规范化目录只用 sh 的内建命令(cd -P),不为每条路径启动进程。判断符号链接是否指向 Agent 目录外面(UnmanagedSkill.LinkOutside)
+// 要用全部收录 Agent 在全局与每个已登记项目里的目录,项目多时有几千个:只在有是符号链接的技能文件夹时才判断,一次交给 agentdir.Within。
+// 这些按路径分组、批量处理再按原顺序放回的读盘都经 agentdir 的 bySystem,取消时不再往下读。
 // 发行版没有响应时,取主目录最多等 30 秒、其他命令最多等 2 分钟,之后按发行版打不开处理。
 //
 // 判断两份技能内容是不是一样(巡检、回滚、检查更新、认出未纳管技能、整批入库时合并几处)都只比文件路径与内容,不比可执行位,
 // 各平台一样:skillfile 的 Sum、SameContentFiles、SameContent 与 reinstall.go 的 diskFiles.same 都不看可执行位。
 // 可执行位照样记进库、装出去,更新计划的差异与风险里照样列出可执行位的变化;确认更新时要和计划里看过的文件连可执行位一致
 // (plannedState.reviewed),计划之后才改的可执行位不会不经审阅写进库。
+// 一个作用域已经在一个技能目录里认得某个技能时,另一个技能目录里和它的当前版本一致的那一份不算:列出未纳管技能与同名技能
+// 都经 unmanaged.go 的 currentCopies 判断,作用域页靠两者对得上。哪些已添加的 Agent 读一个目录(改 Agent 目录、安装时提示会读到两份、
+// 找别的目录里的旧链接)只看 resolvedScope.readers。
 // 认出未纳管技能是库里的哪个技能只在 fetch_unmanaged.go 的 matchingSkill 里做:列出(recognizeUnmanaged)、整批入库计划与找来源
 // 用列出时认出的结果,入库每读一次文件夹认一次。
 // Windows 本机的目录(不经 WSL 的那些)读不出可执行位:agentdir 读出的文件夹带 NoModes,里面的文件都按普通文件给出。

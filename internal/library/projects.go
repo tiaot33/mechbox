@@ -112,6 +112,16 @@ func (s resolvedScope) in(relative string) resolvedScope {
 	return s
 }
 
+func (s resolvedScope) readers(agents []store.Agent) []store.Agent {
+	var readers []store.Agent
+	for _, agent := range agents {
+		if agent.Enabled && slices.Contains(agent.Paths(s.ProjectID != nil), s.relative) {
+			readers = append(readers, agent)
+		}
+	}
+	return readers
+}
+
 func (s resolvedScope) sharesFolderWith(other resolvedScope) bool {
 	if (s.ProjectID == nil) != (other.ProjectID == nil) || s.relative != other.relative {
 		return false

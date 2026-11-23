@@ -27,8 +27,8 @@ type fileSystem interface {
 	sameEntry(a, b string) (same, known bool)
 	sameFolder(a, b string) (same, known bool)
 	foldsCase(path string) bool
-	within(directories []string) func(resolved string) bool
-	canonicalAll(paths []string) []string
+	within(ctx context.Context, directories, targets []string) ([]bool, error)
+	canonicalAll(ctx context.Context, paths []string) ([]string, error)
 	modes() bool
 	inspect(ctx context.Context, folders []string, read *limits, visit func(int, FolderState) error) error
 	list(directory string) ([]Folder, error)
