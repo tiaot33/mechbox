@@ -3,7 +3,7 @@ import { LibraryService } from "@bindings/cmd/desktop";
 import { FolderPolicy, type Agent, type AgentInput } from "@bindings/internal/library";
 import { detachedBy, deleteConsent, lostEdits } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
-import { currentSnapshot, useSnapshot, type LibraryError } from "@/lib/library";
+import { currentSnapshot, reloadLibrary, useSnapshot, type LibraryError } from "@/lib/library";
 import { folderPlaces } from "@/lib/installs";
 import { scopeLabel } from "@/lib/places";
 import { nativePath, shortPath, wslTitle } from "@/lib/paths";
@@ -148,6 +148,8 @@ export async function resetAgents() {
   const result = await runDeleting(deleteConsent(plan.own), (consent) => LibraryService.ResetAgents({ folders: policy, ...consent }));
   if (!result) return;
   const done = t.resetDone((result.reset ?? []).length, (result.removed ?? []).length);
+  // 结果里写的 Agent 名字按恢复默认之后的：等快照重读完再取。
+  await reloadLibrary();
   const report = migrationReport(currentSnapshot(), result.migrations ?? []);
   if (report.listed) await showResults(done, report.rows, a.migratedPartly(report.migrated, report.skipped));
   else ui.toast(done);
