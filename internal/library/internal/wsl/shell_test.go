@@ -159,3 +159,20 @@ func TestDistrosSkipsMessagesAndDocker(t *testing.T) {
 		t.Fatalf("Distros = %v, %v", distros, err)
 	}
 }
+
+func TestRunCancelledAsTheRequestStartsKeepsTheSessionUsable(t *testing.T) {
+	eachShell(t, func(t *testing.T) {
+		for i := range 100 {
+			ctx, cancel := context.WithCancel(context.Background())
+			go func() {
+				time.Sleep(time.Duration(i%10) * 20 * time.Microsecond)
+				cancel()
+			}()
+			_, _ = Run(ctx, "test", `sleep 1`)
+			cancel()
+		}
+		if output, err := Run(context.Background(), "test", `printf again`); err != nil || string(output) != "again" {
+			t.Fatalf("after cancelling: %q %v", output, err)
+		}
+	})
+}

@@ -117,8 +117,9 @@ func roundTrip(ctx context.Context, distro, req string, timeout time.Duration) (
 		err    error
 	}
 	done := make(chan result, 1)
+	stdin, stdout := s.stdin, s.stdout
 	go func() {
-		output, err := s.exchange(req)
+		output, err := s.exchange(stdin, stdout, req)
 		done <- result{output, err}
 	}()
 	select {
@@ -205,8 +206,7 @@ func (s *session) failure(err error) error {
 	return fmt.Errorf("%w: %s: %w", ErrUnavailable, s.distro, err)
 }
 
-func (s *session) exchange(req string) ([]byte, error) {
-	stdin, stdout := s.stdin, s.stdout
+func (s *session) exchange(stdin io.Writer, stdout *bufio.Reader, req string) ([]byte, error) {
 	if _, err := io.WriteString(stdin, req); err != nil {
 		return nil, s.failure(err)
 	}
