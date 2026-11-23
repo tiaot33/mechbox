@@ -12,7 +12,7 @@ import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { agentNameIn, agentsIn, agentsUsedIn, mergedFolderNote, sameMergedScope } from "@/lib/places";
 import { projectSkillCount, scopeHereCount } from "@/lib/pages";
-import { editedHere, needsRepair, reinstallLevel, skillScopesIn } from "@/lib/installs";
+import { editedHere, needsRepair, reinstallLevel, placesIn } from "@/lib/installs";
 import { parseScope, placeOf, projectName, scopeKey, scopeOf, type Place } from "@/lib/scope";
 import { shortPath, wslTitle } from "@/lib/paths";
 import { useUI } from "@/lib/ui";
@@ -58,7 +58,7 @@ export function ScopePanel() {
 
   const scopeRow = (agent: Agent, place: Place) => {
     const key = scopeKey(scopeOf(agent.code, place));
-    const installed = skillScopesIn(s, key);
+    const installed = placesIn(s, key);
     // 提醒按最重的一处：文件夹不在了、版本落后要重新安装;只有被手动改过的是提示一级(用户自己的修改)。
     const issues = installed.filter(needsRepair).length;
     const edited = installed.filter(editedHere).length;

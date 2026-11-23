@@ -20,7 +20,7 @@ import { describeError, occupiedReason } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
 import type { Attempt, LibraryError, Snapshot } from "@/lib/library";
 import { installable, missingNames } from "@/lib/mentions";
-import { errorOccupier, folderKey, folderPlaces, occupierOf, skillScopeIn, skillScopesAt } from "@/lib/installs";
+import { errorOccupier, folderKey, folderPlaces, occupierOf, skillScopeIn, placesAt } from "@/lib/installs";
 import { placeOf, scopeKey, skillName } from "@/lib/scope";
 import { agentNameIn, eachPlace, scopeLabel, sharedWithNote } from "@/lib/places";
 import { shortPath } from "@/lib/paths";
@@ -178,7 +178,7 @@ export function groupInstalled(results: GroupMemberResult[], blocked: InstallPla
 // 不 merged 时(技能详情里按文件夹分开的一行)只卸载 scope 自己认的那一处。
 export function uninstallPlace(s: Snapshot, id: SkillID, scope: Scope, merged = false) {
   const own = skillScopeIn(s, id, scopeKey(scope));
-  const places = merged ? skillScopesAt(s, id, scopeKey(scope)) : own ? [own] : [];
+  const places = merged ? placesAt(s, id, scopeKey(scope)) : own ? [own] : [];
   const direct = places.filter((p) => p.direct);
   const place = direct[0] ?? own ?? places[0];
   return {
@@ -209,7 +209,7 @@ export function asksBeforeUninstall(p: ReturnType<typeof uninstallPlace>, unfoun
 export function uninstallPicked(s: Snapshot, ids: SkillID[], scopes: Scope[]) {
   const places = eachPlace(
     s,
-    scopes.flatMap((sc) => ids.flatMap((id) => skillScopesAt(s, id, scopeKey(sc)))),
+    scopes.flatMap((sc) => ids.flatMap((id) => placesAt(s, id, scopeKey(sc)))),
   );
   const direct = places.filter((p) => p.direct);
   const deleted = folderPlaces(s, direct.filter((p) => !p.groups?.length));

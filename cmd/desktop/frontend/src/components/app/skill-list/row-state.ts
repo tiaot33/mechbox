@@ -6,7 +6,7 @@
 // 来源那边的情况取 lib/source-state 的结论，和节标题的计数、更新页、左栏的更新数说的是同一回事。
 import { SkillScopeStatus, type MissingMention, type Skill, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
 import { messages } from "@/lib/i18n";
-import { installedWhere, needsReinstall, reinstallAlerts, skillScopeIn, skillScopesAt, skillScopeStatus } from "@/lib/installs";
+import { installedWhere, needsReinstall, reinstallAlerts, skillScopeIn, placesAt, skillScopeStatus } from "@/lib/installs";
 import { byLevel, byUrgency, type Mark } from "@/lib/level";
 import type { Snapshot } from "@/lib/library";
 import { missingAt, missingNames } from "@/lib/mentions";
@@ -49,7 +49,7 @@ export interface RowAt {
 
 // RowInstall 是一个技能在这一行所在作用域(at;技能库页的行没有)的安装情况，技能库页的行都为空:
 // - here:装在这里的那一处(来自全局的行没有);合成一处的几个 Agent 各自装在不同目录时是这一行的 Agent 自己认的那一处;
-// - places:这一行说的各处：装在这里的(合成一处的几个 Agent 各自的都算，见 lib/installs 的 skillScopesAt),来自全局的是全局那一处;
+// - places:这一行说的各处：装在这里的(合成一处的几个 Agent 各自的都算，见 lib/installs 的 placesAt),来自全局的是全局那一处;
 //   状态、开关和重新安装都覆盖其中每一处;
 // - direct:places 里有直接安装(开关能卸载);
 // - identical:这里有一份和它一模一样、不是库装的文件夹(就是这个技能，行首是"入库");
@@ -77,7 +77,7 @@ function inOrder(alerts: RowAlert[], labeled: boolean): RowAlert[] {
 
 export function rowInstall(s: Snapshot, skill: Skill, at?: RowAt): RowInstall {
   if (!at) return { places: [], direct: false, via: [], foreign: false };
-  const hereAll = at.fromGlobal ? [] : skillScopesAt(s, skill.id, at.scope);
+  const hereAll = at.fromGlobal ? [] : placesAt(s, skill.id, at.scope);
   const here = at.fromGlobal ? undefined : (skillScopeIn(s, skill.id, at.scope) ?? hereAll[0]);
   const identical = !here && !at.fromGlobal ? identicalIn(s, at.scope, skill.id) : undefined;
   // 来自全局的：合成一处的几个 Agent 各自的全局都算(它们的全局目录可以不同),同一个文件夹只算一处。

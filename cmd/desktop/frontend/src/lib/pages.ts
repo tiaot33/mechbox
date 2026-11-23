@@ -6,7 +6,7 @@
 // 更新列表、作用域摘要里的组都直接按快照里的顺序。
 import type { Agent, CollectionID, GroupID, ProjectID, Scope, Skill, SkillID, UnmanagedSkill } from "@bindings/internal/library";
 import { messages } from "./i18n";
-import { skillScopesIn } from "./installs";
+import { placesIn } from "./installs";
 import type { Snapshot } from "./library";
 import { globalScopesSeenFrom, mergeAgents, scopeLabel } from "./places";
 import { parseScope, placeOf, projectName, scopeKey, scopeOf, type ScopeKey } from "./scope";
@@ -178,7 +178,7 @@ function scopeListing(s: Snapshot, key: ScopeKey, arrange: Arrange, search: stri
   const hit = (x: { name: string; description?: string }) => matches(search, x);
   // 和库里某个技能一样的未纳管文件夹(identicalIn)就是那个技能：列在上面库里的技能里，不进"不在技能库里"。
   const split = splitIdentical(unmanagedIn(s, key));
-  const hereIDs = new Set([...skillScopesIn(s, key).map((p) => p.skill_id), ...split.identical.map((u) => u.skill_id!)]);
+  const hereIDs = new Set([...placesIn(s, key).map((p) => p.skill_id), ...split.identical.map((u) => u.skill_id!)]);
   const globalKeys = globalScopesSeenFrom(s, key);
   const globalIDs = new Set(
     s.skillScopes.filter((p) => globalKeys.includes(scopeKey(p.scope)) && !hereIDs.has(p.skill_id)).map((p) => p.skill_id),
@@ -240,7 +240,7 @@ export function projectAgents(s: Snapshot, project: ProjectID, search: string): 
     .map((agent) => {
       const key = scopeKey(scopeOf(agent.code, project));
       const split = splitIdentical(unmanagedIn(s, key));
-      const ids = new Set([...skillScopesIn(s, key).map((p) => p.skill_id), ...split.identical.map((u) => u.skill_id!)]);
+      const ids = new Set([...placesIn(s, key).map((p) => p.skill_id), ...split.identical.map((u) => u.skill_id!)]);
       const skills = sortSkills(s, s.skills.filter((x) => ids.has(x.id)));
       const unmanaged = split.unmanaged.sort(byName);
       return { scope: key, agent, skills: skills.filter(hit), unmanaged: unmanaged.filter(hit), all: skills.length + unmanaged.length };

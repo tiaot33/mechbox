@@ -27,7 +27,7 @@ import {
   occupierOf,
   reinstallAlerts,
   reinstallLevel,
-  skillScopesIn,
+  placesIn,
 } from "./installs";
 import { scopeKey } from "./scope";
 
@@ -38,7 +38,7 @@ const where = (agent: string, project_id?: number) =>
   project_id ? { kind: ScopeKind.ScopeProject, agent, project_id } : { kind: ScopeKind.ScopeGlobal, agent };
 const installed = (skill_id: number, agent: string, project_id?: number) => ({ skill_id, scope: where(agent, project_id) }) as SkillScopeInspection;
 
-describe("skillScopesIn", () => {
+describe("placesIn", () => {
   it("合成一处的几个 Agent 各自装在不同目录时，每一处都算(右栏、作用域页的提醒按它);共用的同一个文件夹只算一处", () => {
     const agents = [
       { code: AgentCode.AgentClaudeCode, name: "Claude Code", global_directories: ["/home/.dir1", "/home/.dir2"], project_directories: [".claude/skills"] },
@@ -51,8 +51,8 @@ describe("skillScopesIn", () => {
     const shared = p(2, AgentCode.AgentClaudeCode, "/home/.dir1/s2");
     const s = snapshot({ agents, skillScopes: [mine, shared, theirs, p(2, AgentCode.AgentCodex, "/home/.dir1/s2")] });
     const key = scopeKey(where(AgentCode.AgentClaudeCode) as Scope);
-    expect(skillScopesIn(s, key)).toEqual([mine, shared, theirs]);
-    expect(reinstallLevel(skillScopesIn(s, key))).toBe("critical");
+    expect(placesIn(s, key)).toEqual([mine, shared, theirs]);
+    expect(reinstallLevel(placesIn(s, key))).toBe("critical");
   });
 });
 

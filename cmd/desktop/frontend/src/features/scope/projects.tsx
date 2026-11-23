@@ -10,7 +10,7 @@ import { ui } from "@/lib/ui";
 import { Hint } from "@/components/ui/field";
 import { DetachNotice, StaleNotes } from "@/components/app/link-notes";
 import { unregisterDeletes } from "./projects-rules";
-import { runDeleting } from "@/components/app/discard-edits";
+import { runDeleting } from "@/components/app/delete-check";
 import { offerProject } from "@/features/fetch/fetch-unmanaged-all";
 
 // registerProject 登记项目;登记之后把用户带到这个项目里不是库装的技能，一次确认全部入库。

@@ -33,7 +33,7 @@ import { openDrawer } from "@/lib/view";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { DeleteNotes, SharedFolders } from "@/components/app/link-notes";
-import { runDeleting } from "@/components/app/discard-edits";
+import { runDeleting } from "@/components/app/delete-check";
 import { runEach, showResults } from "@/components/app/results";
 import { memberRows, summarizeMembers } from "@/components/app/result-rows";
 import {

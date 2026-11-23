@@ -20,7 +20,7 @@ import { copyable, copyDefaults, copyOverwrites, type CopyPlanned } from "@/lib/
 import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
 import type { Attempt, LibraryError, Snapshot } from "@/lib/library";
-import { errorOccupier, skillScopesIn } from "@/lib/installs";
+import { errorOccupier, placesIn } from "@/lib/installs";
 import { sortSkills } from "@/lib/pages";
 import { lastSegment } from "@/lib/paths";
 import { mergeAgents, mergedScope, placeCount, sameFolderAt, scopeLabel, type AgentList } from "@/lib/places";
@@ -61,9 +61,9 @@ function hasGroupAt(s: Snapshot, g: Group, agent: AgentCode, place: Place): bool
 
 // copyPlace 是照着 from 装到 to 的这一处;没有要装的时为空。
 function copyPlace(s: Snapshot, from: Scope, to: Scope): CopyPlace[] {
-  const installed = new Set(skillScopesIn(s, scopeKey(to)).map((p) => p.skill_id));
+  const installed = new Set(placesIn(s, scopeKey(to)).map((p) => p.skill_id));
   const groups = s.groups.filter((g) => hasGroupAt(s, g, from.agent, placeOf(from)) && !hasGroupAt(s, g, to.agent, placeOf(to)));
-  const there = skillScopesIn(s, scopeKey(from)).filter((p) => !installed.has(p.skill_id));
+  const there = placesIn(s, scopeKey(from)).filter((p) => !installed.has(p.skill_id));
   const skillsOf = (ids: SkillID[]) => sortSkills(s, s.skills.filter((x) => ids.includes(x.id)));
   const skills = skillsOf(there.filter((p) => p.direct).map((p) => p.skill_id));
   if (!groups.length && !skills.length) return [];
@@ -129,7 +129,7 @@ export function uncopiedUnmanaged(s: Snapshot, from: AgentCode, to: AgentCode): 
 
 // folderNamesIn 是作用域的技能目录里已有的技能文件夹名：未纳管的和库装的。
 function folderNamesIn(s: Snapshot, key: ScopeKey): string[] {
-  return [...unmanagedIn(s, key).map((x) => x.name), ...skillScopesIn(s, key).map((p) => lastSegment(p.folder))];
+  return [...unmanagedIn(s, key).map((x) => x.name), ...placesIn(s, key).map((p) => lastSegment(p.folder))];
 }
 
 // projectAgentsUsing 是在项目里装了库里技能(直接安装或组安装)的 Agent,共用目录的合成一处(代表的 Agent)。

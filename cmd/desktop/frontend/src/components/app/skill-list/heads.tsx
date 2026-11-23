@@ -4,7 +4,7 @@ import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { agentName, parseScope, placeOf, projectName, scopeOf, type ScopeKey } from "@/lib/scope";
 import { agentNameIn, directoriesAt, scopeLabel, scopeReaders } from "@/lib/places";
-import { groupInstallIn, groupStateIn, editedHere, needsRepair, reinstallLevel, skillScopeIn, skillScopesIn } from "@/lib/installs";
+import { groupInstallIn, groupStateIn, editedHere, needsRepair, reinstallLevel, skillScopeIn, placesIn } from "@/lib/installs";
 import { joinUnder, shortPath, wslTitle } from "@/lib/paths";
 import { extraCopy, splitIdentical, unmanagedIn, fetchable } from "@/lib/unmanaged";
 import type { Level } from "@/lib/level";
@@ -35,7 +35,7 @@ export const barRowClass = "a-sum-row flex min-w-0 items-center gap-2.5";
 export function ScopeSummary({ scope, directory, here, global }: { scope: ScopeKey; directory: string | undefined; here: number; global: number }) {
   const s = useSnapshot();
   const t = useT().list;
-  const installed = skillScopesIn(s, scope);
+  const installed = placesIn(s, scope);
   // 真要重新安装的(文件夹不在了、版本落后)和被手动改过的分开数：被手动改过的是用户自己的修改，不催用户重新安装。
   const broken = installed.filter(needsRepair);
   const issues = broken.length;

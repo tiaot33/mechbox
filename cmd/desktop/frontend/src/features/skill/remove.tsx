@@ -15,7 +15,7 @@ import { twinReplaceScopes } from "@/features/skill/remove-rules";
 import { ChoiceList, Modal, ui } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
-import { runDeleting } from "@/components/app/discard-edits";
+import { runDeleting } from "@/components/app/delete-check";
 import { StaleNotes } from "@/components/app/link-notes";
 import { installReplacing, lostMentionLines, lostMentions } from "@/features/install/install";
 import type { MissingMention } from "@bindings/internal/library";

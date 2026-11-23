@@ -14,7 +14,7 @@ import { Notice } from "@/components/ui/notice";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { AgentMark } from "@/components/app/parts";
 import { DetachNotice, SharedFolders, StaleNotes } from "@/components/app/link-notes";
-import { runDeleting } from "@/components/app/discard-edits";
+import { runDeleting } from "@/components/app/delete-check";
 import { showResults } from "@/components/app/results";
 import { agentDelete, agentEdit, agentReset, migrationReport, type AgentChange } from "./agents-rules";
 

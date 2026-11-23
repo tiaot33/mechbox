@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
 import { DeleteNotes } from "@/components/app/link-notes";
-import { runDeleting } from "@/components/app/discard-edits";
+import { runDeleting } from "@/components/app/delete-check";
 import { LostMentions, lostMentions, ReadsTwiceNotice, toastInstalled } from "@/features/install/install";
 import { runEach, showResults } from "@/components/app/results";
 import { memberRows, placedBy } from "@/components/app/result-rows";
