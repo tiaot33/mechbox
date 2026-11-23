@@ -45,6 +45,14 @@ describe("改 Agent 的第 1 个目录", () => {
     expect(agentEdit(s, windows, input({ global_directories: ["C:\\Users\\me\\.mine\\skills\\"] })).asks).toBe(false);
   });
 
+  it("主目录所在的卷不区分大小写时，只改大小写不算改了，不问;区分大小写时算改了", () => {
+    const windows = { ...agent, global_directories: ["C:\\Users\\me\\.agents\\skills"], project_directories: [".agents/skills"] } as Agent;
+    const caseOnly = input({ global_directories: ["C:\\Users\\me\\.Agents\\skills"], project_directories: [".Agents/skills"] });
+    const folds = { ...s, info: { home_folds_case: true } } as Snapshot;
+    expect(agentEdit(folds, windows, caseOnly)).toMatchObject({ affected: [], groupInstalls: 0, asks: false });
+    expect(agentEdit({ ...s, info: { home_folds_case: false } } as Snapshot, windows, caseOnly).asks).toBe(true);
+  });
+
   it("写法不同的同一个目录不算改了，不问", () => {
     expect(agentEdit(s, agent, input({ global_directories: ["/home/.mine/skills/"], project_directories: ["./.mine/skills" ]}))).toMatchObject({ affected: [], groupInstalls: 0, asks: false });
   });
@@ -317,3 +325,4 @@ describe("表单的按键", () => {
     expect(directoryKey(key("Escape"), { open: false, active: -1, count: 3 })).toEqual({ type: "none" });
   });
 });
+

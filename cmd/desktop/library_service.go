@@ -117,12 +117,24 @@ func (s *LibraryService) ServiceShutdown() error {
 type AppInfo struct {
 	LibraryPath string `json:"library_path"` // 当前打开的技能库文件
 	HomeDir     string `json:"home_dir"`     // 用户主目录，界面据此把路径缩写成 ~
-	Version     string `json:"version"`      // 应用版本
+	// HomeFoldsCase 是用户主目录所在的卷不区分大小写(Windows 本机、macOS 默认的卷):技能库在那里把只差大小写的两个 Agent 目录当作同一个,
+	// 界面比较 Agent 目录时照着做。主目录在 WSL 发行版里时为 false。
+	HomeFoldsCase bool   `json:"home_folds_case"`
+	Version       string `json:"version"` // 应用版本
 }
 
 // Info 返回技能库路径、技能库所用的用户主目录与应用版本。
 func (s *LibraryService) Info() (AppInfo, error) {
-	return AppInfo{LibraryPath: s.path, HomeDir: s.lib.HomeDirectory(), Version: appVersion()}, nil
+	home := s.lib.HomeDirectory()
+	return AppInfo{LibraryPath: s.path, HomeDir: home, HomeFoldsCase: foldsCase(home), Version: appVersion()}, nil
+}
+
+// foldsCase 是主目录所在的卷是否不区分大小写:WSL 发行版里的总是区分。
+func foldsCase(home string) bool {
+	if _, _, ok := splitWSLPath(home); ok {
+		return false
+	}
+	return !caseSensitive(home)
 }
 
 //go:embed build/config.yml

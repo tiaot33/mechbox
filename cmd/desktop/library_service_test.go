@@ -302,3 +302,14 @@ func TestConfigStatusOnlyCountsStoredSettings(t *testing.T) {
 		t.Fatalf("Config with stored settings = %+v, %v", got, err)
 	}
 }
+
+// 编辑 Agent 时界面按主目录所在的卷是否区分大小写比较目录,和技能库一样:发行版里的主目录总是区分,本机的看卷。
+func TestInfoTellsWhetherHomeFoldsCase(t *testing.T) {
+	if foldsCase(`\\wsl.localhost\Ubuntu\home\me`) || foldsCase(`\\wsl$\Ubuntu\home\me`) {
+		t.Fatal("foldsCase(a WSL home) = true; want false")
+	}
+	home := t.TempDir()
+	if got, want := foldsCase(home), !caseSensitive(home); got != want {
+		t.Fatalf("foldsCase(%q) = %v; want %v", home, got, want)
+	}
+}

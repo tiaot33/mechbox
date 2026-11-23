@@ -20,6 +20,12 @@ export interface AppInfo {
     "home_dir": string;
 
     /**
+     * HomeFoldsCase 是用户主目录所在的卷不区分大小写(Windows 本机、macOS 默认的卷):技能库在那里把只差大小写的两个 Agent 目录当作同一个,
+     * 界面比较 Agent 目录时照着做。主目录在 WSL 发行版里时为 false。
+     */
+    "home_folds_case": boolean;
+
+    /**
      * 应用版本
      */
     "version": string;

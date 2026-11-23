@@ -24,14 +24,21 @@ import type { ResultRow } from "@/components/app/result-rows";
 // cleanPath 是比较目录时去掉开头的 ./ 和末尾的 /(Windows 上也去掉 .\ 和末尾的 \):写法不同的同一个目录不算改了。
 const cleanPath = (path: string) => path.replace(/^\.[\\/]/, "").replace(/[\\/]+$/, "");
 
-const inputDirectories = (input: AgentInput, place: Place) => ((place ? input.project_directories : input.global_directories) ?? []).map(cleanPath);
+// comparable 是比较两个目录用的写法：去掉开头的 ./ 和末尾的斜杠、反斜杠换成 /;foldsCase(主目录所在的卷不区分大小写，见 AppInfo.home_folds_case)
+// 时不论大小写，和技能库一样把只差大小写的两个目录当作同一个。
+const comparable = (path: string, foldsCase: boolean) => {
+  const key = cleanPath(path).replaceAll("\\", "/");
+  return foldsCase ? key.toLowerCase() : key;
+};
 
 // agentEdit 是编辑 Agent 时受影响的:affected 是这个 Agent 所在目录被去掉的那几处安装(含因共用目录而算已装的;
 // 所在目录还在新列表里的磁盘不动，不算);groupInstalls 是原来的第 1 个目录被去掉的层级里它的组安装数。
 // asks 是要不要先问是否迁移;shared 是其中还有别的 Agent 在读的(那份文件夹留在旧目录);detached 是迁移时别处的符号链接
 // 指着要搬走的文件夹、库先给那几处换上独立的一份的。
 export function agentEdit(s: Snapshot, agent: Agent, input: AgentInput) {
-  const removed = (dir: string, place: Place) => !inputDirectories(input, place).includes(cleanPath(dir));
+  const folds = !!s.info?.home_folds_case;
+  const removed = (dir: string, place: Place) =>
+    !((place ? input.project_directories : input.global_directories) ?? []).some((d) => comparable(d, folds) === comparable(dir, folds));
   // 这一处所在的目录：技能库总会给出;没有时按原来的第 1 个目录算。
   const dirOf = (p: SkillScopeInspection) => p.directory || (directoriesAt(agent, placeOf(p.scope))[0] ?? "");
   const firstRemoved = (scope: Scope) => removed(directoriesAt(agent, placeOf(scope))[0] ?? "", placeOf(scope));
