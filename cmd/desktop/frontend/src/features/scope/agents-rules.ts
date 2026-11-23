@@ -186,11 +186,6 @@ export function asksWhere(distros: string[], chosen: string): boolean {
   return distros.length > 0 && !chosen;
 }
 
-// switchedToDistro 是设置里这次保存有没有把全局目录换到另一个 WSL 发行版：换到了就按那里检测到的补弹一次「添加 Agent」。
-export function switchedToDistro(before: string, after: string): boolean {
-  return !!after && after !== before;
-}
-
 // ---------- 候选池 ----------
 
 // poolMatches 是候选池里按名称、目录搜索:不分大小写，名称或任一目录包含搜索的文字。

@@ -41,19 +41,26 @@ import { PathText, Tipped, WSLBadge } from "@/components/app/parts";
 import { SetRow } from "@/components/app/set-row";
 import { resumeAutoTranslate } from "@/features/skill/translate";
 import { ReleaseCheck } from "@/features/release/release";
+import { globalDirName } from "./global-dir-rules";
 
 // GeneralSection 是通用分区：关闭窗口后留在菜单栏、Dock 角标、左栏折叠技能少的来源、界面语言、外观，
 // 以及 Windows 上装了 WSL 时的全局目录。
 export function GeneralSection({
   settings,
   save,
+  switching,
+  onSwitchDistro,
   onRetryDistro,
 }: {
   settings: Settings;
   save: (change: Partial<Settings>) => void;
+  // switching 是正在换全局目录或再试打开发行版：这期间下拉框和「再试一次」都不能点。
+  switching: boolean;
+  // onSwitchDistro 是在「全局目录」里选了另一个位置：库里记着全局安装时先确认再保存，取消时不保存，下拉框留在原来的选择。
+  onSwitchDistro: (distro: string) => void;
   onRetryDistro: () => void;
 }) {
-  const { settings: t, paths } = useT();
+  const { settings: t } = useT();
   // 跟随系统时实际用哪种语言由 Go 端按系统的首选语言定。
   const languages: { value: Language; label: string }[] = [
     { value: Language.LanguageSystem, label: t.followSystem },
@@ -140,12 +147,13 @@ export function GeneralSection({
         <NativeSelect
           className="shrink-0 max-w-[180px]"
           value={settings.wsl_distro ?? ""}
-          onChange={(e) => save({ wsl_distro: e.target.value })}
+          disabled={switching}
+          onChange={(e) => onSwitchDistro(e.target.value)}
         >
-          <option value="">{t.windowsHome}</option>
+          <option value="">{globalDirName("")}</option>
           {[...new Set([...distros, ...(settings.wsl_distro ? [settings.wsl_distro] : [])])].map((d) => (
             <option key={d} value={d}>
-              {paths.wsl(d)}
+              {globalDirName(d)}
             </option>
           ))}
         </NativeSelect>
@@ -157,7 +165,11 @@ export function GeneralSection({
         <Notice
           alert
           className="grow bg-transparent py-0 pr-0 pl-5 [&>[data-slot=icon]]:top-[3px] [&>[data-slot=icon]]:left-0"
-          action={<Button onClick={onRetryDistro}>{t.retryDistro}</Button>}
+          action={
+            <Button disabled={switching} onClick={onRetryDistro}>
+              {t.retryDistro}
+            </Button>
+          }
         >
           {t.distroFallback(settings.wsl_distro, distroError)}
         </Notice>
