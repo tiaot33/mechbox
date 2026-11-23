@@ -326,13 +326,28 @@ describe("卸载整组时删哪些成员的文件夹", () => {
       groups: [group(5, [1, 2]), group(6, [2])],
       groupInstalls: [installed(5, global(claude)), installed(6, global(codex))],
       skillScopes: [
-        place(1, global(claude), { direct: false, groups: [5], shared_with: [codex] }),
-        place(2, global(claude), { direct: false, groups: [5], shared_with: [codex] }),
+        place(1, global(claude), { direct: false, groups: [5], shared_with: [codex], folder: "/home/.agents/skills/s1" }),
+        place(1, global(codex), { direct: false, groups: [5], shared_with: [claude], shared_only: true, folder: "/home/.agents/skills/s1" }),
+        place(2, global(claude), { direct: false, groups: [5, 6], shared_with: [codex], folder: "/home/.agents/skills/s2" }),
+        place(2, global(codex), { direct: false, groups: [5, 6], shared_with: [claude], folder: "/home/.agents/skills/s2" }),
       ],
     });
     const r = uninstallGroupPlaces(s, 5, global(claude));
     expect(r.gone.map((p) => p.skill_id)).toEqual([1]);
     expect(r.shared.map((p) => p.skill_id)).toEqual([1]);
+  });
+
+  it("共用目录的别的 Agent 只是读到它、自己没有安装记录时，它含这个技能的组安装留不住文件夹", () => {
+    // Codex 的组 6 里也有 s1,但组安装时 s1 因同名被跳过;之后 Codex 加了这个目录才读到 Claude Code 的 s1。
+    const s = snapshot({
+      groups: [group(5, [1]), group(6, [1])],
+      groupInstalls: [installed(5, global(claude)), installed(6, global(codex))],
+      skillScopes: [
+        place(1, global(claude), { direct: false, groups: [5], shared_with: [codex], folder: "/home/.agents/skills/s1" }),
+        place(1, global(codex), { direct: false, groups: [5], shared_with: [claude], shared_only: true, folder: "/home/.agents/skills/s1" }),
+      ],
+    });
+    expect(uninstallGroupPlaces(s, 5, global(claude)).gone.map((p) => p.skill_id)).toEqual([1]);
   });
 
   it("合成一处里几个 Agent 各有这个组的组安装时一起撤掉：互相不算「别的组安装还留着」,同一个文件夹只算一次", () => {
