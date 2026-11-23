@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"reflect"
@@ -8,7 +9,6 @@ import (
 	"testing"
 
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/tiaot33/mechbox/internal/library"
 	"github.com/tiaot33/mechbox/internal/library/platformtest"
@@ -52,11 +52,12 @@ func TestSettingsFillUnreadableValuesWithDefaults(t *testing.T) {
 }
 
 func TestSettingsFromOldDatabaseIgnoreAndDropGlassTint(t *testing.T) {
-	lib := startLibrary(t)
+	s := newTestServices(t, tempLibrary(t))
+	lib := s.lib
 	if err := lib.lib.SetAppSettings(t.Context(), map[string]string{"dock_badge": "false", "glass_tint": "0.4", "glass_tint_dark": "1.2"}); err != nil {
 		t.Fatal(err)
 	}
-	service := startApp(t, lib)
+	service := s.start(t).app
 	want := defaultSettings()
 	want.DockBadge = false
 	got := service.Settings()
@@ -81,8 +82,10 @@ func TestSettingsFromOldDatabaseIgnoreAndDropGlassTint(t *testing.T) {
 }
 
 func TestSaveSettingsRejectsUnknownValues(t *testing.T) {
-	lib := startLibrary(t)
-	service := startApp(t, lib)
+	s := startServices(t, tempLibrary(t))
+	lib, service := s.lib, s.app
+	var applied int
+	service.settings.onChange(func(context.Context, Settings) { applied++ })
 	for _, change := range []func(*Settings){
 		func(s *Settings) { s.CheckInterval = "sometimes" },
 		func(s *Settings) { s.Language = "fr" },
@@ -96,8 +99,11 @@ func TestSaveSettingsRejectsUnknownValues(t *testing.T) {
 			t.Fatalf("SaveSettings(%+v) accepted an unknown value", settings)
 		}
 	}
-	if values, err := lib.lib.AppSettings(t.Context()); err != nil || len(values) != 0 {
-		t.Fatalf("app settings = %v, %v; want nothing written for rejected changes", values, err)
+	if values, err := lib.lib.AppSettings(t.Context()); err != nil || len(values) != 0 || applied != 0 {
+		t.Fatalf("app settings = %v, %v, applied %d times; want nothing written or applied for rejected changes", values, err, applied)
+	}
+	if _, err := service.SaveSettings(t.Context(), defaultSettings()); err != nil || applied != 1 {
+		t.Fatalf("SaveSettings = %v, applied %d times; want saved settings applied once", err, applied)
 	}
 }
 
@@ -131,8 +137,8 @@ func TestWSLDistroSetting(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	platformtest.EmulateWSL(t, "sh")
-	lib := startLibrary(t)
-	app := startApp(t, lib)
+	s := startServices(t, tempLibrary(t))
+	lib, app := s.lib, s.app
 
 	settings := app.Settings()
 	settings.WSLDistro = "saved-distro"
@@ -164,11 +170,11 @@ func TestWSLDistroUnavailableAtStartup(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	platformtest.EmulateWSL(t, "/nonexistent/sh")
 	path := filepath.Join(t.TempDir(), "library.db")
-	created := NewLibraryService(path)
-	if err := created.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
+	created, err := openLibrary(path)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := created.ServiceShutdown(); err != nil {
+	if err := created.Close(); err != nil {
 		t.Fatal(err)
 	}
 	db, err := sql.Open("sqlite3", path)
@@ -181,12 +187,8 @@ func TestWSLDistroUnavailableAtStartup(t *testing.T) {
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
-	lib := NewLibraryService(path)
-	if err := lib.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = lib.ServiceShutdown() })
-	app := startApp(t, lib)
+	s := startServices(t, path)
+	lib, app := s.lib, s.app
 	if got := app.Settings().WSLDistro; got != "late-distro" {
 		t.Fatalf("WSLDistro = %q; want the stored one", got)
 	}

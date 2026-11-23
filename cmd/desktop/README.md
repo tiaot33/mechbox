@@ -104,8 +104,8 @@ open bin/mechbox.app
 **手动发版。** 推送 `v<X.Y.Z>` 形式的 tag(如 `git tag v0.1.0 && git push origin v0.1.0`)后，`.github/workflows/release.yml` 在 GitHub Actions 上构建各平台的安装包，再发布到同名的 GitHub Release:macOS 通用 `.dmg`(Apple 芯片 + Intel)与给 app 里的更新用的 `.zip`、Windows amd64 的 NSIS 安装程序、Linux amd64 / arm64 的 `.AppImage`、`.deb`、`.rpm`、`.pkg.tar.zst`,另附 `SHA256SUMS.txt`,发布后再传一份 `release.json`(app 检查新版本时读的发布信息)。tag 带 `-` 后缀(如 `v0.2.0-beta.1`)时发布成预发布版本。
 
 - 版本号以 tag 为准：构建前由 `.github/scripts/set-version.sh` 写进 `build/config.yml`(关于页显示的版本)、`Info.plist`、Windows 版本资源、NSIS 与 nfpm 配置，仓库里这几处的版本号不用手改。macOS 与 Windows 的版本字段只认数字，预发布后缀只留在 `config.yml` 与 Linux 包里。
-- **`release.json` 是 app 检查新版本依赖的约定**:app 从 `releases/latest/download/release.json` 读最新正式版附带的这份文件(`release.go` 的 `releaseManifest`),字段是 GitHub releases 接口返回内容里的 `tag_name`、`body`、`html_url`、`published_at` 与 `assets` 的 `name`、`browser_download_url`、`size`,由 workflow 的 Release manifest 一步生成。最新正式版上缺了它、改了名或少了字段，这之后装出去的 app 都查不到新版本(只报连不上 GitHub);这一步失败时，在 tag 上重跑 Release 不行(版本已存在),按 workflow 里的那两条命令手动生成并 `gh release upload v<版本> release.json` 补传。
-- **安装包的文件名是 app 里的更新依赖的约定**:`Mechbox-<版本>-macos-universal.zip`、`-windows-<架构>-setup.exe`、`-linux-<架构>.AppImage` 与 `SHA256SUMS.txt`,app 按这几个后缀找本平台的安装包和校验值(`release_<平台>.go` 的 `releaseTarget`)。改名、去掉其中一个，已经发出去的版本就找不到安装包，只能打开下载页;发布正文里 GitHub 生成的 `## What's Changed` 是 app 里显示的更新说明的开头。
+- **`release.json` 是 app 检查新版本依赖的约定**:app 从 `releases/latest/download/release.json` 读最新正式版附带的这份文件(`internal/release/release.go` 的 `releaseManifest`),字段是 GitHub releases 接口返回内容里的 `tag_name`、`body`、`html_url`、`published_at` 与 `assets` 的 `name`、`browser_download_url`、`size`,由 workflow 的 Release manifest 一步生成。最新正式版上缺了它、改了名或少了字段，这之后装出去的 app 都查不到新版本(只报连不上 GitHub);这一步失败时，在 tag 上重跑 Release 不行(版本已存在),按 workflow 里的那两条命令手动生成并 `gh release upload v<版本> release.json` 补传。
+- **安装包的文件名是 app 里的更新依赖的约定**:`Mechbox-<版本>-macos-universal.zip`、`-windows-<架构>-setup.exe`、`-linux-<架构>.AppImage` 与 `SHA256SUMS.txt`,app 按这几个后缀找本平台的安装包和校验值(`internal/release/install_<平台>.go` 的 `releaseTarget`)。改名、去掉其中一个，已经发出去的版本就找不到安装包，只能打开下载页;发布正文里 GitHub 生成的 `## What's Changed` 是 app 里显示的更新说明的开头。
 - 各平台的打包与安装包命名在 `Taskfile.yml` 的 `release` 任务里，workflow 在每个平台上只调它。在本机调试打包就在 `cmd/desktop` 下运行 `wails3 task release`(可加 `VERSION=<版本>`),打出本机系统、本机架构的安装包放进 `dist/`;它不写版本号，要和正式发布一致先跑 `set-version.sh`。
 - 在 Actions 页面选一个分支手动运行这个 workflow 只构建、不发布，安装包留在那次运行的 Artifacts 里，文件名里的版本是 `dev-<提交>`;选 tag 运行则和推 tag 一样发布。
 - Windows 构建要开 cgo(`CGO_ENABLED=1`,技能库用的 SQLite 驱动需要),Windows 任务默认不开。
@@ -119,7 +119,7 @@ open bin/mechbox.app
   - GitHub 令牌(`Library.GitHubToken` / `SetGitHubToken`):随推送、拉回走，拉回后换成拉回的那个。没填时匿名访问，受限时再用 `gh` 的登录。
   - AI 设置(`Library.AISettings` / `SetAISettings`):接口类型(OpenAI 兼容或 Anthropic)、服务地址、API Key、模型，以及请求头(一行一个「名字: 值」)与请求体(合并进每个请求的 JSON 对象，用来设置思考深度这类参数),随推送、拉回走;翻译描述和文件、关系图与技能详情里判断单个词的技能名都用它。「测试连接」(`Library.TestAISettings`)用表单上还没保存的那一组发一条很短的消息。
   - 自动翻译技能描述：AI 分区里的开关，是应用设置，默认打开。开着且填了模型时，主界面把快照里还没有界面语言译文的描述每 8 个一批交给 `Library.TranslateDescriptions`,翻完一批重读一次;中文界面下技能库跳过已经是中文的描述，其他语言交给模型判断。只因某一条描述没翻译成的(服务拒绝了这一条、回答被截断)提示是哪几个技能，这次不再交，其余照常翻译;连不上、超时、限流时提示一次，过一分钟自己再试;Key 被拒、模型不存在这类失败提示后停下，改了 AI 设置、在设置里把开关关掉再打开，或退出后重开时再试。
-  - 同步设置(`Library.SyncSettings` / `SetSyncSettings`):只属于这台机器，推送出去的库里不带，拉回时保留本机的。缺存储桶或密钥时同步报未配置。设了自动推送的间隔时，`AppService` 每分钟看一次是否到了(按 `Library.SyncStatus` 的上次推送时间),到了就推送;失败后一小时内不重试，改了同步设置就不等。上一次推送(自动或手动)失败、或删不掉超出份数的旧备份时，`AppService.PushProblem` 给出原因，左栏写「推送失败」，同步弹窗与设置页写出原因。
+  - 同步设置(`Library.SyncSettings` / `SetSyncSettings`):只属于这台机器，推送出去的库里不带，拉回时保留本机的。缺存储桶或密钥时同步报未配置。设了自动推送的间隔时，自动推送(`auto_push.go`)每分钟看一次是否到了(按 `Library.SyncStatus` 的上次推送时间),到了就推送;失败后一小时内不重试，改了同步设置就不等。上一次推送(自动或手动)失败、或删不掉超出份数的旧备份时，`AppService.PushProblem` 给出原因，左栏写「推送失败」，同步弹窗与设置页写出原因。
   - 密钥以明文存在数据库里：数据库所在目录建成 0700,打开时把数据库文件(连同 -wal、-shm)改成 0600;数据库开着 `secure_delete`,清空或换掉的值在文件里清零。拉回后 Go 端发 `settings-reloaded` 事件，开着的设置页随之重读。
 - **自动检查更新**：默认打开、每天。Go 端每分钟看一次是否到了间隔（以技能库里记下的检查时间为准，从未检查过的技能从入库时算起，手动检查也算）；“只在打开时”是启动应用、从菜单栏或 Dock 重新打开窗口时各检查一次。只检查非本地目录来源的集合，不发系统通知；检查完更新 Dock 角标，并发 `updates-checked` 事件让前端重读。自动检查和在 skills.sh 上给未纳管技能找来源都要读来源，两件事轮流进行、不同时跑(手动检查更新不用等):启动时正在自动检查的话，未纳管技能行里的"来自 …"要等检查做完才出现;反过来，正在找来源时到了检查时间，自动检查推迟到找完再做。各自做完后立即把空闲内存还给系统。
 - **读本地目录来源**：本地目录来源的作者就是用户自己，要的是改完尽快用上。打开 app、窗口切回前台时，前端在后台读一遍本地目录来源的目录(`Library.CheckUpdates` 只传这些集合，只读，不弹提示),比出目录里改过的技能：技能库页这一行的状态写「目录里改过」,节标题写几个在目录里改过、右边是「重新读取」,集合的「⋯」与左栏右键里是「重新读取整个目录」,一次把改过的几个读进来(底层是按更新计划的默认勾选做的更新，有版本历史、可以回滚;目录里删掉或改了名的、会换掉库里你的修改的，打开更新计划由用户拿主意)。回滚掉的那份、库里的当前版本是用 Agent 目录里的修改更新进来的，都不标「目录里改过」。
@@ -136,7 +136,7 @@ open bin/mechbox.app
 - **界面语言**：设置页「通用」里选跟随系统(默认)、简体中文或 English,存在数据库的应用设置里(跟随系统时不写)。跟随系统时由 Go 端判断系统语言(`AppService.Language`):macOS 读系统设置里排第一的首选语言(`[NSLocale preferredLanguages]`,不用 WebView 的 `navigator.language`,它跟随 app bundle 声明的语言),Windows 读系统设置里排第一的显示语言(`GetUserPreferredUILanguages`,Windows 一般不设 `LANG` 等环境变量),其他平台与 server 模式读 `LC_ALL` / `LC_MESSAGES` / `LANG`;首选中文(含繁体)时用中文，其余用英文。前端等 Go 端给出语言再渲染，改了设置整个界面立即切换，菜单栏图标的菜单与 macOS 顶部菜单栏同时换文字。系统控件(目录选择框的按钮、输入框的右键菜单等)跟随系统语言，不跟随这里的选择;`Info.plist` 声明了 en 与 zh-Hans 两种本地化，系统控件才会按系统语言显示中文。
 - **外观**：设置页「通用」里选跟随系统(默认)、浅色或深色，存在数据库的应用设置里(跟随系统时不写)。前端(`lib/theme.ts`)按设置与 `prefers-color-scheme` 在根元素上写 `data-theme`,渲染前就写好，系统切换深浅色时立即跟着变;旧版本存的毛玻璃浓度(`glass_tint` / `glass_tint_dark`)已经去掉，读的时候不认，下次保存时随整组替换删掉。窗口背后的系统材质由 Go 端跟着换(`AppService.applyAppearance`):macOS 设整个 app 的外观(跟随系统时交给系统),Windows 设窗口的深浅色(Mica 跟着变)与没有 Mica 时的不透明底，窗口显示出来与系统切换深浅色时再设一次。
 - **关闭窗口**：“关闭窗口后留在菜单栏”打开（默认）时，关闭窗口只是隐藏，Dock 图标和角标仍在，菜单栏出现一个入口（打开 / 退出）；点它或 Dock 图标重新打开窗口，入口随之消失。关掉时关闭窗口就退出。
-- **新版本**(`release.go`):正式版启动时与之后每天读一次 GitHub Releases 上最新的正式版(不含预发布)附带的 `release.json`,没读成时隔一小时再试;比当前版本新时左栏出现新版本那一行。设置页「关于」里与 macOS 顶部菜单「Mechbox → 检查新版本…」可以随时检查，菜单里检查时有新版本直接打开新版本对话框，否则用 toast 说明结果。`release.json` 由发版工作流在发布后从 GitHub 读回这个版本再作为附件传上去;app 从 `releases/latest/download/release.json` 下载它，和下载安装包一样不经 GitHub API,不占 API 每小时 60 次的匿名额度(拉取技能、检查技能更新都先用这份额度),也不需要令牌。检查结果只在内存里，不写数据库;一次检查最多等 30 秒。更新说明从 GitHub 生成的 `## What's Changed` 开始显示，略过前面手动安装的说明。「更新」由 Wails 的 updater 下载本平台的安装包、按版本附带的 `SHA256SUMS.txt` 校验，然后按平台装上。打开了设置里的 GitHub 镜像加速时，`release.json` 与安装包经 gh-proxy.org 转发，`SHA256SUMS.txt` 仍直连 GitHub。安装包、`SHA256SUMS.txt` 与发布页都按 tag 拼出 `releases/download/<tag>/…`、`releases/tag/<tag>`,不用 `release.json` 里写的地址，镜像换不掉安装包，也改不了「打开下载页」去的地方;`release.json` 最多读 1 MB：
+- **新版本**(`internal/release`):正式版启动时与之后每天读一次 GitHub Releases 上最新的正式版(不含预发布)附带的 `release.json`,没读成时隔一小时再试;比当前版本新时左栏出现新版本那一行。设置页「关于」里与 macOS 顶部菜单「Mechbox → 检查新版本…」可以随时检查，菜单里检查时有新版本直接打开新版本对话框，否则用 toast 说明结果。`release.json` 由发版工作流在发布后从 GitHub 读回这个版本再作为附件传上去;app 从 `releases/latest/download/release.json` 下载它，和下载安装包一样不经 GitHub API,不占 API 每小时 60 次的匿名额度(拉取技能、检查技能更新都先用这份额度),也不需要令牌。检查结果只在内存里，不写数据库;一次检查最多等 30 秒。更新说明从 GitHub 生成的 `## What's Changed` 开始显示，略过前面手动安装的说明。「更新」由 Wails 的 updater 下载本平台的安装包、按版本附带的 `SHA256SUMS.txt` 校验，然后按平台装上。打开了设置里的 GitHub 镜像加速时，`release.json` 与安装包经 gh-proxy.org 转发，`SHA256SUMS.txt` 仍直连 GitHub。安装包、`SHA256SUMS.txt` 与发布页都按 tag 拼出 `releases/download/<tag>/…`、`releases/tag/<tag>`,不用 `release.json` 里写的地址，镜像换不掉安装包，也改不了「打开下载页」去的地方;`release.json` 最多读 1 MB：
   - macOS 下载 `-macos-universal.zip`,Wails 另起一个自己做 helper,等 app 退出后先备份再替换 `.app`,用 `open -n` 启动新版，失败时还原备份。`.app` 所在文件夹不能写入时(没有权限，或直接从 dmg、被系统隔离运行的位置打开)只给下载页。
   - Windows 下载 `-setup.exe`,起一个隐藏的 PowerShell:等 app 退出后用管理员权限静默运行安装程序(`/S /D=<当前安装目录>`,弹一次 UAC),不管装没装成都再启动安装目录里的 `mechbox.exe`。
   - Linux 上从 AppImage 运行时(有 `APPIMAGE`)下载 `-linux-<架构>.AppImage` 换掉原文件，等 app 退出后启动它;deb、rpm、pkg.tar.zst 装的只给下载页。
@@ -156,25 +156,29 @@ open bin/mechbox.app
 
 ```
 cmd/desktop/
-├── main.go                 应用入口：窗口、单实例、错误编码
-├── case_sensitive_darwin.go 单实例 ID 用的数据库位置所在的卷是否区分大小写(macOS 用 pathconf 的 _PC_CASE_SENSITIVE;其他平台见 case_sensitive_other.go,Windows 不区分、Linux 区分)
-├── startup_error.go        启动失败时的系统提示框：原因与数据库位置，文案按系统语言(startup_error_<平台>.go 是各平台怎么弹:Windows 用 MessageBoxW,macOS 另起 osascript,
-│                           Linux 用 zenity 或 kdialog、都没装时不弹;server 模式见 startup_error_server.go,不弹)
-├── window_windows.go       Windows 的窗口外观：不要系统标题栏(窗口按钮在前端顶栏 titlebar.tsx 里),Windows 11 22H2 起用 Mica,更早的用不透明底(其他平台与 server 模式见 window_other.go,不改)
-├── appearance.go           外观(跟随系统 / 浅色 / 深色)：保存设置、窗口显示与系统切换深浅色时让窗口背后的系统材质跟着变(appearance_darwin.go 设 macOS 整个 app 的外观,appearance_windows.go 设窗口深浅色与没有 Mica 时的不透明底;其他平台与 server 模式见 appearance_other.go,不改)
-├── library_service.go      绑定服务：生命周期、数据库位置(含 MECHBOX_LIBRARY)、环境信息（含应用版本）、配置状态
-├── settings.go             应用设置：字段、默认值，与技能库应用设置(Library.AppSettings)之间的转换
-├── app_service.go          绑定服务：应用设置，以及自动检查更新、Dock 角标、关闭窗口后留在菜单栏
-├── transparency_darwin.go  系统是否要求减少透明度(macOS 读「降低透明度」,WKWebView 不认 prefers-reduced-transparency;其他平台见 transparency_other.go,交给前端的媒体查询)
-├── language.go             界面语言：设置值与按系统语言解析(language_darwin.go 读 macOS 的首选语言,language_windows.go 读 Windows 的显示语言;其他平台与 server 模式见 language_other.go,读环境变量)
+├── main.go                 应用入口：先建 app(单实例检查在这里)再打开技能库，用 newServices 接好两个绑定服务与它们共用的几块;单实例 ID、错误编码
+├── startup_error.go        启动失败时提示框的文字：原因与数据库位置，按系统语言(各平台怎么弹见 internal/system)
+├── library_service.go      绑定服务：数据库位置(含 MECHBOX_LIBRARY)与打开、环境信息（含应用版本）、配置状态
+├── library_methods.go      绑定服务：逐个转发 Library 的全部方法;拉回后让应用设置重读，推送、改同步设置后告诉自动推送
+├── app_service.go          绑定服务：开放给前端的应用方法，窗口与菜单栏图标(关闭窗口后留在菜单栏、重新打开),设置变了时让菜单文字、外观与 Dock 角标跟着变
+├── settings.go             应用设置：字段、默认值(含界面语言、外观的设置值),与技能库应用设置(Library.AppSettings)之间的转换
+├── settings_store.go       应用设置的读写：保存、拉回后重读，这台机器打开过 app 与提示过添加 Agent 的记录，WSL 发行版与它打不开的原因
+├── auto_check.go           自动检查更新的定时，读来源的几件事轮流进行(与给未纳管技能找来源共用),Dock 角标
+├── auto_push.go            自动推送的定时与上一次推送出的问题
+├── uninstall.go            卸载 Mechbox：移走文件夹，退出后删数据库与系统给应用留下的数据
+├── release.go              Mechbox 新版本给前端的类型与方法(检查、下载、安装在 internal/release)
 ├── menu.go                 Go 这边画的菜单文字(菜单栏图标的菜单、macOS 顶部菜单栏),随界面语言切换
-├── badge_darwin.go         Dock 角标（其他平台见 badge_other.go，不显示）
-├── reveal_*.go             在文件管理器中显示:macOS 的 Finder、Windows 的文件资源管理器(reveal.go 拼命令行，路径含双引号时拒绝)、Linux 的 xdg-open(server 模式见 reveal_other.go,什么都不做)
-├── uninstall.go            卸载 Mechbox：移走文件夹，退出后删数据库(uninstall_<平台>.go 是各平台怎么移文件夹、清系统数据;uninstall_darwin.go 清 ~/Library 并把 .app 移到废纸篓;server 模式见 uninstall_server.go,文件夹直接删除)
-├── trash_windows.go        Windows 回收站(IFileOperation,驱动器没有回收站时中止);trash_freedesktop.go 是 Linux 的 freedesktop 回收站;trash_wsl.go 是 WSL 发行版里的回收站(trash_wsl_windows.go 经 wsl.exe 执行),trash_info.go 是两者共用的 .trashinfo
-├── release.go              Mechbox 的新版本：读 GitHub Releases、比较版本、经 Wails 的 updater 下载校验(release_<平台>.go 是各平台怎么装上并重启;
-│                           release_feed_production.go 与 release_feed_dev.go 决定读哪个地址，开发版与 server 模式只读 MECHBOX_RELEASE_FEED)
-├── library_methods.go      绑定服务：逐个转发 Library 的全部方法
+├── hosts_*.go              打开技能库:server 模式按 E2E_HOSTS 把请求转到 e2e 的假站点
+├── internal/
+│   ├── trash/              回收站:Discard 把文件夹移到 macOS 废纸篓、Windows 回收站(IFileOperation,驱动器没有回收站时中止)、WSL 发行版里的回收站(经 wsl.exe 执行)
+│   │                       或 Linux 的 freedesktop 回收站(后两者共用 .trashinfo);server 模式直接删除
+│   ├── release/            Mechbox 的新版本：读 GitHub Releases、比较版本、经 Wails 的 updater 下载校验、每天在后台检查一次(install_<平台>.go 是各平台怎么装上并重启;
+│   │                       feed_production.go 与 feed_dev.go 决定读哪个地址，开发版与 server 模式只读 MECHBOX_RELEASE_FEED)
+│   └── system/             和系统打交道的平台代码，按主题、各平台一个文件：系统的首选语言(macOS、Windows 读系统设置，其他平台与 server 模式读环境变量)、
+│                           外观(macOS 设整个 app 的外观,Windows 设窗口深浅色与没有 Mica 时的不透明底)、Dock 角标(只有 macOS)、是否减少透明度(只有 macOS)、
+│                           在文件管理器中显示(Finder、文件资源管理器(拼命令行时路径含双引号就拒绝)、xdg-open)、启动失败提示框(Windows 用 MessageBoxW,macOS 另起 osascript,
+│                           Linux 用 zenity 或 kdialog)、Windows 的窗口选项(不要系统标题栏，Windows 11 22H2 起用 Mica)、卷是否区分大小写(macOS 用 pathconf)、
+│                           卸载时清掉 ~/Library 里系统给应用留下的数据并把 .app 移到废纸篓
 ├── e2e/                    端到端验证(server 模式 + Chrome)
 ├── devseed/                生成开发数据(wails3 task dev:seed)
 ├── testdata/               e2e 的素材(e2e/)与开发数据的技能快照(dev/)
@@ -241,7 +245,7 @@ cmd/desktop/
 - 浅色和深色分开设计，不是同一套样子换个颜色：两种样子都收在主题的变量里(`control` 是按钮与下拉框的灰底,`segment` 是分段选择选中的一段,`tag`、`tag-border` 是带 × 的小标签与组的整组开关,`count` 是计数，以及三级提醒各自的颜色),组件只用这些变量，不分外观各写一份。
 - 绿(`primary` 一组)给动作和选中，以及「更新」「可能改名」的图标。提醒分三级，一级一种颜色、一个 12 px 的实心图标：严重(红色圆里一个叉,`critical`)、注意(橙色三角里一个叹号,`warn`)、提示(蓝色圆里一个 i,`info`);有新版本、在 app 外更新到作者新版、本地目录来源在目录里改过不是提醒，是 `update`(主题绿的圆里一个向上箭头);可能改名要用户确认是不是同一个技能，是 `rename`(主题绿的圆里一个向右箭头);有新版本、可能改名时点它打开更新计划。没有底色和边框，用 `components/ui/badge.tsx` 的 Badge(图标加字)、`AlertIcon`(只有图标，占地小的地方，文字在悬停提示里;`labeled` 时图标后面写最要紧的那一条、还有别的写 +N,是列表一行的状态列;排在最前的那一条能直接做一件事时是按钮)或 `MarkIcon`(单独的图标)。列表的一行只有一个提醒图标，在最后一列(状态):这一行有哪几条由 `components/app/skill-list/row-state.ts` 给出：这一行自己的提醒、装出去的那几处(见 `lib/installs.ts` 的 `reinstallAlerts`)和更新合在一起，严重、注意在前，更新、可能改名其次，提示最后(`lib/level.ts` 的 `byUrgency`);名字后面不画图标，「装在哪」一列只写字。被手动改过是用户自己的修改，提示一级，不算要修的问题(`editedHere`、`needsRepair`);项目不在这台机器上的那几处不算要重新安装(`needsReinstall`),只在项目上提醒。三级和更新的先后、「取最重的一级」只在 `lib/level.ts` 里定。按钮照 macOS 设置页：灰底、没有边框和投影，分主要、强调、普通、轻四档，另有只给「更新」和「入库」的绿胶囊(`components/ui/button.tsx` 的 `pill`;更新列表里读出风险的来源退回普通按钮;默认不入库的那几行的「入库」用灰胶囊 `pillQuiet`),一排里要分得出主次。列表行里的按钮用小一号(`size="sm"`,20 px);技能详情安装表里一处能做的事收在状态后面的「⋯」里(`components/app/menus.tsx` 的 `MoreMenu`),不把行撑高;破坏性的入口(移除技能、删除组、删除 Agent、卸载 Mechbox)照常用普通或轻按钮，加 `danger` 把字换成红色(`destructive`,浅色、深色同一个红);确认会让用户的内容消失的操作(删除、卸载、覆盖、整库替换)时确认按钮用红底白字(`variant="destructive"`)。按钮、输入框、搜索框、下拉框、分段选择都是 24 px 高、`rounded-control`,排在一行时形状和高度相同;胶囊形(`rounded-pill`)只给开关、计数和「更新」「入库」的胶囊按钮。
 - 行高固定，一个列表里每一行一样高：技能列表的行 32 px(窄的时候两层,48 px;节标题 36 px,节与节之间隔 16 px),每一格只有一行字，多出来的说明收进图标或文字的悬停提示(留一份 `sr-only` 的在 DOM 里给读屏和测试：提示和这一份要由同一份数据生成，不各写一遍);左右栏的行 28 px;设置页的行 40 px(`components/app/set-row.tsx`),设置的说明收进标签后面的提示。一栏里文字只有一条左边线：技能名那条线离行左边多远记在列表容器的 `--name-indent` 上(作用域页、项目页的行多一列开关，值更大),节标题、摘要、说明行都按它缩进(`rows.tsx` 的 `nameIndent`)。设置页的一个分区是标题加一块浅灰底的圆角区域，里面一行一个设置。
-- 窗口底色透出系统材质(macOS 的毛玻璃,Windows 11 22H2 起的 Mica;更早的 Windows 是 `appearance_windows.go` 里的不透明底，浅色、深色各一份),上面的底板不透明。底板上不套带投影的卡片：分区(`Card`)和列表顶部的摘要直接排在底板上，用 `row-line` 的线和间距分开;弹窗里的面板用 `border` 的边;投影只留给弹窗、技能详情抽屉、菜单、弹层、提示、toast 和勾选后的操作栏。
+- 窗口底色透出系统材质(macOS 的毛玻璃,Windows 11 22H2 起的 Mica;更早的 Windows 是 `internal/system/appearance_windows.go` 里的不透明底，浅色、深色各一份),上面的底板不透明。底板上不套带投影的卡片：分区(`Card`)和列表顶部的摘要直接排在底板上，用 `row-line` 的线和间距分开;弹窗里的面板用 `border` 的边;投影只留给弹窗、技能详情抽屉、菜单、弹层、提示、toast 和勾选后的操作栏。
 - 颜色、字号、圆角、按钮与毛玻璃的规则在 `docs/design-system/`(README.md 是规则，components/ 下是各组件的卡片);`index.css` 的主题只留那里的档位(Tailwind 自带的颜色、字号、圆角都清空了),`docs/design-system/tokens.json` 里的值和 `index.css` 对不上时单元测试(`lib/tokens.test.ts`)会报出来，改一处要改另一处;新字号与圆角的名字在 `lib/utils.ts` 的 `cn` 里给 tailwind-merge 登记过。毛玻璃只给右键菜单、弹层、提示、toast 和勾选后的操作栏，用 `index.css` 的 `glass` 工具类(背后内容少的另加 `glass-clear`):只换底色、滤镜与边缘，投影经 `--glass-drop` 沿用各自的档位;浓度固定，背后的内容去色(只留明暗，盖在绿色的按钮上不染色)。弹窗、技能详情抽屉、吸顶的节标题和中间的底板都不透明。窗口背后透明(透出 Mica),Chromium 把模糊后的背景叠在原内容上，结果半透明时没模糊的字会从玻璃底下透出来，所以启动时 `installGlass` 在 Chromium 上给所有玻璃接一个把背景变不透明的滤镜(`--glass-solid`)。玻璃的祖先不要加 `backdrop-filter`:在 Chromium 里它会截断背景，里面的玻璃模糊不到底下的内容。系统要求减少透明度或开了强制颜色时，玻璃换成 `tile` 的不透明底;macOS 的 WKWebView 不认 `prefers-reduced-transparency`,由 `AppService.ReduceTransparency` 读系统设置，启动和窗口重新获得焦点时在根元素上标 `data-reduce-transparency`。加 shadcn 组件时先把默认的颜色、圆角和遮罩换成设计系统里的。
 - 顶栏(`components/app/titlebar.tsx`)就是窗口的标题栏：整条是拖动区，macOS 上左端给红绿灯留位置;Windows 上窗口没有系统标题栏，最右端画最小化、最大化、关闭三个按钮(照 Windows 11 的样子，字形用系统的 Segoe Fluent Icons),双击空白处最大化或还原，弹窗开着时也能用。Windows 上调整大小只能从窗口内侧边缘的几像素开始(Wails 前端运行时处理),窗口外侧没有系统的调整区。
 - 禁用的白底控件只把文字调淡，不整体降透明度，否则白色按钮会融进毛玻璃背景;绿色的主要按钮禁用时降透明度。

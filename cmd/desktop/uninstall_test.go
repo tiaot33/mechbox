@@ -8,31 +8,23 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/wailsapp/wails/v3/pkg/application"
-
 	"github.com/tiaot33/mechbox/internal/library"
 )
 
-// uninstallFixture 是在临时 HOME 里打开的技能库与应用设置服务，数据库在应用目录下(与真实布局一样),
+// uninstallFixture 是在临时 HOME 里打开的技能库与两个绑定服务，数据库在应用目录下(与真实布局一样),
 // 存着设置与同步设置;移到废纸篓换成直接删除并记下删了哪些，不碰真实的废纸篓。
 type uninstallFixture struct {
-	lib       *LibraryService
-	app       *AppService
+	*testServices
 	dir       string
 	discarded []string
 }
 
-func startServices(t *testing.T) *uninstallFixture {
+func startUninstall(t *testing.T) *uninstallFixture {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	f := &uninstallFixture{dir: filepath.Join(t.TempDir(), appDirName)}
-	f.lib = NewLibraryService(filepath.Join(f.dir, "library.db"))
-	if err := f.lib.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
-		t.Fatalf("ServiceStartup: %v", err)
-	}
-	t.Cleanup(func() { _ = f.lib.ServiceShutdown() })
-	f.app = startApp(t, f.lib)
-	f.app.discard = func(path string) error {
+	f.testServices = startServices(t, filepath.Join(f.dir, "library.db"))
+	f.app.removal.discard = func(path string) error {
 		f.discarded = append(f.discarded, path)
 		return os.RemoveAll(path)
 	}
@@ -60,17 +52,11 @@ func (f *uninstallFixture) install(t *testing.T, name string) string {
 	return filepath.Join(dir, name)
 }
 
-// quit 按 Wails 退出的顺序关闭两个服务再调 afterShutdown;lib.lib 置空，让 Cleanup 不再关一次。
+// quit 按 Wails 退出的顺序关闭两个服务，再做 PostShutdown 里的 afterShutdown。
 func (f *uninstallFixture) quit(t *testing.T) {
 	t.Helper()
-	if err := f.app.ServiceShutdown(); err != nil {
-		t.Fatalf("AppService shutdown: %v", err)
-	}
-	if err := f.lib.ServiceShutdown(); err != nil {
-		t.Fatalf("LibraryService shutdown: %v", err)
-	}
-	f.lib.lib = nil
-	f.app.afterShutdown()
+	f.stop(t)
+	f.app.removal.afterShutdown()
 }
 
 func (f *uninstallFixture) uninstall(t *testing.T, opts UninstallOptions) UninstallResult {
@@ -90,11 +76,11 @@ func exists(path string) bool {
 }
 
 func TestUninstallAppKeepsInstalledFoldersByDefault(t *testing.T) {
-	f := startServices(t)
+	f := startUninstall(t)
 	folder := f.install(t, "notes")
 
-	if result := f.uninstall(t, UninstallOptions{}); !result.Uninstalled {
-		t.Fatalf("UninstallApp = %+v; want uninstalled", result)
+	if result := f.uninstall(t, UninstallOptions{}); !result.Uninstalled || f.quits.Load() != 1 {
+		t.Fatalf("UninstallApp = %+v, quit %d times; want uninstalled and the app quitting", result, f.quits.Load())
 	}
 	// 退出前数据库还在，退出时技能库关上以后才删。
 	if !exists(filepath.Join(f.dir, "library.db")) {
@@ -111,7 +97,7 @@ func TestUninstallAppKeepsInstalledFoldersByDefault(t *testing.T) {
 }
 
 func TestUninstallAppTrashesInstalledFoldersWhenAsked(t *testing.T) {
-	f := startServices(t)
+	f := startUninstall(t)
 	notes, tools := f.install(t, "notes"), f.install(t, "tools")
 	if err := os.WriteFile(filepath.Join(tools, "SKILL.md"), []byte("edited by hand\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -129,7 +115,7 @@ func TestUninstallAppTrashesInstalledFoldersWhenAsked(t *testing.T) {
 }
 
 func TestUninstallAppKeepsModifiedFoldersWhenAsked(t *testing.T) {
-	f := startServices(t)
+	f := startUninstall(t)
 	notes, tools := f.install(t, "notes"), f.install(t, "tools")
 	if err := os.WriteFile(filepath.Join(tools, "SKILL.md"), []byte("edited by hand\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -145,12 +131,12 @@ func TestUninstallAppKeepsModifiedFoldersWhenAsked(t *testing.T) {
 }
 
 func TestFailedUninstallKeepsDataAfterQuit(t *testing.T) {
-	f := startServices(t)
+	f := startUninstall(t)
 	tools := f.install(t, "tools")
-	f.app.discard = func(string) error { return errDenied }
+	f.app.removal.discard = func(string) error { return errDenied }
 
-	if _, err := f.app.UninstallApp(t.Context(), UninstallOptions{Folders: FoldersTrash}); !errors.Is(err, errDenied) {
-		t.Fatalf("UninstallApp = %v; want the folder error", err)
+	if _, err := f.app.UninstallApp(t.Context(), UninstallOptions{Folders: FoldersTrash}); !errors.Is(err, errDenied) || f.quits.Load() != 0 {
+		t.Fatalf("UninstallApp = %v, quit %d times; want the folder error and the app staying open", err, f.quits.Load())
 	}
 	f.quit(t)
 	for _, path := range []string{filepath.Join(f.dir, "library.db"), tools} {
@@ -161,11 +147,11 @@ func TestFailedUninstallKeepsDataAfterQuit(t *testing.T) {
 }
 
 func TestUninstallAppRetrySkipsFoldersAlreadyTrashed(t *testing.T) {
-	f := startServices(t)
+	f := startUninstall(t)
 	notes, tools := f.install(t, "notes"), f.install(t, "tools")
-	trash := f.app.discard
+	trash := f.app.removal.discard
 	fail := true
-	f.app.discard = func(path string) error {
+	f.app.removal.discard = func(path string) error {
 		if path == tools && fail {
 			return errDenied
 		}

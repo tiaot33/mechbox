@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/tiaot33/mechbox/cmd/desktop/internal/system"
 	"github.com/tiaot33/mechbox/internal/library"
 )
 
@@ -56,6 +58,58 @@ func (i CheckInterval) period() (time.Duration, bool) {
 func (i CheckInterval) valid() bool {
 	_, timed := i.period()
 	return timed || i == CheckOnOpen
+}
+
+// Language 是界面语言的设置值。
+type Language string
+
+const (
+	LanguageSystem Language = ""   // 跟随系统
+	LanguageZh     Language = "zh" // 简体中文
+	LanguageEn     Language = "en" // English
+)
+
+func (l Language) valid() bool {
+	return l == LanguageSystem || l == LanguageZh || l == LanguageEn
+}
+
+func (l Language) resolve() Language {
+	if l != LanguageSystem {
+		return l
+	}
+	return languageOf(system.PreferredLanguage())
+}
+
+// languageOf 按语言标签(如 zh-Hans-CN、zh_TW.UTF-8、en-US)定界面语言：中文(含繁体)用中文，其余用英文。
+func languageOf(tag string) Language {
+	tag = strings.ToLower(tag)
+	if tag == "zh" || strings.HasPrefix(tag, "zh-") || strings.HasPrefix(tag, "zh_") {
+		return LanguageZh
+	}
+	return LanguageEn
+}
+
+// Appearance 是界面外观的设置值。
+type Appearance string
+
+const (
+	AppearanceSystem Appearance = ""      // 跟随系统
+	AppearanceLight  Appearance = "light" // 浅色
+	AppearanceDark   Appearance = "dark"  // 深色
+)
+
+func (a Appearance) valid() bool {
+	return a == AppearanceSystem || a == AppearanceLight || a == AppearanceDark
+}
+
+func (a Appearance) native() system.Appearance {
+	switch a {
+	case AppearanceLight:
+		return system.AppearanceLight
+	case AppearanceDark:
+		return system.AppearanceDark
+	}
+	return system.AppearanceSystem
 }
 
 const (

@@ -1,18 +1,14 @@
 package main
 
 import (
-	"archive/zip"
-	"bytes"
 	"context"
-	"errors"
-	"net/http"
-	"net/http/httptest"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
-	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,58 +17,98 @@ import (
 	"github.com/tiaot33/mechbox/internal/library"
 )
 
-func skillFrom(source library.SourceType, check *library.UpdateCheck, fetched time.Time) library.Skill {
-	return library.Skill{Source: library.Source{Type: source}, LastUpdateCheck: check, FetchedAt: fetched}
+// testEvents 记下发给前端的事件，代替 application.App 的 Event。
+type testEvents struct {
+	mu    sync.Mutex
+	names []string
 }
 
-func TestBadgeCountFollowsPending(t *testing.T) {
-	skills := []library.Skill{
-		skillFrom(library.SourceGitHub, &library.UpdateCheck{Status: library.UpdateAvailable, Pending: true}, time.Time{}),
-		skillFrom(library.SourceGitHub, &library.UpdateCheck{Status: library.UpdateDeleted, RenamedTo: "pdf-kit", Pending: true}, time.Time{}),
-		skillFrom(library.SourceGitHub, &library.UpdateCheck{Status: library.UpdateAvailable, Skipped: true}, time.Time{}),
-		skillFrom(library.SourceLocal, &library.UpdateCheck{Status: library.UpdateAvailable}, time.Time{}),
-		skillFrom(library.SourceGitHub, &library.UpdateCheck{Status: library.UpdateCurrent}, time.Time{}),
-		skillFrom(library.SourceURL, nil, time.Time{}),
-	}
-	if got := badgeCount(skills); got != 2 {
-		t.Fatalf("badgeCount = %d; want 2 (only skills the library marks pending)", got)
-	}
+func (e *testEvents) Emit(name string, _ ...any) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.names = append(e.names, name)
+	return true
 }
 
-func TestOldestConfirmedUsesCheckTimeOrFetchTime(t *testing.T) {
-	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
-	hoursAgo := func(h int) time.Time { return now.Add(-time.Duration(h) * time.Hour) }
-	skills := []library.Skill{
-		skillFrom(library.SourceGitHub, &library.UpdateCheck{CheckedAt: hoursAgo(3), Status: library.UpdateCurrent}, hoursAgo(100)),
-		skillFrom(library.SourceURL, nil, hoursAgo(5)),
-		skillFrom(library.SourceLocal, nil, hoursAgo(500)),
-	}
-	if got := oldestConfirmed(skills, now); !got.Equal(hoursAgo(5)) {
-		t.Fatalf("oldestConfirmed = %v; want the never-checked skill's fetch time %v", got, hoursAgo(5))
-	}
-	if got := oldestConfirmed(skills[2:], now); !got.Equal(now) {
-		t.Fatalf("oldestConfirmed with only local skills = %v; want now", got)
-	}
+func (e *testEvents) count(name string) int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return len(slices.DeleteFunc(slices.Clone(e.names), func(n string) bool { return n != name }))
 }
 
-func startApp(t *testing.T, lib *LibraryService) *AppService {
+// waitFor 等到 name 发出过(事件在另一个 goroutine 里发)。
+func (e *testEvents) waitFor(t *testing.T, name string) {
 	t.Helper()
-	a := NewAppService(lib)
-	if err := a.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
+	for deadline := time.Now().Add(5 * time.Second); e.count(name) == 0; {
+		if time.Now().After(deadline) {
+			t.Fatalf("event %q not emitted", name)
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// testServices 是 newServices 接好的一套(和 run 一样，只是没有 app、窗口与新版本);quits 数 app 被要求退出了几次。
+type testServices struct {
+	lib     *LibraryService
+	app     *AppService
+	events  *testEvents
+	quits   atomic.Int32
+	started bool
+	stopped bool
+}
+
+func tempLibrary(t *testing.T) string {
+	return filepath.Join(t.TempDir(), "library.db")
+}
+
+// newTestServices 在 path 处打开技能库并接好两个绑定服务，还不启动 AppService;测试结束时按 Wails 的顺序关掉。
+func newTestServices(t *testing.T, path string) *testServices {
+	t.Helper()
+	lib, err := openLibrary(path)
+	if err != nil {
+		t.Fatalf("openLibrary: %v", err)
+	}
+	s := &testServices{events: &testEvents{}}
+	s.lib, s.app = newServices(path, lib, s.events, slog.New(slog.DiscardHandler), func() { s.quits.Add(1) })
+	t.Cleanup(func() { s.stop(t) })
+	return s
+}
+
+func (s *testServices) start(t *testing.T) *testServices {
+	t.Helper()
+	if err := s.app.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
 		t.Fatalf("ServiceStartup: %v", err)
 	}
-	t.Cleanup(func() { _ = a.ServiceShutdown() })
-	return a
+	s.started = true
+	return s
 }
 
+// stop 按 Wails 退出的顺序关掉两个服务(AppService 先、LibraryService 后),只关一次。
+func (s *testServices) stop(t *testing.T) {
+	t.Helper()
+	if s.stopped {
+		return
+	}
+	s.stopped = true
+	if s.started {
+		if err := s.app.ServiceShutdown(); err != nil {
+			t.Errorf("AppService shutdown: %v", err)
+		}
+	}
+	if err := s.lib.ServiceShutdown(); err != nil {
+		t.Errorf("LibraryService shutdown: %v", err)
+	}
+}
+
+func startServices(t *testing.T, path string) *testServices {
+	t.Helper()
+	return newTestServices(t, path).start(t)
+}
+
+// startLibrary 打开一个临时的技能库，返回接好的 LibraryService。
 func startLibrary(t *testing.T) *LibraryService {
 	t.Helper()
-	service := NewLibraryService(filepath.Join(t.TempDir(), "library.db"))
-	if err := service.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
-		t.Fatalf("ServiceStartup: %v", err)
-	}
-	t.Cleanup(func() { _ = service.ServiceShutdown() })
-	return service
+	return newTestServices(t, tempLibrary(t)).lib
 }
 
 func fetchSkill(t *testing.T, lib *library.Library, req library.PreviewFetchRequest, name string) library.Skill {
@@ -103,229 +139,26 @@ func fetchLocalSkill(t *testing.T, lib *library.Library, name string) library.Sk
 
 // 设置存在技能库里:重启(同一个数据库重新打开)后仍是保存的那一组。
 func TestAppServiceKeepsSettingsAcrossRestart(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "library.db")
-	lib := NewLibraryService(path)
-	if err := lib.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	first := startApp(t, lib)
-	if got := first.Settings(); !reflect.DeepEqual(got, defaultSettings()) {
+	path := tempLibrary(t)
+	first := startServices(t, path)
+	if got := first.app.Settings(); !reflect.DeepEqual(got, defaultSettings()) {
 		t.Fatalf("first start = %+v; want defaults", got)
 	}
 	want := Settings{AutoCheck: false, CheckInterval: CheckWeekly, StayInMenuBar: false, DockBadge: false, Language: LanguageEn, FoldCollections: true, FoldBelow: 2, AgentsShown: map[library.AgentCode]bool{library.AgentClaudeCode: false, "custom-0a1b2c3d4e5f": true}}
-	if _, err := first.SaveSettings(t.Context(), want); err != nil {
+	if _, err := first.app.SaveSettings(t.Context(), want); err != nil {
 		t.Fatalf("SaveSettings: %v", err)
 	}
-	if err := errors.Join(first.ServiceShutdown(), lib.ServiceShutdown()); err != nil {
-		t.Fatalf("shutdown: %v", err)
-	}
+	first.stop(t)
 
-	restarted := NewLibraryService(path)
-	if err := restarted.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = restarted.ServiceShutdown() })
-	if got := startApp(t, restarted).Settings(); !reflect.DeepEqual(got, want) {
+	if got := startServices(t, path).app.Settings(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("after restart = %+v; want %+v", got, want)
 	}
 }
 
-func TestAutoCheckDue(t *testing.T) {
-	lib := startLibrary(t)
-	var archive bytes.Buffer
-	w := zip.NewWriter(&archive)
-	f, _ := w.Create("remote/SKILL.md")
-	_, _ = f.Write([]byte("---\nname: remote\ndescription: remote\n---\n"))
-	_ = w.Close()
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(archive.Bytes()) }))
-	t.Cleanup(server.Close)
-	remote := fetchSkill(t, lib.lib, library.PreviewFetchRequest{Input: server.URL + "/remote.zip"}, "remote")
-	fetchLocalSkill(t, lib.lib, "loc")
-	fetched := remote.FetchedAt
-	only := []library.CollectionID{remote.CollectionID}
-
-	a := NewAppService(lib)
-	due := func(settings Settings, opened bool, last time.Time, now time.Time) []library.CollectionID {
-		a.settings, a.opened, a.lastAttempt = settings, opened, last
-		return a.due(t.Context(), now)
-	}
-	daily := defaultSettings()
-	weekly := daily
-	weekly.CheckInterval = CheckWeekly
-	onOpen := daily
-	onOpen.CheckInterval = CheckOnOpen
-	off := daily
-	off.AutoCheck = false
-	hour := time.Hour
-
-	cases := []struct {
-		name     string
-		settings Settings
-		opened   bool
-		last     time.Time
-		now      time.Time
-		want     []library.CollectionID
-	}{
-		{"每天：入库不到一天不查", daily, true, time.Time{}, fetched.Add(23 * hour), nil},
-		{"每天：入库满一天查非本地目录来源的集合", daily, false, time.Time{}, fetched.Add(25 * hour), only},
-		{"每周：满一天不查", weekly, false, time.Time{}, fetched.Add(25 * hour), nil},
-		{"每周：满一周查", weekly, false, time.Time{}, fetched.Add(8 * 24 * hour), only},
-		{"上次自动检查没多久时不重试", daily, false, fetched.Add(24 * hour), fetched.Add(25 * hour), nil},
-		{"关掉自动检查不查", off, true, time.Time{}, fetched.Add(30 * 24 * hour), nil},
-		{"只在打开时：打开后查", onOpen, true, time.Time{}, fetched, only},
-		{"只在打开时：没打开不查", onOpen, false, time.Time{}, fetched.Add(30 * 24 * hour), nil},
-	}
-	for _, c := range cases {
-		got := due(c.settings, c.opened, c.last, c.now)
-		if !slices.Equal(got, c.want) {
-			t.Errorf("%s: due = %v; want %v", c.name, got, c.want)
-		}
-	}
-	due(onOpen, true, time.Time{}, fetched)
-	if got := a.due(t.Context(), fetched); got != nil {
-		t.Errorf("只在打开时：打开后只查一次，再看 due = %v", got)
-	}
-}
-
-// 自动推送按同步设置里的间隔:没开、没配好时不推;从没推送过时推;推送成功后满一个间隔才再推;
-// 失败后记下原因，一小时内不重试，改了同步设置就不等了。
-func TestAutoPushDue(t *testing.T) {
-	lib := startLibrary(t)
-	deny := false
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case deny:
-			http.Error(w, "denied", http.StatusForbidden)
-		case r.Method == http.MethodGet:
-			_, _ = w.Write([]byte("<ListBucketResult></ListBucketResult>"))
-		case r.Method == http.MethodPut:
-			w.Header().Set("ETag", `"pushed"`)
-		}
-	}))
-	t.Cleanup(server.Close)
-	a := NewAppService(lib)
-	ctx := t.Context()
-	settings := library.SyncSettings{Endpoint: server.URL, Bucket: "bucket", AccessKeyID: "key", SecretAccessKey: "secret"}
-	save := func(s library.SyncSettings) {
-		t.Helper()
-		if err := lib.SetSyncSettings(ctx, s); err != nil {
-			t.Fatal(err)
-		}
-	}
-	now := time.Now()
-
-	save(settings)
-	if a.pushDue(ctx, now) {
-		t.Error("自动推送没开时 due")
-	}
-	daily := settings
-	daily.AutoPush = library.SyncDaily
-	save(library.SyncSettings{Bucket: "bucket", AutoPush: library.SyncDaily})
-	if a.pushDue(ctx, now) {
-		t.Error("没配好密钥时 due")
-	}
-	save(daily)
-	if !a.pushDue(ctx, now) {
-		t.Fatal("从没推送过时不 due")
-	}
-
-	deny = true
-	a.autoPush(ctx)
-	if problem := a.PushProblem(); problem == nil || problem.Error.Code != library.Permission || problem.Uploaded {
-		t.Fatalf("PushProblem() after denied push = %+v; want Permission", problem)
-	}
-	if a.pushDue(ctx, time.Now().Add(30*time.Minute)) {
-		t.Error("失败后半小时内 due")
-	}
-	if !a.pushDue(ctx, time.Now().Add(61*time.Minute)) {
-		t.Error("失败后满一小时不 due")
-	}
-	save(daily)
-	if !a.pushDue(ctx, time.Now()) || a.PushProblem() != nil {
-		t.Error("改了同步设置后仍要等重试间隔，或仍报着上次的失败")
-	}
-
-	deny = false
-	a.autoPush(ctx)
-	if problem := a.PushProblem(); problem != nil {
-		t.Fatalf("PushProblem() after push = %+v; want nil", problem)
-	}
-	if a.pushDue(ctx, time.Now().Add(23*time.Hour)) {
-		t.Error("推送成功后不到一天 due")
-	}
-	if !a.pushDue(ctx, time.Now().Add(25*time.Hour)) {
-		t.Error("推送成功后满一天不 due")
-	}
-}
-
-// 手动推送和自动推送共用一份提示:备份传上去了、删旧备份被拒时记下(Uploaded),之后完全成功的手动推送清掉它。
-func TestManualPushRecordsAndClearsPushProblem(t *testing.T) {
-	lib := startLibrary(t)
-	var mu sync.Mutex
-	var keys []string
-	denyDelete := false
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		defer mu.Unlock()
-		key := strings.TrimPrefix(r.URL.Path, "/bucket/")
-		switch r.Method {
-		case http.MethodGet:
-			var list strings.Builder
-			for _, k := range keys {
-				list.WriteString("<Contents><Key>" + k + "</Key><ETag>\"e\"</ETag></Contents>")
-			}
-			_, _ = w.Write([]byte("<ListBucketResult>" + list.String() + "</ListBucketResult>"))
-		case http.MethodPut:
-			keys = append(keys, key)
-			w.Header().Set("ETag", `"e"`)
-		case http.MethodHead:
-			w.Header().Set("ETag", `"e"`)
-		case http.MethodDelete:
-			if denyDelete {
-				http.Error(w, "denied", http.StatusForbidden)
-				return
-			}
-			keys = slices.DeleteFunc(keys, func(k string) bool { return k == key })
-			w.WriteHeader(http.StatusNoContent)
-		}
-	}))
-	t.Cleanup(server.Close)
-	a := NewAppService(lib)
-	ctx := t.Context()
-	if err := lib.SetSyncSettings(ctx, library.SyncSettings{Endpoint: server.URL, Bucket: "bucket", AccessKeyID: "key", SecretAccessKey: "secret", Keep: 1}); err != nil {
-		t.Fatal(err)
-	}
-	push := func() library.SyncPushResult {
-		t.Helper()
-		time.Sleep(2 * time.Millisecond)
-		result, err := lib.SyncPush(ctx)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return result
-	}
-	push()
-	mu.Lock()
-	denyDelete = true
-	mu.Unlock()
-	if result := push(); result.RemoveError == nil || result.RemoveError.Code != library.Permission {
-		t.Fatalf("SyncPush() with removal denied = %+v; want RemoveError Permission", result)
-	}
-	if problem := a.PushProblem(); problem == nil || !problem.Uploaded || problem.Error.Code != library.Permission {
-		t.Fatalf("PushProblem() = %+v; want an uploaded backup whose old ones could not be removed", problem)
-	}
-	mu.Lock()
-	denyDelete = false
-	mu.Unlock()
-	push()
-	if problem := a.PushProblem(); problem != nil {
-		t.Fatalf("PushProblem() after a clean push = %+v; want nil", problem)
-	}
-}
-
 func TestFirstOpenIsTrueOnlyOnceOnThisMachine(t *testing.T) {
-	lib := startLibrary(t)
-	first := startApp(t, lib)
+	path := tempLibrary(t)
+	s := startServices(t, path)
+	first := s.app
 	if !first.FirstOpen() {
 		t.Fatal("FirstOpen() on a new machine = false; want true")
 	}
@@ -336,15 +169,13 @@ func TestFirstOpenIsTrueOnlyOnceOnThisMachine(t *testing.T) {
 	if _, err := first.SaveSettings(t.Context(), defaultSettings()); err != nil {
 		t.Fatalf("SaveSettings: %v", err)
 	}
-	if err := first.ServiceShutdown(); err != nil {
-		t.Fatalf("ServiceShutdown: %v", err)
-	}
-	if startApp(t, lib).FirstOpen() {
+	s.stop(t)
+	if startServices(t, path).app.FirstOpen() {
 		t.Fatal("FirstOpen() after restart = true; want false")
 	}
 
 	// 换到新机器(新的数据库)又是第一次。
-	if !startApp(t, startLibrary(t)).FirstOpen() {
+	if !startServices(t, tempLibrary(t)).app.FirstOpen() {
 		t.Fatal("FirstOpen() on another machine = false; want true")
 	}
 }
@@ -352,11 +183,13 @@ func TestFirstOpenIsTrueOnlyOnceOnThisMachine(t *testing.T) {
 // 从旧版本升级上来的数据库(第一次打开在升级前就做过了)升级后第一次打开时提示一次按检测结果添加 Agent:只提示一次,重启、拉回后都不再提示;
 // 新数据库在第一次打开的流程里已经按检测结果添加过,不再提示。
 func TestAgentPoolIsOfferedOnceAfterUpgrade(t *testing.T) {
-	lib := startLibrary(t)
+	path := tempLibrary(t)
+	s := newTestServices(t, path)
+	lib := s.lib
 	if err := lib.lib.SetAppSettings(t.Context(), map[string]string{firstOpenDoneKey: "true"}); err != nil {
 		t.Fatal(err)
 	}
-	upgraded := startApp(t, lib)
+	upgraded := s.start(t).app
 	if upgraded.FirstOpen() {
 		t.Fatal("FirstOpen() on an upgraded library = true; want false")
 	}
@@ -371,46 +204,43 @@ func TestAgentPoolIsOfferedOnceAfterUpgrade(t *testing.T) {
 	if err := lib.lib.SetAppSettings(t.Context(), map[string]string{firstOpenDoneKey: "true", "language": "en"}); err != nil {
 		t.Fatal(err)
 	}
-	upgraded.reloadSettings(t.Context())
+	upgraded.settings.reload(t.Context())
 	if values, err := lib.lib.AppSettings(t.Context()); err != nil || values[agentPoolOfferedKey] != "true" || values["language"] != "en" {
 		t.Fatalf("app settings after pull = %v, %v; want the offer kept", values, err)
 	}
-	if err := upgraded.ServiceShutdown(); err != nil {
-		t.Fatalf("ServiceShutdown: %v", err)
-	}
-	if startApp(t, lib).AgentPoolPending() {
+	s.stop(t)
+	if startServices(t, path).app.AgentPoolPending() {
 		t.Fatal("AgentPoolPending() after restart = true; want false")
 	}
 
-	fresh := startLibrary(t)
-	first := startApp(t, fresh)
+	fresh := tempLibrary(t)
+	s = startServices(t, fresh)
+	first := s.app
 	if !first.FirstOpen() || first.AgentPoolPending() {
 		t.Fatal("a new library: want FirstOpen() and no agent pool offer")
 	}
-	if err := first.ServiceShutdown(); err != nil {
-		t.Fatalf("ServiceShutdown: %v", err)
-	}
-	if startApp(t, fresh).AgentPoolPending() {
+	s.stop(t)
+	if startServices(t, fresh).app.AgentPoolPending() {
 		t.Fatal("AgentPoolPending() after first open and restart = true; want false")
 	}
 }
 
 // 设置里选的 WSL 发行版启动时没能打开时,检测的是 Windows 本机,先不提示添加 Agent,也不记下;发行版打开后再提示。
 func TestAgentPoolWaitsForTheChosenDistro(t *testing.T) {
-	lib := startLibrary(t)
-	if err := lib.lib.SetAppSettings(t.Context(), map[string]string{firstOpenDoneKey: "true"}); err != nil {
+	s := newTestServices(t, tempLibrary(t))
+	if err := s.lib.lib.SetAppSettings(t.Context(), map[string]string{firstOpenDoneKey: "true"}); err != nil {
 		t.Fatal(err)
 	}
-	app := startApp(t, lib)
-	app.mu.Lock()
-	app.distroError = "distro unavailable"
-	app.mu.Unlock()
+	app := s.start(t).app
+	app.settings.mu.Lock()
+	app.settings.distroError = "distro unavailable"
+	app.settings.mu.Unlock()
 	if app.AgentPoolPending() {
 		t.Fatal("AgentPoolPending() while the chosen distro is unavailable = true; want false")
 	}
-	app.mu.Lock()
-	app.distroError = ""
-	app.mu.Unlock()
+	app.settings.mu.Lock()
+	app.settings.distroError = ""
+	app.settings.mu.Unlock()
 	if !app.AgentPoolPending() {
 		t.Fatal("AgentPoolPending() once the distro opened = false; want true")
 	}
@@ -418,17 +248,17 @@ func TestAgentPoolWaitsForTheChosenDistro(t *testing.T) {
 
 // 设置读不出时用默认值，不当作第一次打开，也不拿默认值覆盖库里的设置。
 func TestFirstOpenLeavesUnreadableSettingsAlone(t *testing.T) {
-	lib := startLibrary(t)
+	s := newTestServices(t, tempLibrary(t))
+	lib, app := s.lib, s.app
 	if err := lib.lib.SetAppSettings(t.Context(), map[string]string{"language": "en"}); err != nil {
 		t.Fatal(err)
 	}
-	app := NewAppService(lib)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if err := app.ServiceStartup(ctx, application.ServiceOptions{}); err != nil {
 		t.Fatalf("ServiceStartup: %v", err)
 	}
-	t.Cleanup(func() { _ = app.ServiceShutdown() })
+	s.started = true
 	if got := app.Settings(); !reflect.DeepEqual(got, defaultSettings()) {
 		t.Fatalf("Settings with unreadable library = %+v; want defaults", got)
 	}
@@ -442,20 +272,26 @@ func TestFirstOpenLeavesUnreadableSettingsAlone(t *testing.T) {
 
 // 拉回后设置换成拉回的那份库里的，立即生效;这台机器已经打开过的记录保留，WSL 发行版不变。
 func TestSettingsFollowPulledLibrary(t *testing.T) {
-	lib := startLibrary(t)
-	app := startApp(t, lib)
+	s := startServices(t, tempLibrary(t))
+	lib, app := s.lib, s.app
 	if !app.FirstOpen() {
 		t.Fatal("FirstOpen() = false; want true")
 	}
+	var applied []Settings
+	app.settings.onChange(func(_ context.Context, settings Settings) { applied = append(applied, settings) })
 	if err := lib.lib.SetAppSettings(t.Context(), map[string]string{"language": "en", "dock_badge": "false"}); err != nil {
 		t.Fatal(err)
 	}
-	app.reloadSettings(t.Context())
+	app.settings.reload(t.Context())
 	want := defaultSettings()
 	want.Language, want.DockBadge = LanguageEn, false
 	if got := app.Settings(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Settings after pull = %+v; want %+v", got, want)
 	}
+	if len(applied) != 1 || !reflect.DeepEqual(applied[0], want) {
+		t.Fatalf("settings applied after pull = %+v; want the pulled ones once", applied)
+	}
+	s.events.waitFor(t, settingsReloadedEvent)
 	if values, err := lib.lib.AppSettings(t.Context()); err != nil || values[firstOpenDoneKey] != "true" {
 		t.Fatalf("app settings after pull = %v, %v; want first open kept", values, err)
 	}

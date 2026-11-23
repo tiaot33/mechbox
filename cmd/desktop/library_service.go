@@ -5,14 +5,9 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"strings"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"github.com/tiaot33/mechbox/internal/library"
 )
@@ -46,70 +41,23 @@ func realLibraryPath() (string, error) {
 // LibraryService 是前端调用技能库的 Wails 绑定服务。它持有进程内唯一的 Library 实例，
 // 方法沿用技能库的 ctx 优先、(T, error) 签名，ctx 随前端 promise.cancel() 取消。
 type LibraryService struct {
-	path string
-	lib  *library.Library
-
-	afterPull         func(context.Context)
-	afterSyncSettings func()
-	afterSyncPush     func(library.SyncPushResult, error)
-
-	background chan struct{}
+	path     string
+	lib      *library.Library
+	settings *settingsStore
+	pushes   *autoPush
+	reads    *sourceReads
 }
 
-// NewLibraryService 创建绑定服务;库在 Wails 启动服务时才打开。
-func NewLibraryService(path string) *LibraryService {
-	return &LibraryService{path: path, background: make(chan struct{}, 1)}
-}
-
-// ServiceStartup 在 Wails 启动服务时打开技能库：目录不存在则创建，库文件不存在则由 Open 初始化空库。
-func (s *LibraryService) ServiceStartup(context.Context, application.ServiceOptions) error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
-		return fmt.Errorf("create library directory: %w", err)
+// openLibrary 打开 path 处的技能库：目录不存在则创建，库文件不存在则由 Open 初始化空库。
+func openLibrary(path string) (*library.Library, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("create library directory: %w", err)
 	}
-	lib, err := openDesktopLibrary(s.path)
-	if err != nil {
-		return err
-	}
-	s.lib = lib
-	return nil
-}
-
-func (s *LibraryService) proxyURL(req *http.Request) (*url.URL, error) {
-	return library.ProxyFunc(s.lib)(req)
-}
-
-// githubMirror 让 next 发出的请求按技能库的 GitHub 镜像加速开关走;每个请求发出时才取技能库,检查新版本的 transport 在技能库打开前就建好了。
-func (s *LibraryService) githubMirror(next http.RoundTripper) http.RoundTripper {
-	return githubMirrorTransport{service: s, next: next}
-}
-
-type githubMirrorTransport struct {
-	service *LibraryService
-	next    http.RoundTripper
-}
-
-func (t githubMirrorTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	return library.GitHubMirrorTransport(t.service.lib, t.next).RoundTrip(req)
-}
-
-func (s *LibraryService) inBackground(ctx context.Context, work func()) {
-	select {
-	case s.background <- struct{}{}:
-	case <-ctx.Done():
-		return
-	}
-	defer func() {
-		debug.FreeOSMemory()
-		<-s.background
-	}()
-	work()
+	return openDesktopLibrary(path)
 }
 
 // ServiceShutdown 在应用退出时关闭技能库。
 func (s *LibraryService) ServiceShutdown() error {
-	if s.lib == nil {
-		return nil
-	}
 	return s.lib.Close()
 }
 

@@ -11,22 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wailsapp/wails/v3/pkg/application"
-
+	"github.com/tiaot33/mechbox/cmd/desktop/internal/system"
 	"github.com/tiaot33/mechbox/internal/library"
 )
 
 func TestLibraryServiceCreatesLibraryInMissingDirectory(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", appDirName, "library.db")
-	service := NewLibraryService(path)
-	if err := service.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
-		t.Fatalf("ServiceStartup: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := service.ServiceShutdown(); err != nil {
-			t.Errorf("ServiceShutdown: %v", err)
-		}
-	})
+	service := newTestServices(t, path).lib
 
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("library file not created: %v", err)
@@ -62,22 +53,14 @@ func TestLibraryServiceRejectsForeignDatabase(t *testing.T) {
 	if err := os.WriteFile(path, []byte("not a sqlite database"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	service := NewLibraryService(path)
-	if err := service.ServiceStartup(t.Context(), application.ServiceOptions{}); err == nil {
-		_ = service.ServiceShutdown()
-		t.Fatal("ServiceStartup succeeded on a foreign file")
-	}
-	if err := service.ServiceShutdown(); err != nil {
-		t.Fatalf("ServiceShutdown after failed startup: %v", err)
+	if lib, err := openLibrary(path); err == nil {
+		_ = lib.Close()
+		t.Fatal("openLibrary succeeded on a foreign file")
 	}
 }
 
 func TestLibraryServiceSwallowsErrorsOfCancelledCalls(t *testing.T) {
-	service := NewLibraryService(filepath.Join(t.TempDir(), "library.db"))
-	if err := service.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
-		t.Fatalf("ServiceStartup: %v", err)
-	}
-	t.Cleanup(func() { _ = service.ServiceShutdown() })
+	service := startLibrary(t)
 
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -92,17 +75,13 @@ func TestLibraryServiceSwallowsErrorsOfCancelledCalls(t *testing.T) {
 
 // 找来源要等进行中的自动检查更新做完才开始;等的时候前端取消了，就不再找。
 func TestFindUnmanagedSourcesWaitsForBackgroundWork(t *testing.T) {
-	service := NewLibraryService(filepath.Join(t.TempDir(), "library.db"))
-	if err := service.ServiceStartup(t.Context(), application.ServiceOptions{}); err != nil {
-		t.Fatalf("ServiceStartup: %v", err)
-	}
-	t.Cleanup(func() { _ = service.ServiceShutdown() })
+	service := startLibrary(t)
 	req := library.FindUnmanagedSourcesRequest{Folders: []library.FolderInScope{{Scope: library.Scope{Kind: "bogus"}, Name: "pdf"}}}
 
 	started, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	go func() {
 		defer close(done)
-		service.inBackground(t.Context(), func() {
+		service.reads.take(t.Context(), func() {
 			close(started)
 			<-release
 		})
@@ -253,7 +232,7 @@ func TestSingleInstanceIDRecognizesRealLibraryBeforeItExists(t *testing.T) {
 	}
 	alias := filepath.Join(filepath.Dir(filepath.Dir(real)), strings.ToUpper(appDirName), "library.db")
 	want := bundleID
-	if caseSensitive(home) {
+	if system.CaseSensitive(home) {
 		want = singleInstanceID(alias)
 		if want == bundleID {
 			t.Fatalf("singleInstanceID(%q) = bundleID on a case-sensitive volume", alias)

@@ -1,6 +1,6 @@
 // 窗口的标题栏行为，顶栏(components/app/titlebar.tsx)与弹窗遮罩顶上的拖动条(components/ui/dialog.tsx)共用。
 // macOS 上标题栏是原生的隐形标题栏(main.go 的 InvisibleTitleBarHeight),这里只标出拖动区;Windows 上窗口没有系统标题栏
-// (window_windows.go),系统标题栏的几样行为由这里补上。
+// (internal/system/window_windows.go),系统标题栏的几样行为由这里补上。
 import type { CSSProperties, HTMLAttributes, MouseEvent } from "react";
 import { Window } from "@wailsio/runtime";
 import { platform } from "./platform";
