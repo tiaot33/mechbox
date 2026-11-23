@@ -8,11 +8,14 @@ import type { Tone } from "@/lib/level";
 import { errorOccupier } from "@/lib/installs";
 import { shortPath } from "@/lib/paths";
 import { scopeLabel } from "@/lib/places";
+import { sameNameInLibrary, twinNote } from "@/lib/same-name";
 import { skillName } from "@/lib/scope";
 
-// ResultRow 是一条结果;occupier 是安装时占着文件夹的另一个同名技能，这一行能点开它(先关掉结果)。
+// ResultRow 是一条结果;detail 是库里有同名技能时这一行是哪一个(写在名字下面);occupier 是安装时占着文件夹的另一个同名技能，
+// 这一行能点开它(先关掉结果)。
 export interface ResultRow {
   label: string;
+  detail?: string;
   outcome: string;
   tone: Tone;
   reason?: string;
@@ -33,11 +36,18 @@ function memberOutcome(outcome: string): { text: string; tone: ResultRow["tone"]
   }[outcome];
 }
 
+// twinDetail 是库里有同名的技能时，这个技能是哪一个(来源、装在哪，见 twinNote):同名的几个一起出现在结果里时靠它分辨;没有同名的为 undefined。
+export function twinDetail(s: Snapshot, id: SkillID): string | undefined {
+  const skill = s.skills.find((x) => x.id === id);
+  return skill && sameNameInLibrary(s, skill).length ? twinNote(s, skill) : undefined;
+}
+
 // memberRows 是组安装、加入组的逐个结果;被同名的另一个技能占用而跳过的，能点开占着的那个(错误里带着它)。
 // adding 是把技能加入组(组里已有同名的那一个可能装着),否则是整组安装(同名的几个都没装)。
 export function memberRows(s: Snapshot, results: GroupMemberResult[], adding = false): ResultRow[] {
   return results.map((r) => ({
     label: `${skillName(s, r.skill_id)} → ${scopeLabel(s, r.scope)}`,
+    detail: twinDetail(s, r.skill_id),
     outcome: memberOutcome(r.outcome)?.text ?? r.outcome,
     tone: memberOutcome(r.outcome)?.tone ?? "info",
     reason: memberReason(s, r, adding),

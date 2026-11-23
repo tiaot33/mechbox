@@ -29,6 +29,7 @@ export function showResults(title: string, rows: ResultRow[], note?: string) {
           <ListRow key={i}>
             <div className="min-w-0 grow">
               <div>{r.label}</div>
+              {r.detail && <div className="text-caption text-muted-foreground">{r.detail}</div>}
               {r.reason && <div className="text-body whitespace-pre-line text-muted-foreground">{r.reason}</div>}
               {r.occupier && (
                 <Button

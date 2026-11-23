@@ -109,6 +109,31 @@ describe("逐个加入组之后", () => {
   });
 });
 
+describe("同名的几个技能一起加入组", () => {
+  // 两个都叫 release-notes、都没有来源，一个装在 Claude Code 全局，一个装在 Codex 全局;组装在 Codex 全局。
+  const s = snapshot({
+    skills: [1, 2].map((id) => ({ id, name: "release-notes", source: { type: SourceType.$zero } }) as Skill),
+    skillScopes: [place(1, global(claude), { direct: true }), place(2, global(codex), { direct: true })],
+  });
+  const result = (skill_id: number, outcome: GroupMemberOutcome) => ({ skill_id, scope: global(codex), outcome }) as GroupMemberResult;
+
+  it("结果的每一行写出是哪一个(来源、装在哪),不只写「release-notes → Codex · 全局」", () => {
+    const r = addedToGroup(s, [1, 2], [
+      { value: [result(1, GroupMemberOutcome.MemberSkipped)] },
+      { value: [result(2, GroupMemberOutcome.MemberAlreadyInstalled)] },
+    ]);
+    expect(r.rows.map((x) => [x.label, x.detail])).toEqual([
+      ["release-notes → Codex · 全局", "没有来源，装在 Claude Code · 全局"],
+      ["release-notes → Codex · 全局", "没有来源，装在 Codex · 全局"],
+    ]);
+  });
+
+  it("库里没有同名的技能不多写", () => {
+    const r = addedToGroup(snapshot(), [1], [{ value: [result(1, GroupMemberOutcome.MemberSkipped)] }]);
+    expect(r.rows[0].detail).toBeUndefined();
+  });
+});
+
 describe("missingFromGroup", () => {
   const collection = (id: number, label: string, skills: number[] = []) => ({ id, skills, source: { type: SourceType.SourceGitHub, label } }) as Collection;
   const group = (id: number, members: number[] = []) => ({ id, name: `g${id}`, members }) as Group;

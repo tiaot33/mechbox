@@ -15,7 +15,7 @@ import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
 import type { Attempt, Snapshot } from "@/lib/library";
 import { scopeKey, skillName } from "@/lib/scope";
-import { memberRows, placedBy, type ResultRow } from "@/components/app/result-rows";
+import { memberRows, placedBy, twinDetail, type ResultRow } from "@/components/app/result-rows";
 import { readsTwiceNotes } from "@/features/install/install-rules";
 import { scopeLabel } from "@/lib/places";
 
@@ -48,9 +48,9 @@ export function addedToGroup(s: Snapshot, ids: SkillID[], results: readonly (Att
   const rows = ids.flatMap((id, i): ResultRow[] => {
     const r = results[i];
     if (!r) return [];
-    if ("error" in r) return [{ label: skillName(s, id), outcome: t.failed, tone: "critical", reason: describeError(r.error) }];
+    if ("error" in r) return [{ label: skillName(s, id), detail: twinDetail(s, id), outcome: t.failed, tone: "critical", reason: describeError(r.error) }];
     if (r.value.length) return memberRows(s, r.value, true);
-    return [{ label: skillName(s, id), outcome: t.memberAdded, tone: "plain" }];
+    return [{ label: skillName(s, id), detail: twinDetail(s, id), outcome: t.memberAdded, tone: "plain" }];
   });
   return { all: added.length === ids.length && !skipped, skipped, added: added.length, placed: added.flatMap(placedBy), rows };
 }

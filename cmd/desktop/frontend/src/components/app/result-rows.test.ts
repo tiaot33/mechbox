@@ -11,6 +11,7 @@ const s = {
     { id: 2, name: "alpha", source: { kind: "" } },
   ],
   agents: [{ code: "codex", name: "Codex" }],
+  skillScopes: [],
   projects: [{ id: 7, name: "web", path: "/home/code/web" }],
 } as unknown as Snapshot;
 const skipped = (error: GroupMemberResult["error"], skill_id = 1): GroupMemberResult => ({
