@@ -610,6 +610,7 @@ func (l *Library) listSkillScopes(ctx context.Context, skillID SkillID, scope *s
 		if key.projectID != 0 {
 			root = roots[key.projectID]
 		}
+		same := sameDirectoryIn(root)
 		type recognized struct {
 			agent     AgentCode
 			directory string
@@ -627,7 +628,7 @@ func (l *Library) listSkillScopes(ctx context.Context, skillID SkillID, scope *s
 				entry.directory = level[own].Directory
 			}
 			directory, ok := store.Recognize(agent.Paths(key.projectID != 0), entry.directory, own >= 0, func(path string) bool {
-				return slices.ContainsFunc(level, func(row store.SkillScope) bool { return row.Directory == path })
+				return slices.ContainsFunc(level, func(row store.SkillScope) bool { return same(row.Directory, path) })
 			})
 			if !ok {
 				continue
@@ -649,7 +650,7 @@ func (l *Library) listSkillScopes(ctx context.Context, skillID SkillID, scope *s
 				name = entry.own.Name
 			}
 			for _, row := range level {
-				if row.Directory != entry.directory {
+				if !same(row.Directory, entry.directory) {
 					continue
 				}
 				name = cmp.Or(name, row.Name)
@@ -665,7 +666,7 @@ func (l *Library) listSkillScopes(ctx context.Context, skillID SkillID, scope *s
 			skillScope.Groups = slices.Compact(skillScope.Groups)
 			skillScope.Folder = agentdir.FolderPath(agentdir.Join(root, entry.directory), name)
 			for _, other := range found {
-				if other.agent != entry.agent && other.directory == entry.directory {
+				if other.agent != entry.agent && same(other.directory, entry.directory) {
 					skillScope.SharedWith = append(skillScope.SharedWith, other.agent)
 				}
 			}

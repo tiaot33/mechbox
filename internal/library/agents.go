@@ -304,9 +304,8 @@ func (l *Library) editAgent(ctx context.Context, operation string, code AgentCod
 	if err != nil {
 		return EditAgentResult{}, err
 	}
-	kept := l.keptDirectory
 	removed := func(item agentInstall) bool {
-		_, ok := kept(row.Paths(item.project()), item.place.target.relative)
+		_, ok := keptDirectory(item.place.target.sameDirectory, row.Paths(item.project()), item.place.target.relative)
 		return !ok
 	}
 	if opts.Migrate {
@@ -341,7 +340,7 @@ func (l *Library) editAgent(ctx context.Context, operation string, code AgentCod
 	planned := map[string]bool{}
 	result.Migrations = []AgentMigration{}
 	for _, item := range installs {
-		if path, ok := kept(row.Paths(item.project()), item.place.target.relative); ok {
+		if path, ok := keptDirectory(item.place.target.sameDirectory, row.Paths(item.project()), item.place.target.relative); ok {
 			if item.own != nil {
 				rebased = append(rebased, rebase{item.own.ID, store.StoredDirectory(row, item.project(), path)})
 			}
@@ -424,9 +423,15 @@ func (l *Library) editAgent(ctx context.Context, operation string, code AgentCod
 		}
 		result.Migrations = append(result.Migrations, migration)
 	}
+	levels := map[bool]store.SameDirectory{}
+	for _, project := range []bool{false, true} {
+		if levels[project], err = l.levelSameDirectory(ctx, project); err != nil {
+			return EditAgentResult{}, err
+		}
+	}
 	err = l.applyChange(ctx, &change, func(tx *store.Tx) error {
 		for _, item := range handOver {
-			if err := tx.HandOverSkillScope(ctx, item.own.ID, string(item.receiver)); err != nil {
+			if err := tx.HandOverSkillScope(ctx, item.own.ID, string(item.receiver), item.place.target.sameDirectory); err != nil {
 				return err
 			}
 		}
@@ -457,7 +462,7 @@ func (l *Library) editAgent(ctx context.Context, operation string, code AgentCod
 			}
 		}
 		for _, project := range []bool{false, true} {
-			if _, ok := kept(row.Paths(project), current.Paths(project)[0]); !opts.Migrate && !ok {
+			if _, ok := keptDirectory(levels[project], row.Paths(project), current.Paths(project)[0]); !opts.Migrate && !ok {
 				if err := tx.RemoveAgentGroupInstalls(ctx, row.Code, project); err != nil {
 					return err
 				}
@@ -472,10 +477,9 @@ func (l *Library) editAgent(ctx context.Context, operation string, code AgentCod
 	return result, err
 }
 
-func (l *Library) keptDirectory(paths []string, path string) (string, bool) {
-	foldsCase := agentdir.FoldsCase(l.home.Root())
+func keptDirectory(same store.SameDirectory, paths []string, path string) (string, bool) {
 	for _, each := range paths {
-		if each == path || foldsCase && strings.EqualFold(each, path) {
+		if same(each, path) {
 			return each, true
 		}
 	}
@@ -601,7 +605,10 @@ func (l *Library) planAgentRemoval(ctx context.Context, codes []AgentCode) (agen
 		if err != nil {
 			return agentRemoval{}, err
 		}
-		heirs := groupHeirs(agent, others)
+		heirs, err := l.groupHeirs(ctx, agent, others)
+		if err != nil {
+			return agentRemoval{}, err
+		}
 		plan.heirs[code] = heirs
 		installs, err := l.agentInstalls(ctx, code, others)
 		if err != nil {
@@ -671,7 +678,7 @@ func (l *Library) deleteAgents(ctx context.Context, operation string, codes []Ag
 			}
 		}
 		for _, item := range plan.handOver {
-			if err := tx.HandOverSkillScope(ctx, item.own.ID, string(item.receiver)); err != nil {
+			if err := tx.HandOverSkillScope(ctx, item.own.ID, string(item.receiver), item.place.target.sameDirectory); err != nil {
 				return err
 			}
 		}
@@ -705,17 +712,37 @@ func (l *Library) enabledAgentsExcept(ctx context.Context, codes []AgentCode) ([
 	return slices.DeleteFunc(rows, func(row store.Agent) bool { return !row.Enabled || slices.Contains(codes, AgentCode(row.Code)) }), nil
 }
 
-func groupHeirs(agent store.Agent, others []store.Agent) map[bool]AgentCode {
+func (l *Library) groupHeirs(ctx context.Context, agent store.Agent, others []store.Agent) (map[bool]AgentCode, error) {
 	heirs := map[bool]AgentCode{}
 	for _, project := range []bool{false, true} {
+		same, err := l.levelSameDirectory(ctx, project)
+		if err != nil {
+			return nil, err
+		}
 		for _, other := range others {
-			if other.Code != agent.Code && slices.Equal(other.Paths(project), agent.Paths(project)) {
+			if other.Code != agent.Code && slices.EqualFunc(other.Paths(project), agent.Paths(project), same) {
 				heirs[project] = AgentCode(other.Code)
 				break
 			}
 		}
 	}
-	return heirs
+	return heirs, nil
+}
+
+func (l *Library) levelSameDirectory(ctx context.Context, project bool) (store.SameDirectory, error) {
+	if !project {
+		return sameDirectoryIn(l.home.Root()), nil
+	}
+	projects, err := l.store.ListProjects(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return func(a, b string) bool {
+		if a == b {
+			return true
+		}
+		return len(projects) > 0 && strings.EqualFold(a, b) && !slices.ContainsFunc(projects, func(project store.Project) bool { return !agentdir.FoldsCase(project.Path) })
+	}, nil
 }
 
 type agentInstall struct {

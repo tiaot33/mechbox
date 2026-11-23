@@ -364,7 +364,7 @@ func releaseMemberScopes(ctx context.Context, tx *store.Tx, released []releasedM
 		if !removed {
 			continue
 		}
-		remaining, err := tx.SkillScopesIn(ctx, skillScope.SkillID, skillScope.Scope.ProjectID, skillScope.Directory)
+		remaining, err := tx.SkillScopesIn(ctx, skillScope.SkillID, skillScope.Scope.ProjectID, skillScope.Directory, skillScope.place.target.sameDirectory)
 		if err != nil {
 			return nil, err
 		}

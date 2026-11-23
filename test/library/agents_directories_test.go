@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/tiaot33/mechbox/internal/library"
+	"github.com/tiaot33/mechbox/internal/library/platformtest"
 )
 
 // 编辑 Cursor 全局,去掉 ~/.cursor/skills:迁移时那里的安装搬到 ~/.agents/skills,原本在 ~/.agents/skills 的不受影响;
@@ -323,4 +324,92 @@ func TestEditAgentChangingOnlyTheCaseOfADirectoryKeepsItsInstalls(t *testing.T) 
 		}
 		requireInstalledFolder(t, agents, "foo", "# foo\n")
 	}
+}
+
+// 大小写不敏感的文件系统上,Codex 和 Cline 共用 ~/.agents/skills,Codex 只把目录改成 ~/.Agents/skills:两者仍读同一个目录。
+// Cline 照常算已装、不把文件夹列成未纳管;之后移除 Codex 并删除技能文件夹,Cline 还在读的文件夹保留,记录与组安装转给 Cline。
+// 区分大小写的文件系统上跳过。
+func TestAgentsSharingADirectoryStillShareItAfterOneChangesOnlyItsCase(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	home := t.TempDir()
+	if info, err := os.Stat(strings.ToUpper(home)); err != nil || !info.IsDir() {
+		t.Skip("the file system is case-sensitive")
+	}
+	setTestHome(t, home)
+	lib := openTestLibrary(t)
+	addFromPool(t, lib, "cline")
+	foo := fetchNamedSkill(t, lib, "foo")
+	member := fetchNamedSkill(t, lib, "member")
+	codex, cline := library.GlobalScope(library.AgentCodex), library.GlobalScope("cline")
+	if err := lib.Install(ctx, foo.ID, codex, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	group, err := lib.CreateGroup(ctx, "g")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.AddSkillToGroup(ctx, group.ID, member.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.InstallGroup(ctx, group.ID, codex, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.EditAgent(ctx, library.AgentCodex, library.AgentInput{Name: "Codex", GlobalDirectories: []string{"~/.Agents/skills"}, ProjectDirectories: []string{".agents/skills"}}, library.EditAgentOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	scopes := skillScopesOf(t, lib, foo.ID)
+	if got, ok := scopes[cline]; !ok || !got.SharedOnly || !slices.Contains(got.SharedWith, library.AgentCodex) {
+		t.Fatalf("ListSkillScopes(foo) = %#v; want Cline reading Codex's install", scopes)
+	}
+	unmanaged, err := lib.ListUnmanagedSkills(ctx)
+	if err != nil || len(unmanaged) != 0 {
+		t.Fatalf("ListUnmanagedSkills() = %#v, %v; want none", unmanaged, err)
+	}
+	if _, err := lib.DeleteAgent(ctx, library.AgentCodex, library.DeleteAgentOptions{Folders: library.Remove}); err != nil {
+		t.Fatal(err)
+	}
+	agents := filepath.Join(home, ".agents", "skills")
+	requireInstalledFolder(t, agents, "foo", "# foo\n")
+	requireInstalledFolder(t, agents, "member", "# member\n")
+	if scopes := skillScopesOf(t, lib, foo.ID); len(scopes) != 1 || scopes[cline].SharedOnly {
+		t.Fatalf("ListSkillScopes(foo) = %#v; want the install handed to Cline", scopes)
+	}
+	installs, err := lib.ListGroupInstalls(ctx)
+	if err != nil || len(installs) != 1 || installs[0].Scope != cline {
+		t.Fatalf("ListGroupInstalls() = %#v, %v; want the group install handed to Cline", installs, err)
+	}
+}
+
+// 主目录在不区分大小写的卷上、项目在区分大小写的发行版里:只改项目目录的大小写,在那个项目里是另一个目录。
+// 不迁移时那里的安装撤销,不再记在一个不存在的目录里。
+func TestEditAgentChangingOnlyTheCaseOfAProjectDirectoryOnACaseSensitiveVolumeIsAMove(t *testing.T) {
+	home := t.TempDir()
+	if info, err := os.Stat(strings.ToUpper(home)); err != nil || !info.IsDir() {
+		t.Skip("the file system is case-sensitive")
+	}
+	setTestHome(t, home)
+	platformtest.EmulateWSL(t, "sh")
+	lib := openTestLibrary(t)
+	ctx := t.Context()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := lib.RegisterProject(ctx, wslPath(t, dir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	foo := fetchNamedSkill(t, lib, "foo")
+	scope := library.ProjectScope(library.AgentCodex, project.ID)
+	if err := lib.Install(ctx, foo.ID, scope, library.InstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.EditAgent(ctx, library.AgentCodex, library.AgentInput{Name: "Codex", GlobalDirectories: []string{"~/.agents/skills"}, ProjectDirectories: []string{".Agents/skills"}}, library.EditAgentOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if scopes := skillScopesOf(t, lib, foo.ID); len(scopes) != 0 {
+		t.Fatalf("ListSkillScopes(foo) = %#v; want the install in the project dropped", scopes)
+	}
+	requireInstalledFolder(t, filepath.Join(dir, ".agents", "skills"), "foo", "# foo\n")
 }

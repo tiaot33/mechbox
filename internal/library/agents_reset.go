@@ -117,7 +117,7 @@ func (l *Library) PlanResetAgents(ctx context.Context) (plan ResetAgentsPlan, er
 			return ResetAgentsPlan{}, err
 		}
 		for _, item := range installs {
-			if _, ok := l.keptDirectory(defaults.Paths(item.project()), item.place.target.relative); ok {
+			if _, ok := keptDirectory(item.place.target.sameDirectory, defaults.Paths(item.project()), item.place.target.relative); ok {
 				continue
 			}
 			to := agentdir.FolderPath(migrationDestination(item, defaults).directory, agentdir.FolderName(item.Folder))

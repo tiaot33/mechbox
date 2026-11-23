@@ -215,7 +215,7 @@ func (l *Library) adoptMatching(ctx context.Context, entries []unmanagedEntry) (
 		for _, entry := range chosen {
 			recorded, err := tx.RecordFetchedSkillScope(ctx, store.NewSkillScope{
 				SkillID: int64(entry.SkillID), Scope: entry.found.target.Scope, Directory: entry.found.target.relative, Folder: entry.Name, CreatedAt: now,
-			})
+			}, entry.found.target.sameDirectory)
 			if err != nil {
 				return err
 			}
@@ -658,16 +658,19 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 	}
 	type folder struct {
 		projectID int64
-		directory string
 		name      string
 	}
-	claimed := map[folder]SkillID{}
+	type claim struct {
+		directory string
+		skillID   SkillID
+	}
+	claimed := map[folder][]claim{}
 	for _, row := range installed {
-		key := folder{directory: row.Directory, name: row.Name}
+		key := folder{name: row.Name}
 		if row.Scope.ProjectID != nil {
 			key.projectID = *row.Scope.ProjectID
 		}
-		claimed[key] = SkillID(row.SkillID)
+		claimed[key] = append(claimed[key], claim{row.Directory, SkillID(row.SkillID)})
 	}
 	type rootCheck struct {
 		missing *Error
@@ -745,7 +748,7 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 		if list.err != nil {
 			return nil, list.err
 		}
-		key := folder{directory: target.relative}
+		key := folder{}
 		if target.ProjectID != nil {
 			key.projectID = *target.ProjectID
 		}
@@ -753,9 +756,15 @@ func (l *Library) listScopeFolders(ctx context.Context, only map[Scope]bool, ski
 			own := found
 			own.Path = agentdir.FolderPath(target.directory, found.Name)
 			key.name = found.Name
+			var skillID SkillID
+			for _, claim := range claimed[key] {
+				if target.reads(claim.directory) {
+					skillID = claim.skillID
+				}
+			}
 			folders = append(folders, scopeFolder{
 				Folder: own, target: target, canonical: cmp.Or(found.Target, agentdir.FolderPath(directory, found.Name)),
-				skillID: claimed[key],
+				skillID: skillID,
 			})
 		}
 	}

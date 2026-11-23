@@ -241,6 +241,9 @@
 // 一个作用域已经在一个技能目录里认得某个技能时,另一个技能目录里和它的当前版本一致的那一份不算:列出未纳管技能与同名技能
 // 都经 unmanaged.go 的 currentCopies 判断,作用域页靠两者对得上。哪些已添加的 Agent 读一个目录(改 Agent 目录、安装时提示会读到两份、
 // 找别的目录里的旧链接)只看 resolvedScope.readers。
+// 两个 Agent 的目录(数据库里存的相对路径)是不是同一个目录都按那一处的根判断(projects.go 的 sameDirectoryIn):全局看主目录,
+// 项目看项目根;根所在的卷不区分大小写时只差大小写的算同一个,WSL 发行版里的总是区分。store 里认一处安装、找一处的全部记录时用调用方给的
+// store.SameDirectory;改 Agent 目录时哪些安装的目录还在(keptDirectory)也按每一处的根判断,项目层级的组安装要全部已登记项目的根都不区分大小写才算还在。
 // 认出未纳管技能是库里的哪个技能只在 fetch_unmanaged.go 的 matchingSkill 里做:列出(recognizeUnmanaged)、整批入库计划与找来源
 // 用列出时认出的结果,入库每读一次文件夹认一次。
 // Windows 本机的目录(不经 WSL 的那些)读不出可执行位:agentdir 读出的文件夹带 NoModes,里面的文件都按普通文件给出。

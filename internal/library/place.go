@@ -268,7 +268,7 @@ func (p installedPlace) owned() bool {
 }
 
 func (l *Library) installedAt(ctx context.Context, id SkillID, target resolvedScope) (installedPlace, error) {
-	rows, err := l.store.PlaceSkillScopes(ctx, int64(id), target.Scope)
+	rows, err := l.store.PlaceSkillScopes(ctx, int64(id), target.Scope, target.sameDirectory)
 	if err != nil {
 		return installedPlace{}, err
 	}
@@ -290,11 +290,11 @@ func (l *Library) readsTwice(ctx context.Context, id SkillID, target resolvedSco
 			continue
 		}
 		reader := store.Scope{Agent: agent.Code, ProjectID: target.ProjectID}
-		place, err := l.store.PlaceSkillScopes(ctx, int64(id), reader)
+		place, err := l.store.PlaceSkillScopes(ctx, int64(id), reader, target.sameDirectory)
 		if err != nil {
 			return nil, err
 		}
-		if len(place) > 0 && place[0].Directory != target.relative {
+		if len(place) > 0 && !target.reads(place[0].Directory) {
 			scopes = append(scopes, scopeFrom(reader))
 		}
 	}
@@ -388,15 +388,15 @@ func (l *Library) foldersElsewhere(ctx context.Context, places []installedPlace)
 		var seen []string
 		for _, agent := range place.target.readers(agents) {
 			paths := agent.Paths(place.target.ProjectID != nil)
-			recognized, err := l.store.PlaceSkillScopes(ctx, int64(place.skillID), store.Scope{Agent: agent.Code, ProjectID: place.target.ProjectID})
+			recognized, err := l.store.PlaceSkillScopes(ctx, int64(place.skillID), store.Scope{Agent: agent.Code, ProjectID: place.target.ProjectID}, place.target.sameDirectory)
 			if err != nil {
 				return nil, err
 			}
-			if len(recognized) == 0 || recognized[0].Directory != place.target.relative {
+			if len(recognized) == 0 || !place.target.reads(recognized[0].Directory) {
 				continue
 			}
 			for _, directory := range paths {
-				if directory != place.target.relative && !slices.Contains(seen, directory) {
+				if !place.target.reads(directory) && !slices.ContainsFunc(seen, func(other string) bool { return place.target.sameDirectory(other, directory) }) {
 					seen = append(seen, directory)
 					candidates = append(candidates, candidate{place: i, directory: len(directories)})
 					directories = append(directories, agentdir.Join(place.target.root, directory))

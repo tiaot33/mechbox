@@ -221,7 +221,7 @@ func (l *Library) unmanagedFolder(ctx context.Context, operation string, req Fol
 		return unmanagedFolder{}, err
 	}
 	for _, other := range claimants {
-		if other.Directory == target.relative && sameProject(other.Scope.ProjectID, target.ProjectID) {
+		if sameProject(other.Scope.ProjectID, target.ProjectID) && target.reads(other.Directory) {
 			return unmanagedFolder{}, preconditionError(operation, "the folder is installed by the library", ErrorDetails{Path: path, SkillID: SkillID(other.SkillID)})
 		}
 	}
@@ -768,7 +768,7 @@ func (l *Library) validateFetchUnmanaged(ctx context.Context, operation string, 
 
 func recordFetchedFolders(ctx context.Context, tx *store.Tx, id int64, folders []unmanagedFolder, now time.Time) error {
 	for _, folder := range folders {
-		if _, err := tx.RecordFetchedSkillScope(ctx, store.NewSkillScope{SkillID: id, Scope: folder.target.Scope, Directory: folder.target.relative, Folder: folder.name, CreatedAt: now}); err != nil {
+		if _, err := tx.RecordFetchedSkillScope(ctx, store.NewSkillScope{SkillID: id, Scope: folder.target.Scope, Directory: folder.target.relative, Folder: folder.name, CreatedAt: now}, folder.target.sameDirectory); err != nil {
 			return err
 		}
 	}
