@@ -13,8 +13,9 @@ import {
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import { detachedBy } from "@/lib/consent";
+import { describeError } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
-import type { Snapshot } from "@/lib/library";
+import type { LibraryError, Snapshot } from "@/lib/library";
 import { folderPlaces } from "@/lib/installs";
 import { directoriesAt } from "@/lib/places";
 import { shortPath, windowsHome } from "@/lib/paths";
@@ -45,6 +46,12 @@ const comparable = (path: string, rules: DirectoryRules) => {
 export function overlappingDirectories(paths: string[], rules: DirectoryRules): boolean {
   const keys = paths.map((p) => comparable(p, rules));
   return keys.some((a, i) => keys.some((b, j) => i !== j && (a === b || b.startsWith(a.endsWith("/") ? a : `${a}/`))));
+}
+
+// agentFieldError 是技能库按字段报的不合法在那组目录下面怎么写：目录重复或一个在另一个里面(技能库在 Details.Paths 给出那两个,
+// 包括经符号链接才算同一个的，界面自己查不出)写成和界面检查一样的话，其余照 describeError。
+export function agentFieldError(err: LibraryError): string {
+  return err.details?.paths?.length ? messages().agents.directoriesOverlap : describeError(err);
 }
 
 // agentEdit 是编辑 Agent 时受影响的:affected 是这个 Agent 所在目录被去掉的那几处安装(含因共用目录而算已装的;

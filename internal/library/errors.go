@@ -94,7 +94,7 @@ type ErrorDetails struct {
 	Name      string    `json:"name,omitempty"`      // NotFound 的 ref / 名字(更新时为来源里已没有的技能名;入库预览时为没有技能的链接路径);AlreadyExists 的 skill 名;FailedPrecondition 的组内同名、留着该技能的 Group 名或占用目标的技能名;SourceInvalid / SourceUnreachable / Permission:内容取不全的技能名
 	SkillID   SkillID   `json:"skill_id,omitzero"`   // AlreadyExists:已存在的 skill;FailedPrecondition:占用安装目标的 skill;NotFound:不存在的 skill,或更新时来源里已没有、读取期间被移除的技能,或更新计划里没有、来源里已删除的技能;InvalidArgument:更新时不在更新计划里的技能、勾选的地方不属于勾选的技能,或跳过时在更新计划里没有变化的技能;Conflict:更新计划生成后又变了的技能
 	ProjectID ProjectID `json:"project_id,omitzero"` // AlreadyExists:已登记该路径的项目(登记项目、改项目位置时);FailedPrecondition:根目录不存在的项目
-	Paths     []string  `json:"paths,omitempty"`     // Conflict:要删的技能文件夹里被改过、却不在 DiscardEdits 里的那几个(SkillScope.Folder)
+	Paths     []string  `json:"paths,omitempty"`     // Conflict:要删的技能文件夹里被改过、却不在 DiscardEdits 里的那几个(SkillScope.Folder);InvalidArgument:Agent 的技能目录里重复或一个在另一个里面的那两个(全局目录为绝对路径,项目目录为相对项目根的路径)
 	Links     []string  `json:"links,omitempty"`     // Conflict:要随文件夹一并删的旧链接里不在 DeleteLinks 里的那几个(确认之后才出现的)
 }
 

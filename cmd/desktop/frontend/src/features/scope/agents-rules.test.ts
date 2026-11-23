@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AgentCode,
+  ErrorCode,
   MigrationOutcome,
   ScopeKind,
   type ResetAgentsPlan,
@@ -12,8 +13,9 @@ import {
   type Scope,
   type SkillScopeInspection,
 } from "@bindings/internal/library";
-import type { Snapshot } from "@/lib/library";
-import { agentDelete, agentEdit, agentReset, alreadyRead, asksWhere, directoryKey, enterSubmits, switchedToDistro, detectedPicks, directoryOptions, filterDirectoryOptions, migrationReport, opensWhileTyping, overlappingDirectories, poolMatches, sortPool, undetected } from "./agents-rules";
+import { messages } from "@/lib/i18n";
+import type { LibraryError, Snapshot } from "@/lib/library";
+import { agentDelete, agentEdit, agentFieldError, agentReset, alreadyRead, asksWhere, directoryKey, enterSubmits, switchedToDistro, detectedPicks, directoryOptions, filterDirectoryOptions, migrationReport, opensWhileTyping, overlappingDirectories, poolMatches, sortPool, undetected } from "./agents-rules";
 
 const mine = "my-agent" as AgentCode;
 const claude = AgentCode.AgentClaudeCode;
@@ -364,6 +366,13 @@ describe("技能目录重复或一个在另一个里面", () => {
 
   it("macOS、Linux 上反斜杠不是分隔符", () => {
     expect(overlappingDirectories(["/home/team\\skills", "/home/team/skills"], { foldsCase: true, backslashes: false })).toBe(false);
+  });
+
+  it("技能库报的重复(含经符号链接才算同一个的)写成和界面检查一样的话，其余目录错误照常", () => {
+    const overlap = { code: ErrorCode.InvalidArgument, message: "edit agent: directories must not repeat or contain one another", details: { field: "global_directories", paths: ["/home/.a", "/home/.b"] } } as LibraryError;
+    expect(agentFieldError(overlap)).toBe(messages().agents.directoriesOverlap);
+    const other = { code: ErrorCode.InvalidArgument, message: "edit agent: directory is inside an installed skill folder", details: { field: "global_directories" } } as LibraryError;
+    expect(agentFieldError(other)).toContain("directory is inside an installed skill folder");
   });
 
   it("名字只是前缀相同的不算在里面", () => {

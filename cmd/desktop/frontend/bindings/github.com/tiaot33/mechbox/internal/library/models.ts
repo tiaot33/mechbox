@@ -814,7 +814,7 @@ export interface ErrorDetails {
     "project_id"?: ProjectID;
 
     /**
-     * Conflict:要删的技能文件夹里被改过、却不在 DiscardEdits 里的那几个(SkillScope.Folder)
+     * Conflict:要删的技能文件夹里被改过、却不在 DiscardEdits 里的那几个(SkillScope.Folder);InvalidArgument:Agent 的技能目录里重复或一个在另一个里面的那两个(全局目录为绝对路径,项目目录为相对项目根的路径)
      */
     "paths"?: string[] | null;
 

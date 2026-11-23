@@ -155,12 +155,20 @@ func TestAddAgentRejectsInvalidSettings(t *testing.T) {
 		"detect is relative":       {func(a *library.AgentInput) { a.DetectDirectories[0] = ".agent" }, "detect_directories"},
 		"detect directory missing": {func(a *library.AgentInput) { a.DetectDirectories[0] = "" }, "detect_directories"},
 	}
+	// 重复或一个在另一个里面时,Details.Paths 是那两个目录。
+	skills := filepath.Join(home, ".agent", "skills")
+	overlaps := map[string][]string{
+		"global repeated":  {skills, skills},
+		"global nested":    {skills, filepath.Join(skills, "inner")},
+		"project repeated": {".agent/skills", ".agent/skills"},
+		"project nested":   {".other", ".other/skills"},
+	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			agent := valid()
 			tc.edit(&agent)
 			_, err := lib.AddAgent(t.Context(), agent)
-			requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: tc.field})
+			requireErrorDetails(t, err, library.InvalidArgument, library.ErrorDetails{Field: tc.field, Paths: overlaps[name]})
 		})
 	}
 	if got := listAgents(t, lib); !reflect.DeepEqual(got, seededAgents(home)) {

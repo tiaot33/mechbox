@@ -255,7 +255,8 @@ func TestAgentFolderReadByAnAgentThatRecognizesAnotherPlaceIsKept(t *testing.T) 
 	}
 }
 
-// 填的几个全局技能目录经符号链接是同一个目录或互相包含时,和字面上重复一样返回 InvalidArgument。
+// 填的几个全局技能目录经符号链接是同一个目录或互相包含时,和字面上重复一样返回 InvalidArgument,
+// Details.Paths 是重复的那两个目录(界面据此说明,自己查不出经符号链接的重复)。
 func TestAgentDirectoriesThatAliasEachOtherAreRejected(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
@@ -271,6 +272,14 @@ func TestAgentDirectoriesThatAliasEachOtherAreRejected(t *testing.T) {
 	for _, directories := range [][]string{{"~/.skills", "~/.alias"}, {"~/.skills", "~/.alias/inner"}} {
 		_, err := lib.AddAgent(t.Context(), library.AgentInput{Name: "Mine", GlobalDirectories: directories, ProjectDirectories: []string{".mine/skills"}})
 		requireLibraryError(t, err, library.InvalidArgument)
+		want := []string{filepath.Join(home, directories[0][2:]), filepath.Join(home, directories[1][2:])}
+		if got := library.ErrorOf(err).Details; got.Field != "global_directories" || !slices.Equal(got.Paths, want) {
+			t.Errorf("AddAgent(%v) details = %+v; want global_directories %v", directories, got, want)
+		}
+	}
+	_, err := lib.AddAgent(t.Context(), library.AgentInput{Name: "Mine", GlobalDirectories: []string{"~/.mine/skills"}, ProjectDirectories: []string{".a/skills", ".a"}})
+	if got := library.ErrorOf(err).Details; !slices.Equal(got.Paths, []string{".a/skills", ".a"}) {
+		t.Errorf("AddAgent with nested project directories: details = %+v", got)
 	}
 }
 

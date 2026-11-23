@@ -917,7 +917,12 @@ func distinctDirectories(operation, field string, paths []string, absolute func(
 	for i, path := range paths {
 		for _, other := range paths[i+1:] {
 			if overlap(path, other) {
-				return argumentError(operation, field, "directories must not repeat or contain one another")
+				err := argumentError(operation, field, "directories must not repeat or contain one another")
+				err.Details.Paths = []string{path, other}
+				if absolute != nil {
+					err.Details.Paths = []string{absolute(path), absolute(other)}
+				}
+				return err
 			}
 		}
 	}

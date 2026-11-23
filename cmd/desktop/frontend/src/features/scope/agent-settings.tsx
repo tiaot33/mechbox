@@ -7,6 +7,7 @@ import { AppService, LibraryService } from "@bindings/cmd/desktop";
 import { ErrorCode, type Agent, type AgentInput } from "@bindings/internal/library";
 import { addAgent, addAgentsFromPool, editAgent, removeAgent } from "./agents";
 import {
+  agentFieldError,
   alreadyRead,
   asksWhere,
   detectedPicks,
@@ -333,7 +334,7 @@ export function AgentDialog({ agent, onClose, onBack }: { agent?: Agent; onClose
     const onInvalid = (err: LibraryError) => {
       const field = err.details?.field as AgentField | undefined;
       if (err.code !== ErrorCode.InvalidArgument || !field || !(field in input)) return false;
-      setErrors({ [field]: describeError(err) });
+      setErrors({ [field]: agentFieldError(err) });
       return true;
     };
     submitting.current = true;
