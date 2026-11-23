@@ -113,6 +113,10 @@ one() {
 			printf 'irregular\0'
 			return
 		fi
+		if [ ! -r "$d/$e" ]; then
+			printf 'error\0%s: Permission denied\0' "$e"
+			return
+		fi
 		f=$((f + 1))
 		s=$((s + $(wc -c <"$d/$e")))
 		if [ "$f" -gt "$n" ] || [ "$s" -gt "$b" ]; then

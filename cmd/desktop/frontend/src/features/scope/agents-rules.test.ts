@@ -230,6 +230,15 @@ describe("改目录并迁移之后", () => {
     expect(left.reason).toContain("新目录里已经有这个技能，和技能库里它的某一版一致：~/.agents/skills/s2");
     expect(left.reason).not.toContain("装的");
   });
+  it("新目录里那一份读不了的算没迁移，原因写读不了，不说成别的同名文件夹", () => {
+    const r = migrationReport(s, [migration(1, MigrationOutcome.MigrationMoved), migration(3, MigrationOutcome.MigrationUnreadable)]);
+    expect(r).toMatchObject({ listed: true, migrated: 1, skipped: 1 });
+    expect(r.rows.map((row) => [row.label, row.outcome, row.tone])).toEqual([["blocked · 全局", "没有迁移", "warn"]]);
+    expect(r.rows[0].reason).toContain("新目录里的那一份读不了");
+    expect(r.rows[0].reason).toContain("~/.agents/skills/s3");
+    expect(r.rows[0].reason).toContain("旧文件夹留在原处：~/.mine/skills/s3");
+    expect(r.rows[0].reason).not.toContain("不是这个技能的同名文件夹");
+  });
 });
 
 describe("目录输入框的下拉候选", () => {

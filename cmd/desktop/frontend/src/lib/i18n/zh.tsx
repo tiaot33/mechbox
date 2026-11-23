@@ -367,13 +367,15 @@ export const zh = {
       `这个 Agent 在去掉的目录里${[installed && `已装了 ${installed} 处技能`, groupInstalls && `有 ${groupInstalls} 个组安装`].filter(Boolean).join("，")}。`,
     editAgentShared: (n: number) => `其中 ${n} 个文件夹还有别的 Agent 在用，留在旧目录给它们：迁移时复制一份到新目录，不迁移时不动。`,
     migrate: "迁移到新目录",
-    migrateDesc: "把已装的文件夹原样搬过去，组安装保留；新目录里已经装着同一个技能的改认那一份；已有别的同名文件夹的不覆盖、不搬，旧文件夹留在原处，完成后列出",
+    migrateDesc: "把已装的文件夹原样搬过去，组安装保留；新目录里已经装着同一个技能的改认那一份；已有别的同名文件夹、或那一份读不了的不覆盖、不搬，旧文件夹留在原处，完成后列出",
     noMigrate: "不迁移",
     noMigrateDesc: "只改目录，旧目录里的文件夹不动，去掉这个 Agent 在那里的安装记录与组安装",
     save: "保存",
     agentSaved: (name: string) => `已保存 Agent「${name}」`,
     notMigrated: "没有迁移",
     notMigratedReason: (to: string, from: string) => `新目录里已有不是这个技能的同名文件夹，或被库里另一个技能的安装占用：${to}\n旧文件夹留在原处：${from}`,
+    unreadableMigrationReason: (to: string, from: string) =>
+      `新目录里的那一份读不了（没有读权限、是坏的链接、不是文件夹或没有 SKILL.md）：${to}\n旧文件夹留在原处：${from}`,
     alreadyMigrated: "新目录里已装着",
     alreadyMigratedReason: (to: string, from: string, agents: string[]) =>
       (agents.length ? `新目录里已经装着这个技能（${agents.join("、")} 装的）：${to}` : `新目录里已经有这个技能，和技能库里它的某一版一致：${to}`) +
