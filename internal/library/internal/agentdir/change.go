@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"slices"
+	"strings"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
 )
@@ -39,12 +40,18 @@ type trashed struct {
 	trash, target string
 }
 
-func (c *Change) stage(ctx context.Context, directory, name string) (*placement, error) {
+func (c *Change) stage(ctx context.Context, directory, name string, mode fs.FileMode) (*placement, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	stage, err := on(directory).mkdirTemp(directory, "."+name+"-")
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, `/\`) {
+		return nil, fmt.Errorf("invalid skill folder name: %q", name)
+	}
+	stage, err := randomName(FolderPath(directory, "."+name+"-"))
 	if err != nil {
+		return nil, err
+	}
+	if err := on(directory).mkdirStage(directory, stage, mode); err != nil {
 		return nil, err
 	}
 	item := &placement{target: FolderPath(directory, name), stage: stage}
@@ -53,7 +60,7 @@ func (c *Change) stage(ctx context.Context, directory, name string) (*placement,
 }
 
 func (c *Change) Stage(ctx context.Context, directory, name string, files []skillfile.File) error {
-	item, err := c.stage(ctx, directory, name)
+	item, err := c.stage(ctx, directory, name, 0o755)
 	if err != nil {
 		return err
 	}
@@ -61,7 +68,7 @@ func (c *Change) Stage(ctx context.Context, directory, name string, files []skil
 }
 
 func (c *Change) Copy(ctx context.Context, from, directory, name string) error {
-	item, err := c.stage(ctx, directory, name)
+	item, err := c.stage(ctx, directory, name, 0o700)
 	if err != nil {
 		return err
 	}
@@ -77,7 +84,7 @@ func (c *Change) Detach(ctx context.Context, link string) error {
 	if err != nil {
 		return fmt.Errorf("copy linked folder: %w", err)
 	}
-	item, err := c.stage(ctx, FolderDirectory(link), FolderName(link))
+	item, err := c.stage(ctx, FolderDirectory(link), FolderName(link), 0o700)
 	if err != nil {
 		return err
 	}
