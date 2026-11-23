@@ -96,6 +96,9 @@ type AgentMigration struct {
 	Outcome MigrationOutcome `json:"outcome"`
 	From    string           `json:"from"` // 旧目录里的技能文件夹
 	To      string           `json:"to"`   // 新目录里的技能文件夹
+	// SharedWith 只在 MigrationAlreadyInstalled 时可能不为空:同一层级里认新目录那一份的其他 Agent(库为它们装的,含只因共用目录才算已装的),
+	// 按代码排序。为空时那一份没有安装记录,只是内容和库里这个技能一致,如上一次迁移时留在原处的旧文件夹、手动放进去的文件夹。
+	SharedWith []AgentCode `json:"shared_with,omitempty"`
 }
 
 // EditAgentResult 是 EditAgent 的结果。
@@ -363,16 +366,16 @@ func (l *Library) editAgent(ctx context.Context, operation string, code AgentCod
 			}
 			continue
 		}
-		folder, recorded, already, err := l.sameSkillInDestination(ctx, code, item, destination, migration.To)
+		folder, sharedWith, already, err := l.sameSkillInDestination(ctx, code, item, destination, migration.To)
 		if err != nil {
 			return EditAgentResult{}, err
 		}
 		if already {
-			migration.To, migration.Outcome = agentdir.FolderPath(destination.directory, folder), MigrationAlreadyInstalled
+			migration.To, migration.Outcome, migration.SharedWith = agentdir.FolderPath(destination.directory, folder), MigrationAlreadyInstalled, sharedWith
 			if item.own != nil {
 				dropped = append(dropped, item.own.ID)
 			}
-			if item.own != nil || !recorded {
+			if item.own != nil || len(sharedWith) == 0 {
 				claimed = append(claimed, claim{item, folder})
 			}
 			result.Migrations = append(result.Migrations, migration)
@@ -482,31 +485,42 @@ func migrationDestination(item agentInstall, row store.Agent) resolvedScope {
 	return item.place.target.in(row.Paths(item.project())[0])
 }
 
-func (l *Library) sameSkillInDestination(ctx context.Context, code AgentCode, item agentInstall, destination resolvedScope, target string) (folder string, recorded, found bool, err error) {
+func (l *Library) sameSkillInDestination(ctx context.Context, code AgentCode, item agentInstall, destination resolvedScope, target string) (folder string, sharedWith []AgentCode, found bool, err error) {
 	want, old := agentdir.Canonical(destination.directory), agentdir.Canonical(item.Folder)
 	installed, err := l.listSkillScopes(ctx, item.SkillID, nil)
 	if err != nil {
-		return "", false, false, err
+		return "", nil, false, err
 	}
-	for _, other := range installed {
-		if other.Scope.Agent == code || other.Scope.ProjectID != item.Scope.ProjectID ||
-			agentdir.Canonical(agentdir.FolderDirectory(other.Folder)) != want || agentdir.Canonical(other.Folder) == old {
+	others := slices.DeleteFunc(installed, func(other SkillScope) bool {
+		return other.Scope.Agent == code || other.Scope.ProjectID != item.Scope.ProjectID ||
+			agentdir.Canonical(agentdir.FolderDirectory(other.Folder)) != want || agentdir.Canonical(other.Folder) == old
+	})
+	for _, other := range others {
+		exists, err := agentdir.Exists(other.Folder)
+		if err != nil {
+			return "", nil, false, err
+		}
+		if !exists {
 			continue
 		}
-		exists, err := agentdir.Exists(other.Folder)
-		if err != nil || exists {
-			return agentdir.FolderName(other.Folder), true, exists, err
+		at := agentdir.Canonical(other.Folder)
+		for _, same := range others {
+			if agentdir.Canonical(same.Folder) == at {
+				sharedWith = append(sharedWith, same.Scope.Agent)
+			}
 		}
+		slices.Sort(sharedWith)
+		return agentdir.FolderName(other.Folder), slices.Compact(sharedWith), true, nil
 	}
 	if claimant, err := l.targetClaimant(ctx, item.SkillID, agentdir.FolderName(target), destination); err != nil || claimant != nil {
-		return "", false, false, err
+		return "", nil, false, err
 	}
 	state, err := agentdir.ReadFolder(ctx, target, maxFetchFiles, maxFetchSize)
 	if err != nil || !state.Directory {
-		return "", false, false, nil
+		return "", nil, false, nil
 	}
 	matched, _, err := matchingSkill(ctx, l.store, diskOf(state))
-	return agentdir.FolderName(target), false, SkillID(matched) == item.SkillID, err
+	return agentdir.FolderName(target), nil, SkillID(matched) == item.SkillID, err
 }
 
 func (l *Library) migrationBlocked(ctx context.Context, code AgentCode, installs []agentInstall, removed func(agentInstall) bool, id SkillID, name string, destination resolvedScope, planned map[string]bool) (bool, error) {

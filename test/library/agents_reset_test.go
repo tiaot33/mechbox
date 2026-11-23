@@ -36,7 +36,7 @@ func TestEditAgentMigrationCountsTheSameSkillAlreadyInTheNewDirectory(t *testing
 	}
 	want := []library.AgentMigration{{
 		SkillID: skill.ID, Scope: global, Outcome: library.MigrationAlreadyInstalled,
-		From: filepath.Join(oldDir, "only-here"), To: filepath.Join(newDir, "only-here"),
+		From: filepath.Join(oldDir, "only-here"), To: filepath.Join(newDir, "only-here"), SharedWith: []library.AgentCode{library.AgentCodex},
 	}}
 	if !reflect.DeepEqual(result.Migrations, want) {
 		t.Fatalf("EditAgent() migrations = %#v, want %#v", result.Migrations, want)
@@ -47,6 +47,34 @@ func TestEditAgentMigrationCountsTheSameSkillAlreadyInTheNewDirectory(t *testing
 	if err != nil || len(scopes) != 1 || scopes[0].Folder != filepath.Join(newDir, "only-here") || scopes[0].SharedOnly || !scopes[0].Direct {
 		t.Fatalf("ListSkillScopes(agent) = %#v, %v; want its own direct install in the new directory, shared with codex", scopes, err)
 	}
+}
+
+// 改到别的 Agent 装着的目录再改回来:第一次新目录那一份是 Codex 的,结果写明是它;第二次新目录里是第一次留在原处的旧文件夹,
+// 没有安装记录,结果里不说是哪个 Agent 的。以前桌面端一律写「别的 Agent 装的」,第二次也这样说。
+func TestEditAgentMigrationTellsWhoseFolderIsAlreadyInTheNewDirectory(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	home := t.TempDir()
+	setTestHome(t, home)
+	lib := openTestLibrary(t)
+	agent := addAgent(t, lib, home, "Agent", ".agent/skills", ".agent/skills")
+	skill := fetchNamedSkill(t, lib, "foo")
+	for _, scope := range []library.Scope{library.GlobalScope(library.AgentCodex), library.GlobalScope(agent.Code)} {
+		if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	oldDir, sharedDir := filepath.Join(home, ".agent", "skills"), filepath.Join(home, ".agents", "skills")
+	away := editMigrating(t, lib, agent, sharedDir)
+	if len(away) != 1 || away[0].Outcome != library.MigrationAlreadyInstalled || !slices.Equal(away[0].SharedWith, []library.AgentCode{library.AgentCodex}) {
+		t.Fatalf("EditAgent() to the shared directory migrations = %#v; want already installed, shared with codex", away)
+	}
+	agent.GlobalDirectories = []string{sharedDir}
+	back := editMigrating(t, lib, agent, oldDir)
+	if len(back) != 1 || back[0].Outcome != library.MigrationAlreadyInstalled || back[0].To != filepath.Join(oldDir, "foo") || len(back[0].SharedWith) != 0 {
+		t.Fatalf("EditAgent() back migrations = %#v; want the folder left behind adopted, shared with no agent", back)
+	}
+	requireOwnInstall(t, lib, library.GlobalScope(agent.Code), filepath.Join(oldDir, "foo"))
 }
 
 // editMigrating 把 agent 的全局目录改成 directory 并选迁移,返回迁移结果。
