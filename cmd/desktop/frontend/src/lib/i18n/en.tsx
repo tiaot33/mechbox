@@ -1463,6 +1463,7 @@ export const en = {
     projectRequired: "Enter the skill directory in projects",
     projectRelative: (example: string) => `Enter a path relative to the project root, e.g. ${example}`,
     projectInside: "Must be inside the project root (not the project root itself)",
+    directoriesOverlap: "Two of these directories are the same, or one is inside another",
     editTitle: (name: string) => `Edit Agent “${name}”`,
     addTitle: "Add Agents",
     upgradeLead: "You can now add Agents from the built-in list. The ones detected on this machine are checked below; nothing is added until you confirm. Ones marked “Directory already read” are left unchecked — most likely the same Agent you added by hand earlier.",

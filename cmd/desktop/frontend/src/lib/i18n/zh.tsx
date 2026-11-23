@@ -1390,6 +1390,7 @@ export const zh = {
     projectRequired: "填写项目里的技能目录",
     projectRelative: (example: string) => `填相对项目根目录的路径，如 ${example}`,
     projectInside: "要在项目根目录里面（不能是项目根本身）",
+    directoriesOverlap: "有两个目录是同一个，或一个在另一个里面",
     editTitle: (name: string) => `编辑 Agent「${name}」`,
     addTitle: "添加 Agent",
     upgradeLead: "现在可以从收录的 Agent 里添加了。下面在这台机器上检测到的已经勾上，确认后才添加；标着「已有 Agent 读这个目录」的没有勾，多半是你以前手填添加过的同一个 Agent。",

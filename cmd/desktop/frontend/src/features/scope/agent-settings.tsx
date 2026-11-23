@@ -15,6 +15,7 @@ import {
   directoryOptions,
   filterDirectoryOptions,
   opensWhileTyping,
+  overlappingDirectories,
   poolMatches,
   sortPool,
   undetected,
@@ -311,6 +312,10 @@ export function AgentDialog({ agent, onClose, onBack }: { agent?: Agent; onClose
       }
       if (kind !== "detect_directories" && !found[kind] && !out[kind].length) {
         found[kind] = kind === "global_directories" ? t.globalRequired : t.projectRequired;
+      }
+      // 技能目录不能重复，也不能一个在另一个里面;只差大小写的在不区分大小写的卷上算同一个。
+      if (kind !== "detect_directories" && !found[kind] && overlappingDirectories(out[kind], s.info.home_folds_case)) {
+        found[kind] = t.directoriesOverlap;
       }
     }
     return { found, out };

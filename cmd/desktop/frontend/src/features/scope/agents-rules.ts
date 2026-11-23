@@ -31,6 +31,12 @@ const comparable = (path: string, foldsCase: boolean) => {
   return foldsCase ? key.toLowerCase() : key;
 };
 
+// overlappingDirectories 是一组目录里有没有重复的，或一个在另一个里面：技能库不接受这样的目录列表。
+export function overlappingDirectories(paths: string[], foldsCase: boolean): boolean {
+  const keys = paths.map((p) => comparable(p, foldsCase));
+  return keys.some((a, i) => keys.some((b, j) => i !== j && (a === b || b.startsWith(a.endsWith("/") ? a : `${a}/`))));
+}
+
 // agentEdit 是编辑 Agent 时受影响的:affected 是这个 Agent 所在目录被去掉的那几处安装(含因共用目录而算已装的;
 // 所在目录还在新列表里的磁盘不动，不算);groupInstalls 是原来的第 1 个目录被去掉的层级里它的组安装数。
 // asks 是要不要先问是否迁移;shared 是其中还有别的 Agent 在读的(那份文件夹留在旧目录);detached 是迁移时别处的符号链接

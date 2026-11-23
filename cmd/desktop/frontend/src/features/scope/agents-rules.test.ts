@@ -13,7 +13,7 @@ import {
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import type { Snapshot } from "@/lib/library";
-import { agentDelete, agentEdit, agentReset, alreadyRead, asksWhere, directoryKey, enterSubmits, switchedToDistro, detectedPicks, directoryOptions, filterDirectoryOptions, migrationReport, opensWhileTyping, poolMatches, sortPool, undetected } from "./agents-rules";
+import { agentDelete, agentEdit, agentReset, alreadyRead, asksWhere, directoryKey, enterSubmits, switchedToDistro, detectedPicks, directoryOptions, filterDirectoryOptions, migrationReport, opensWhileTyping, overlappingDirectories, poolMatches, sortPool, undetected } from "./agents-rules";
 
 const mine = "my-agent" as AgentCode;
 const claude = AgentCode.AgentClaudeCode;
@@ -326,3 +326,21 @@ describe("表单的按键", () => {
   });
 });
 
+describe("技能目录重复或一个在另一个里面", () => {
+  it("重复的、写法不同的同一个、一个在另一个里面的都不行", () => {
+    expect(overlappingDirectories(["/home/.a/skills", "/home/.a/skills/"], false)).toBe(true);
+    expect(overlappingDirectories([".agents/skills", "./.agents/skills"], false)).toBe(true);
+    expect(overlappingDirectories(["/home/.a", "/home/.a/skills"], false)).toBe(true);
+    expect(overlappingDirectories(["C:\\Users\\me\\.a\\skills", "C:\\Users\\me\\.a"], false)).toBe(true);
+  });
+
+  it("只差大小写的在不区分大小写的卷上算同一个，区分时是两个目录", () => {
+    const dirs = ["C:\\Users\\me\\.agents\\skills", "C:\\Users\\me\\.Agents\\skills"];
+    expect(overlappingDirectories(dirs, true)).toBe(true);
+    expect(overlappingDirectories(dirs, false)).toBe(false);
+  });
+
+  it("名字只是前缀相同的不算在里面", () => {
+    expect(overlappingDirectories(["/home/.a/skills", "/home/.a/skills-old", "/home/.b/skills"], true)).toBe(false);
+  });
+});
