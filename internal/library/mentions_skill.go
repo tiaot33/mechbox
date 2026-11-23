@@ -179,14 +179,12 @@ func (l *Library) ListLostMentions(ctx context.Context, gone []SkillInScope) (lo
 			}
 		}
 	}
-	links, err := l.staleLinksOf(ctx, places)
+	removals, err := l.placeRemovals(ctx, places)
 	if err != nil {
 		return nil, err
 	}
-	for _, each := range links {
-		for _, link := range each {
-			removed[link] = true
-		}
+	for _, item := range removals {
+		removed[item.folder] = true
 	}
 	before := map[MissingMention]bool{}
 	for _, m := range scan.missing(installed, nil) {
