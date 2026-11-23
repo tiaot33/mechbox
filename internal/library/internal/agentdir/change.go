@@ -43,8 +43,11 @@ func (c *Change) stage(ctx context.Context, directory, name string) (*placement,
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	stage, err := on(directory).mkdirTemp(directory, "."+name+"-")
+	stage, err := randomName(FolderPath(directory, "."+name+"-"))
 	if err != nil {
+		return nil, err
+	}
+	if err := on(directory).mkdirStage(directory, stage); err != nil {
 		return nil, err
 	}
 	item := &placement{target: FolderPath(directory, name), stage: stage}

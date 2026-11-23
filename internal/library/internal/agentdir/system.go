@@ -34,7 +34,7 @@ type fileSystem interface {
 	listAll(ctx context.Context, directories []string) ([]Listing, error)
 	committed(ctx context.Context, root, directory string) (map[string]bool, error)
 
-	mkdirTemp(directory, prefix string) (string, error)
+	mkdirStage(directory, stage string) error
 	writeFiles(stage string, files []skillfile.File) error
 	copyTree(ctx context.Context, from, stage string) error
 	rename(from, to string) error

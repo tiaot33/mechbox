@@ -341,15 +341,14 @@ func (native) committed(ctx context.Context, root, directory string) (map[string
 	return committedNames(output, directory), nil
 }
 
-func (native) mkdirTemp(directory, prefix string) (string, error) {
+func (native) mkdirStage(directory, stage string) error {
 	if err := os.MkdirAll(directory, 0o755); err != nil {
-		return "", fmt.Errorf("create scope: %w", err)
+		return fmt.Errorf("create scope: %w", err)
 	}
-	stage, err := os.MkdirTemp(directory, prefix)
-	if err != nil {
-		return "", fmt.Errorf("stage skill folder: %w", err)
+	if err := os.Mkdir(stage, 0o755); err != nil {
+		return fmt.Errorf("stage skill folder: %w", err)
 	}
-	return stage, nil
+	return nil
 }
 
 func (native) writeFiles(stage string, files []skillfile.File) error {

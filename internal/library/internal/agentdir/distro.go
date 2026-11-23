@@ -159,10 +159,10 @@ while [ "$n" -gt 0 ]; do
 	printf '\0'
 done
 [ $# -eq 0 ] || tar -chf - "$@" 2>/dev/null || :`
-	committedScript = `GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 exec git -c core.fsmonitor=false -C "$1" ls-tree -r -z --name-only HEAD -- "$2"`
-	mkdirTempScript = `mkdir -p -- "$1" && mktemp -d "$1/$2XXXXXX"`
-	copyScript      = `cp -RPp -- "$1/." "$2"`
-	renameScript    = `[ -e "$1" ] || [ -L "$1" ] || exit 3
+	committedScript  = `GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 exec git -c core.fsmonitor=false -C "$1" ls-tree -r -z --name-only HEAD -- "$2"`
+	mkdirStageScript = `mkdir -p -- "$1" && mkdir -- "$2"`
+	copyScript       = `cp -RPp -- "$1/." "$2"`
+	renameScript     = `[ -e "$1" ] || [ -L "$1" ] || exit 3
 if [ -e "$2" ] || [ -L "$2" ]; then echo "target exists" >&2; exit 4; fi
 mv -- "$1" "$2"`
 	removeScript = `[ -e "$1" ] || [ -L "$1" ] || exit 0
@@ -619,12 +619,11 @@ func (d distro) committed(ctx context.Context, root, directory string) (map[stri
 	return committedNames(output, directory), nil
 }
 
-func (d distro) mkdirTemp(directory, prefix string) (string, error) {
-	output, err := d.query(context.Background(), "stage", directory, mkdirTempScript, d.linux(directory), prefix)
-	if err != nil {
-		return "", fmt.Errorf("stage skill folder: %w", err)
+func (d distro) mkdirStage(directory, stage string) error {
+	if _, err := d.query(context.Background(), "stage", directory, mkdirStageScript, d.linux(directory), d.linux(stage)); err != nil {
+		return fmt.Errorf("stage skill folder: %w", err)
 	}
-	return d.path(strings.TrimSuffix(output, "\n")), nil
+	return nil
 }
 
 func (d distro) writeFiles(stage string, files []skillfile.File) error {
