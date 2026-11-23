@@ -14,10 +14,28 @@ export function skillScopesOf(s: Snapshot, skillID: number): SkillScopeInspectio
   return s.skillScopes.filter((p) => p.skill_id === skillID);
 }
 
-export function skillScopesIn(s: Snapshot, key: ScopeKey): SkillScopeInspection[] {
-  return s.skillScopes.filter((p) => scopeKey(p.scope) === key);
+// placesIn 是装在这个作用域的各处：目录列表相同、合成一处的几个 Agent 的都算(它们可以各自装在列表里不同的目录),
+// 一个技能的同一个文件夹只算一处(见 eachPlace)。作用域页、右栏的状态与重新安装都按它，不只看代表的 Agent 的那一份。
+export function placesIn(s: Snapshot, key: ScopeKey): SkillScopeInspection[] {
+  const scope = parseScope(key);
+  const agents = mergedAgents(s, scope.agent, placeOf(scope));
+  return eachPlace(
+    s,
+    s.skillScopes.filter((p) => placeOf(p.scope) === placeOf(scope) && agents.includes(p.scope.agent)),
+  );
 }
 
+// skillCount 是这几处装着几个技能：合成一处的几个 Agent 把同一个技能各自装在不同目录时只算一个(作用域摘要的「已安装」,和标题的技能数一致)。
+export function skillCount(places: readonly { skill_id: number }[]): number {
+  return new Set(places.map((p) => p.skill_id)).size;
+}
+
+// placesAt 是一个技能在这个作用域的各处(见 placesIn):合成一处的几个 Agent 各自装在不同目录时有几处。
+export function placesAt(s: Snapshot, skillID: number, key: ScopeKey): SkillScopeInspection[] {
+  return placesIn(s, key).filter((p) => p.skill_id === skillID);
+}
+
+// skillScopeIn 是这个 Agent 自己在这个作用域认的那一处(合成一处时只是其中一个 Agent 的);要合成一处的各处用 placesAt。
 export function skillScopeIn(s: Snapshot, skillID: number, key: ScopeKey): SkillScopeInspection | undefined {
   return s.skillScopes.find((p) => p.skill_id === skillID && scopeKey(p.scope) === key);
 }

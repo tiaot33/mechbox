@@ -2,9 +2,9 @@
 import type { RegisteredProject } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import { agentName, parseScope, placeOf, projectName, type ScopeKey } from "@/lib/scope";
-import { agentNameIn, directoriesAt, scopeLabel } from "@/lib/places";
-import { groupInstallIn, groupStateIn, editedHere, needsRepair, reinstallLevel, skillScopeIn, skillScopesIn } from "@/lib/installs";
+import { agentName, parseScope, placeOf, projectName, scopeOf, type ScopeKey } from "@/lib/scope";
+import { agentNameIn, directoriesAt, scopeLabel, scopeReaders } from "@/lib/places";
+import { groupInstallIn, groupStateIn, editedHere, needsRepair, reinstallLevel, skillCount, skillScopeIn, placesIn } from "@/lib/installs";
 import { joinUnder, shortPath, wslTitle } from "@/lib/paths";
 import { extraCopy, splitIdentical, unmanagedIn, fetchable } from "@/lib/unmanaged";
 import type { Level } from "@/lib/level";
@@ -35,7 +35,7 @@ export const barRowClass = "a-sum-row flex min-w-0 items-center gap-2.5";
 export function ScopeSummary({ scope, directory, here, global }: { scope: ScopeKey; directory: string | undefined; here: number; global: number }) {
   const s = useSnapshot();
   const t = useT().list;
-  const installed = skillScopesIn(s, scope);
+  const installed = placesIn(s, scope);
   // 真要重新安装的(文件夹不在了、版本落后)和被手动改过的分开数：被手动改过的是用户自己的修改，不催用户重新安装。
   const broken = installed.filter(needsRepair);
   const issues = broken.length;
@@ -65,7 +65,7 @@ export function ScopeSummary({ scope, directory, here, global }: { scope: ScopeK
         </b>
         {/* 要重新安装的，和被手动改过的(确认里默认不覆盖，勾上才覆盖)都从这里一次处理;只有在 app 外更新到作者新版的不给(该做的是更新)。 */}
         {(issues > 0 || edited > 0) && (
-          <Button className="shrink-0" onClick={() => reinstall({ scope: sc }, scopeLabel(s, sc))}>
+          <Button className="shrink-0" onClick={() => reinstall(scopeReaders(s, sc).map((agent) => ({ scope: scopeOf(agent, placeOf(sc)) })), scopeLabel(s, sc))}>
             <Icon name="refresh" />
             {t.reinstallAll}
           </Button>
@@ -86,7 +86,7 @@ export function ScopeSummary({ scope, directory, here, global }: { scope: ScopeK
             {directory ? directories.map((d) => shortPath(s, d)).join(t.directorySeparator) : "…"}
           </span>
         </span>
-        <Stat value={installed.length} label={t.statInstalled} />
+        <Stat value={skillCount(installed)} label={t.statInstalled} />
         {identical > 0 && <Stat value={identical} label={t.statIdentical} />}
         {unmanaged > 0 && <Stat value={unmanaged} label={t.statNotInLibrary} />}
         {global > 0 && <Stat value={global} label={t.statGlobal} />}

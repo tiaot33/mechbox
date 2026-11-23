@@ -8,7 +8,7 @@ import { useSnapshot } from "@/lib/library";
 import { parseScope, projectName, scopeKey } from "@/lib/scope";
 import { projectAgents, type PageListing } from "@/lib/pages";
 import { scopeLabel } from "@/lib/places";
-import { skillScopeIn } from "@/lib/installs";
+import { placesAt } from "@/lib/installs";
 import { clearPicked, clearPickedAfter, useCurrentPage, useView } from "@/lib/view";
 import { pickGroup } from "@/features/group/group";
 import { uninstallSkills } from "@/features/install/install";
@@ -50,7 +50,7 @@ export function PickBar({ listing }: { listing: PageListing }) {
         : undefined;
   // 安装到…默认选这一页的地方：作用域页是这个作用域，项目页是这个项目。
   const initial = pageInstallTarget(page);
-  const canUninstall = !!here?.scopes.some((sc) => ids.some((id) => skillScopeIn(s, id, scopeKey(sc))?.direct));
+  const canUninstall = !!here?.scopes.some((sc) => ids.some((id) => placesAt(s, id, scopeKey(sc)).some((p) => p.direct)));
   const inGroups = s.groups.some((g) => ids.some((id) => g.members?.includes(id)));
 
   return (

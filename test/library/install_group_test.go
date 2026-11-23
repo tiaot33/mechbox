@@ -468,3 +468,72 @@ func TestGroupInstallReportsTheSameSkillInALinkedDirectory(t *testing.T) {
 		t.Fatalf("skip error = %#v; want FailedPrecondition with the skill itself and its folder", results[0].Error)
 	}
 }
+
+// 界面上合成一处的两个 Agent 各有这个组的组安装、成员各装在自己的目录里:UninstallGroupFrom 一次撤掉两条。
+// 第二个 Agent 那一处在确认之后才出现旧链接时整次不做,第一个 Agent 的组安装和文件夹也都还在;同意删掉链接后两处一起撤。
+func TestUninstallGroupFromCommitsTheScopesTogether(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	home := t.TempDir()
+	setTestHome(t, home)
+	lib := openTestLibrary(t)
+	all := []string{"~/.d1", "~/.d2", "~/.d3"}
+	a, err := lib.AddAgent(ctx, library.AgentInput{Name: "A", GlobalDirectories: all, ProjectDirectories: []string{".a/skills"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := lib.AddAgent(ctx, library.AgentInput{Name: "B", GlobalDirectories: []string{"~/.d2"}, ProjectDirectories: []string{".b/skills"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	foo := fetchNamedSkill(t, lib, "foo")
+	group, err := lib.CreateGroup(ctx, "team")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lib.AddSkillToGroup(ctx, group.ID, foo.ID); err != nil {
+		t.Fatal(err)
+	}
+	scopes := []library.Scope{library.GlobalScope(a.Code), library.GlobalScope(b.Code)}
+	for _, scope := range scopes {
+		if _, err := lib.InstallGroup(ctx, group.ID, scope, library.InstallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := lib.EditAgent(ctx, b.Code, library.AgentInput{Name: "B", GlobalDirectories: all, ProjectDirectories: []string{".b/skills"}}, library.EditAgentOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	d1, d2, d3 := filepath.Join(home, ".d1"), filepath.Join(home, ".d2"), filepath.Join(home, ".d3")
+	requireInstalledFolder(t, d1, "foo", "# foo\n")
+	requireInstalledFolder(t, d2, "foo", "# foo\n")
+	if err := os.MkdirAll(d3, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(d3, "foo")
+	if err := os.Symlink(filepath.Join(d2, "foo"), link); err != nil {
+		t.Fatal(err)
+	}
+
+	err = lib.UninstallGroupFrom(ctx, group.ID, scopes, library.UninstallOptions{})
+	requireErrorDetails(t, err, library.Conflict, library.ErrorDetails{Links: []string{link}})
+	requireInstalledFolder(t, d1, "foo", "# foo\n")
+	if installs, err := lib.ListGroupInstalls(ctx); err != nil || len(installs) != 2 {
+		t.Fatalf("ListGroupInstalls() = %#v, %v; want both kept", installs, err)
+	}
+
+	if err := lib.UninstallGroupFrom(ctx, group.ID, scopes, library.UninstallOptions{DeleteLinks: []string{link}}); err != nil {
+		t.Fatal(err)
+	}
+	requireNoInstalledFolder(t, d1, "foo")
+	requireNoInstalledFolder(t, d2, "foo")
+	if _, err := os.Lstat(link); !os.IsNotExist(err) {
+		t.Fatalf("link after uninstalling = %v; want removed", err)
+	}
+	if installs, err := lib.ListGroupInstalls(ctx); err != nil || len(installs) != 0 {
+		t.Fatalf("ListGroupInstalls() = %#v, %v; want none", installs, err)
+	}
+	requireLibraryError(t, lib.UninstallGroupFrom(ctx, group.ID, scopes, library.UninstallOptions{}), library.NotFound)
+	if err := lib.UninstallGroupFrom(ctx, group.ID, nil, library.UninstallOptions{}); err != nil {
+		t.Fatal(err)
+	}
+}

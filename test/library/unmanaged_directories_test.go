@@ -188,7 +188,7 @@ func TestLinkToAFolderInAnotherDirectoryCountsOnceAndGoesWithIt(t *testing.T) {
 	if err != nil || len(inspections) != 1 || !reflect.DeepEqual(inspections[0].StaleLinks, []string{link}) || len(inspections[0].Copies) != 0 {
 		t.Fatalf("InspectSkillScopes(foo, codex) = %#v, %v; want the link %s to be removed with it, not listed as a copy", inspections, err, link)
 	}
-	if err := lib.Uninstall(ctx, foo.ID, codex, library.UninstallOptions{}); err != nil {
+	if err := lib.Uninstall(ctx, foo.ID, codex, library.UninstallOptions{DeleteLinks: []string{link}}); err != nil {
 		t.Fatal(err)
 	}
 	requireNoInstalledFolder(t, agents, "foo")
@@ -402,7 +402,7 @@ func TestUnregisterProjectRemovesStaleLinks(t *testing.T) {
 	if err := os.Symlink(filepath.Join(project.Path, ".one", "skills", "foo"), link); err != nil {
 		t.Fatal(err)
 	}
-	if err := lib.UnregisterProject(ctx, project.ID, library.UnregisterProjectOptions{}); err != nil {
+	if err := lib.UnregisterProject(ctx, project.ID, library.UnregisterProjectOptions{DeleteLinks: []string{link}}); err != nil {
 		t.Fatal(err)
 	}
 	requireNoInstalledFolder(t, filepath.Join(project.Path, ".one", "skills"), "foo")

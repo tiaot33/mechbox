@@ -4,7 +4,7 @@
 import { useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
 import { FolderPolicy, type Scope, type SkillID } from "@bindings/internal/library";
-import { discardedEdits, lostEdits } from "@/lib/consent";
+import { deleteConsent, lostEdits } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, type Snapshot } from "@/lib/library";
 import { placeCount, placeNames } from "@/lib/places";
@@ -15,14 +15,14 @@ import { twinReplaceScopes } from "@/features/skill/remove-rules";
 import { ChoiceList, Modal, ui } from "@/lib/ui";
 import { Button } from "@/components/ui/button";
 import { Hint } from "@/components/ui/field";
-import { runDiscardingEdits } from "@/components/app/discard-edits";
+import { runDeleting } from "@/components/app/delete-check";
 import { StaleNotes } from "@/components/app/link-notes";
 import { installReplacing, lostMentionLines, lostMentions } from "@/features/install/install";
 import type { MissingMention } from "@bindings/internal/library";
 import { lostAfterTwin, removedPlaces } from "./remove-rules";
 
 // removeSkill 移除技能(技能详情里的「移除技能」)。确认里几处被改过按界面上已经读到的状态写;
-// 确认之后才被改过的，技能库删之前核对出来再问一次(runDiscardingEdits)。返回是否移除了。
+// 确认之后才被改过的，技能库删之前核对出来再问一次(runDeleting)。返回是否移除了。
 export async function removeSkill(id: SkillID) {
   const s = currentSnapshot();
   const places = skillScopesOf(s, id);
@@ -43,7 +43,7 @@ export async function removeSkill(id: SkillID) {
   });
   if (!choice) return false;
   const policy = choice === FolderPolicy.Keep ? FolderPolicy.Keep : FolderPolicy.Remove;
-  const done = await runDiscardingEdits(discardedEdits(places), (discard) => LibraryService.RemoveSkill(id, { folders: policy, discard_edits: discard }).then(() => true), {
+  const done = await runDeleting(deleteConsent(places), (consent) => LibraryService.RemoveSkill(id, { folders: policy, ...consent }).then(() => true), {
     success: t.removed,
     label: t.removeLabel(skillName(s, id)),
   });
@@ -53,7 +53,7 @@ export async function removeSkill(id: SkillID) {
 // removeTwin 是在技能详情的同名技能里移除不要的那个(id),留下正在看的这个(keep)。和移除技能一样问已安装的文件夹删掉还是保留，
 // 删掉时写出是哪几处、那几处不再有这个技能(被改过的照样写出改动会丢掉);还可以勾「在这几处装上留下的这个」,默认不勾：
 // 装上以后那几处的 Agent 用的就换成了留下的这个，要用户看过自己勾上。保留文件夹时文件夹还在那里，装不上，不给这个选项。
-// 确认之后才被改过的，技能库删之前核对出来再问一次(runDiscardingEdits)。
+// 确认之后才被改过的，技能库删之前核对出来再问一次(runDeleting)。
 // 能装上的几处见 twinReplaceScopes。返回是否移除了。
 export async function removeTwin(id: SkillID, keep: SkillID) {
   const s = currentSnapshot();
@@ -67,7 +67,7 @@ export async function removeTwin(id: SkillID, keep: SkillID) {
   ));
   if (!picked) return false;
   const t = messages().actions;
-  const done = await runDiscardingEdits(discardedEdits(places), (discard) => LibraryService.RemoveSkill(id, { folders: picked.policy, discard_edits: discard }).then(() => true), {
+  const done = await runDeleting(deleteConsent(places), (consent) => LibraryService.RemoveSkill(id, { folders: picked.policy, ...consent }).then(() => true), {
     success: picked.replace ? undefined : t.removed,
     label: t.removeLabel(skill.name),
   });
@@ -136,7 +136,7 @@ function RemoveTwinDialog({
 
 // removeSkills 从库里移除勾选的技能(底部操作栏的"移除技能"):和移除一个一样问一次已安装的文件夹删掉还是保留，
 // 一批只问一次，写出一共会删几处、其中几处被改过(按界面上已经读到的状态)。一次移除，全成或全不成;
-// 确认之后才被改过的，技能库删之前核对出来再问一次(runDiscardingEdits)。返回是否移除了：取消了、失败了时是 false。
+// 确认之后才被改过的，技能库删之前核对出来再问一次(runDeleting)。返回是否移除了：取消了、失败了时是 false。
 export async function removeSkills(ids: SkillID[]): Promise<boolean> {
   const s = currentSnapshot();
   // 几个技能装在同一个作用域只算一个作用域;目录列表相同、合成一处的几个 Agent 是一个。
@@ -157,7 +157,7 @@ export async function removeSkills(ids: SkillID[]): Promise<boolean> {
   });
   if (!choice) return false;
   const policy = choice === FolderPolicy.Keep ? FolderPolicy.Keep : FolderPolicy.Remove;
-  const done = await runDiscardingEdits(discardedEdits(places), (discard) => LibraryService.RemoveSkills(ids, { folders: policy, discard_edits: discard }).then(() => true), {
+  const done = await runDeleting(deleteConsent(places), (consent) => LibraryService.RemoveSkills(ids, { folders: policy, ...consent }).then(() => true), {
     success: t.removedSkills(ids.length),
   });
   return !!done;

@@ -193,7 +193,10 @@ export const en = {
       `${n === 1 ? "The place below was" : `The ${n} places below were`} edited by hand: uninstalling deletes ${n === 1 ? "the folder" : "the folders"}, and those edits will be lost for good.`,
     justEditedTitle: "Skill folders were just edited",
     justEdited: (n: number) =>
-      `${n === 1 ? "The place below was" : `The ${n} places below were`} edited by hand after you confirmed, so nothing has been deleted yet. Deleting ${n === 1 ? "the folder" : "the folders"} loses those edits for good.`,
+      `${n === 1 ? "The place below was" : `The ${n} places below were`} found edited by hand just before deleting and ${n === 1 ? "wasn't" : "weren't"} mentioned earlier, so nothing has been deleted yet. Deleting ${n === 1 ? "the folder" : "the folders"} loses those edits for good.`,
+    justLinkedTitle: "Links to the folders just appeared",
+    justLinked: (n: number) =>
+      `Just before deleting, ${n === 1 ? "the old link below" : `the ${n} old links below`} pointing to the folders to delete ${n === 1 ? "was" : "were"} found in another skills directory and ${n === 1 ? "wasn't" : "weren't"} mentioned earlier, so nothing has been deleted yet. If you go on, ${n === 1 ? "it is" : "they are"} deleted too.`,
     deleteAnyway: "Delete anyway",
     uninstalled: (name: string, scope: string) => `Removed the direct install of “${name}” in ${scope}`,
     onlyViaGroup: "This skill is only installed through a Group, so there's no direct install to uninstall. Uninstall it on the Group instead",
@@ -295,6 +298,7 @@ export const en = {
       `The folder is gone in ${count(n, "place")}. You may have deleted it outside the app or by mistake, or it was never installed on this machine.`,
     missingPlace: (skill: string, scopes: string[]) => `${skill} · ${scopes.join(", ")}`,
     missingShared: (agents: string[]) => `Shares a folder with ${and(agents)}; put back or uninstalled together`,
+    missingStaleLinks: (links: string[]) => `If you uninstall, the old ${links.length === 1 ? "link" : "links"} pointing to it (${and(links)}) ${links.length === 1 ? "is" : "are"} deleted too`,
     missingGrouped: (groups: string[]) =>
       `Installed through the ${and(groups.map((g) => `“${g}”`))} Group${groups.length > 1 ? "s" : ""}; can't be uninstalled on its own`,
     leaveAlone: "Leave",

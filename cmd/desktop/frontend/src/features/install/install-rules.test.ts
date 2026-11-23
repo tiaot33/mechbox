@@ -238,7 +238,7 @@ describe("卸载一处", () => {
     const shared = place(1, global(claude), { shared_with: [codex] });
     const s = snapshot({ skillScopes: [shared, { ...place(1, global(codex), { shared_with: [claude] }), folder: shared.folder }] });
     const r = uninstallPlace(s, 1, global(claude));
-    expect(r.shared).toEqual([codex]);
+    expect(r.shared).toEqual([{ place: shared, agents: [codex] }]);
     expect(r.deleted.map((p) => p.scope.agent)).toEqual([claude, codex]);
     expect(asksBeforeUninstall(r, [])).toBe(true);
   });
@@ -273,8 +273,54 @@ describe("卸载一处", () => {
     const s = snapshot({ agents, skillScopes: [place(1, project(claude, 7), { shared_with: [codex] })] });
     expect(uninstallPlace(s, 1, project(claude, 7)).shared).toEqual([]);
     const partly = snapshot({ agents: [agents[0], { ...agents[1], project_directories: [".agents/skills", ".codex/skills"] }], skillScopes: s.skillScopes });
-    expect(uninstallPlace(partly, 1, project(claude, 7)).shared).toEqual([codex]);
+    expect(uninstallPlace(partly, 1, project(claude, 7)).shared.map((x) => x.agents)).toEqual([[codex]]);
     expect(asksBeforeUninstall(uninstallPlace(s, 2, project(claude, 7)), [{ skill_id: 2, scope: global(claude), name: "x" } as MissingMention])).toBe(false);
+  });
+});
+
+describe("合成一处的几个 Agent 各自装在不同目录时卸载", () => {
+  // Claude Code 和 Codex 的全局目录都是 [.dir1, .dir2],合成一处;s1 分别装在 Claude Code 的 .dir1 和 Codex 的 .dir2。
+  const merged = agentsWithOwnDirectories.map((a) => ({ ...a, global_directories: ["/home/.dir1", "/home/.dir2"] }));
+  const mine = place(1, global(claude), { folder: "/home/.dir1/s1" });
+  const theirs = place(1, global(codex), { folder: "/home/.dir2/s1" });
+
+  it("作用域页一行的开关关掉时两处的直接安装都撤，两个文件夹都删", () => {
+    const s = snapshot({ agents: merged, skills: [skill(1)], skillScopes: [mine, theirs] });
+    const r = uninstallPlace(s, 1, global(claude), true);
+    expect(r.direct).toEqual([mine, theirs]);
+    expect(r.deleted).toEqual([mine, theirs]);
+    expect(r.shared).toEqual([]);
+  });
+
+  it("技能详情里按文件夹分开的一行只撤这一处，另一个 Agent 的文件夹留着", () => {
+    const s = snapshot({ agents: merged, skills: [skill(1)], skillScopes: [mine, theirs] });
+    expect(uninstallPlace(s, 1, global(claude))).toMatchObject({ direct: [mine], deleted: [mine] });
+    expect(uninstallPlace(s, 1, global(codex))).toMatchObject({ direct: [theirs], deleted: [theirs] });
+  });
+
+  it("共用提示按每一处各自的文件夹、组安装说明：只读第二个目录的别的 Agent 只出现在那一处", () => {
+    // Cursor 只读 .dir2,目录列表和合成一处的 Claude Code、Codex 不同。Claude Code 在 .dir1 还有组安装，Codex 在 .dir2 只有直接安装。
+    const cursor = "cursor" as AgentCode;
+    const agents = [...merged, { code: cursor, name: "Cursor", global_directories: ["/home/.dir2"], project_directories: [".cursor/skills"] } as Agent];
+    const grouped = { ...mine, groups: [5] };
+    const read = { ...theirs, shared_with: [cursor] };
+    const s = snapshot({ agents, skills: [skill(1)], skillScopes: [grouped, read] });
+    const r = uninstallPlace(s, 1, global(claude), true);
+    expect(r.shared).toEqual([{ place: read, agents: [cursor] }]);
+    expect(r.deleted).toEqual([read]);
+  });
+
+  it("另一处只随组安装时只撤有直接安装的那一处，它的文件夹留着", () => {
+    const viaGroup = { ...theirs, direct: false, groups: [5] };
+    const s = snapshot({ agents: merged, skills: [skill(1)], skillScopes: [mine, viaGroup] });
+    expect(uninstallPlace(s, 1, global(claude), true)).toMatchObject({ direct: [mine], deleted: [mine] });
+  });
+
+  it("勾选卸载时两处都算", () => {
+    const s = snapshot({ agents: merged, skills: [skill(1)], skillScopes: [mine, theirs] });
+    const r = uninstallPicked(s, [1], [global(claude)]);
+    expect(r.direct).toEqual([mine, theirs]);
+    expect(r.folders).toBe(2);
   });
 });
 
@@ -326,13 +372,28 @@ describe("卸载整组时删哪些成员的文件夹", () => {
       groups: [group(5, [1, 2]), group(6, [2])],
       groupInstalls: [installed(5, global(claude)), installed(6, global(codex))],
       skillScopes: [
-        place(1, global(claude), { direct: false, groups: [5], shared_with: [codex] }),
-        place(2, global(claude), { direct: false, groups: [5], shared_with: [codex] }),
+        place(1, global(claude), { direct: false, groups: [5], shared_with: [codex], folder: "/home/.agents/skills/s1" }),
+        place(1, global(codex), { direct: false, groups: [5], shared_with: [claude], shared_only: true, folder: "/home/.agents/skills/s1" }),
+        place(2, global(claude), { direct: false, groups: [5, 6], shared_with: [codex], folder: "/home/.agents/skills/s2" }),
+        place(2, global(codex), { direct: false, groups: [5, 6], shared_with: [claude], folder: "/home/.agents/skills/s2" }),
       ],
     });
     const r = uninstallGroupPlaces(s, 5, global(claude));
     expect(r.gone.map((p) => p.skill_id)).toEqual([1]);
     expect(r.shared.map((p) => p.skill_id)).toEqual([1]);
+  });
+
+  it("共用目录的别的 Agent 只是读到它、自己没有安装记录时，它含这个技能的组安装留不住文件夹", () => {
+    // Codex 的组 6 里也有 s1,但组安装时 s1 因同名被跳过;之后 Codex 加了这个目录才读到 Claude Code 的 s1。
+    const s = snapshot({
+      groups: [group(5, [1]), group(6, [1])],
+      groupInstalls: [installed(5, global(claude)), installed(6, global(codex))],
+      skillScopes: [
+        place(1, global(claude), { direct: false, groups: [5], shared_with: [codex], folder: "/home/.agents/skills/s1" }),
+        place(1, global(codex), { direct: false, groups: [5], shared_with: [claude], shared_only: true, folder: "/home/.agents/skills/s1" }),
+      ],
+    });
+    expect(uninstallGroupPlaces(s, 5, global(claude)).gone.map((p) => p.skill_id)).toEqual([1]);
   });
 
   it("合成一处里几个 Agent 各有这个组的组安装时一起撤掉：互相不算「别的组安装还留着」,同一个文件夹只算一次", () => {

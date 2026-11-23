@@ -40,6 +40,10 @@ type RemoveFromGroupOptions struct {
 	// 有被改过的(SkillScopeModified,不算 SkillScopeInspection.SourceLatest,也不算是符号链接的那一处,删的只是链接)却不在这里,
 	// 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
 	DiscardEdits []string `json:"discard_edits,omitempty"`
+	// DeleteLinks 是确认时告诉用户会随文件夹一并删掉的旧链接(SkillScopeInspection.StaleLinks)。动磁盘之前现找这次要一并删的旧链接:
+	// 有不在这里的(确认之后才出现的),整次返回 Conflict(Details.Links 为这几个链接),一个都不删;可以和 Details.Paths 同时出现。
+	// 不删文件夹时不核对。
+	DeleteLinks []string `json:"delete_links,omitempty"`
 }
 
 // DeleteGroupOptions 是 DeleteGroup 的选项。
@@ -49,6 +53,10 @@ type DeleteGroupOptions struct {
 	// 有被改过的(SkillScopeModified,不算 SkillScopeInspection.SourceLatest,也不算是符号链接的那一处,删的只是链接)却不在这里,
 	// 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
 	DiscardEdits []string `json:"discard_edits,omitempty"`
+	// DeleteLinks 是确认时告诉用户会随文件夹一并删掉的旧链接(SkillScopeInspection.StaleLinks)。动磁盘之前现找这次要一并删的旧链接:
+	// 有不在这里的(确认之后才出现的),整次返回 Conflict(Details.Links 为这几个链接),一个都不删;可以和 Details.Paths 同时出现。
+	// 不删文件夹时不核对。
+	DeleteLinks []string `json:"delete_links,omitempty"`
 }
 
 func groupOf(row store.Group) Group {
@@ -206,7 +214,7 @@ func (l *Library) DeleteGroup(ctx context.Context, id GroupID, opts DeleteGroupO
 		if err != nil {
 			return err
 		}
-		return l.removeFolders(ctx, tx, &change, "delete group", removals, opts.DiscardEdits)
+		return l.removeFolders(ctx, tx, &change, "delete group", removals, confirmed{edits: opts.DiscardEdits, links: opts.DeleteLinks})
 	})
 }
 
@@ -306,7 +314,7 @@ func (l *Library) removeSkillsFromGroup(ctx context.Context, operation string, g
 		if err != nil {
 			return err
 		}
-		return l.removeFolders(ctx, tx, &change, operation, removals, opts.DiscardEdits)
+		return l.removeFolders(ctx, tx, &change, operation, removals, confirmed{edits: opts.DiscardEdits, links: opts.DeleteLinks})
 	})
 }
 

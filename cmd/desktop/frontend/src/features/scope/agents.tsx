@@ -1,7 +1,7 @@
 // Agent:从候选池添加、手填添加、编辑(去掉的目录里装着技能时可选把它们搬到新的第 1 个目录)、移除(回到候选池)。
 import { LibraryService } from "@bindings/cmd/desktop";
 import { FolderPolicy, type Agent, type AgentInput } from "@bindings/internal/library";
-import { detachedBy, discardedEdits, lostEdits } from "@/lib/consent";
+import { detachedBy, deleteConsent, lostEdits } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, useSnapshot, type LibraryError } from "@/lib/library";
 import { folderPlaces } from "@/lib/installs";
@@ -14,7 +14,7 @@ import { Notice } from "@/components/ui/notice";
 import { ListBox, ListRow } from "@/components/ui/list";
 import { AgentMark } from "@/components/app/parts";
 import { DetachNotice, SharedFolders, StaleNotes } from "@/components/app/link-notes";
-import { runDiscardingEdits } from "@/components/app/discard-edits";
+import { runDeleting } from "@/components/app/delete-check";
 import { showResults } from "@/components/app/results";
 import { agentDelete, agentEdit, agentReset, migrationReport, type AgentChange } from "./agents-rules";
 
@@ -112,7 +112,7 @@ export async function removeAgent(agent: Agent) {
   });
   if (!choice) return;
   const policy = choice === FolderPolicy.Keep ? FolderPolicy.Keep : FolderPolicy.Remove;
-  await runDiscardingEdits(discardedEdits(own), (discard) => LibraryService.DeleteAgent(agent.code, { folders: policy, discard_edits: discard }), {
+  await runDeleting(deleteConsent(own), (consent) => LibraryService.DeleteAgent(agent.code, { folders: policy, ...consent }), {
     success: t.agentRemoved(agent.name),
   });
 }
@@ -145,7 +145,7 @@ export async function resetAgents() {
   });
   if (!choice) return;
   const policy = choice === FolderPolicy.Remove ? FolderPolicy.Remove : FolderPolicy.Keep;
-  const result = await runDiscardingEdits(discardedEdits(plan.own), (discard) => LibraryService.ResetAgents({ folders: policy, discard_edits: discard }));
+  const result = await runDeleting(deleteConsent(plan.own), (consent) => LibraryService.ResetAgents({ folders: policy, ...consent }));
   if (!result) return;
   const done = t.resetDone((result.reset ?? []).length, (result.removed ?? []).length);
   const report = migrationReport(currentSnapshot(), result.migrations ?? []);

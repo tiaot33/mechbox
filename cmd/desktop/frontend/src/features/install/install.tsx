@@ -4,7 +4,7 @@
 // - 组安装逐条返回结果，被跳过的成员列出原因。
 // - 卸载会删掉别处链接指着的文件夹时，库先给那几处换上独立的一份，确认前说出来。
 // - 卸载会删掉被手动改过的文件夹时，确认前列出是哪几处，修改会跟着丢掉;按界面上已经读到的状态写，不先现查磁盘，
-//   确认之后才被改过的由技能库删之前核对出来，再问一次(runDiscardingEdits)。
+//   确认之后才被改过的、才出现的旧链接由技能库删之前核对出来，再问一次(runDeleting)。
 // - 提到关系：装好后，装上的技能提到的技能在那里找不到时，提示里写出来，库里有的能一起装上(直接安装，组安装时也不加进组);
 //   卸载、卸载整组会删掉文件夹、让别的技能因此找不到它时，确认里写出是哪几个(平时不弹确认的卸载这时也弹)。
 //   都只用规则和已存下的 AI 判断结论，不等 AI;读不出提到关系时照常安装、卸载，不拦着。
@@ -19,7 +19,7 @@ import {
   type Scope,
   type SkillID,
 } from "@bindings/internal/library";
-import { discardedEdits } from "@/lib/consent";
+import { deleteConsent, type DeleteConsent } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, toLibraryError, useSnapshot, type Snapshot } from "@/lib/library";
 import { mergeMissing, missingAt } from "@/lib/mentions";
@@ -33,7 +33,7 @@ import { openDrawer } from "@/lib/view";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
 import { DeleteNotes, SharedFolders } from "@/components/app/link-notes";
-import { runDiscardingEdits } from "@/components/app/discard-edits";
+import { runDeleting } from "@/components/app/delete-check";
 import { runEach, showResults } from "@/components/app/results";
 import { memberRows, summarizeMembers } from "@/components/app/result-rows";
 import {
@@ -305,14 +305,16 @@ async function installEach(items: InstallItem[], title: string, done: string): P
   return installed > 0;
 }
 
-export async function uninstallSkill(id: SkillID, scope: Scope) {
+// uninstallSkill 撤销技能在 scope 的直接安装。merged 是作用域页一行的开关：合成一处里各 Agent 各自装在不同目录的每一处都撤;
+// 技能详情里按文件夹分开的一行只撤这一处(见 uninstallPlace)。
+export async function uninstallSkill(id: SkillID, scope: Scope, merged = false) {
   const s = currentSnapshot();
   const t = messages().actions;
   // 全局共用目录：从其中一个卸载会撤销共用的各个 Agent 的直接安装，文件夹随之删除，先说明还有哪些 Agent 在用。
   // 目录列表相同、合成一处的几个 Agent 在界面上本来就是一处、名字里写着它们，不再另说。
   // 别处的符号链接指着这个文件夹时，删之前库先给那几处换上独立的一份，也先说明。
   // 文件夹被手动改过时，卸载会把修改一起删掉，先列出是哪几处。没有组安装留着时文件夹才删。
-  const plan = uninstallPlace(s, id, scope);
+  const plan = uninstallPlace(s, id, scope, merged);
   const { place, shared, deleted } = plan;
   const unfound = await lostMentions(deleted);
   if (place && asksBeforeUninstall(plan, unfound)) {
@@ -322,11 +324,15 @@ export async function uninstallSkill(id: SkillID, scope: Scope) {
         <>
           {shared.length > 0 && (
             <Notice alert>
-              {t.uninstallShared(
-                shortPath(s, place.folder),
-                shared.map((code) => agentName(s, code)),
-                !!place.groups?.length,
-              )}
+              {shared.map(({ place: p, agents }) => (
+                <span key={p.folder} className="block">
+                  {t.uninstallShared(
+                    shortPath(s, p.folder),
+                    agents.map((code) => agentName(s, code)),
+                    !!p.groups?.length,
+                  )}
+                </span>
+              ))}
             </Notice>
           )}
           <DeleteNotes deleted={deleted} />
@@ -338,7 +344,11 @@ export async function uninstallSkill(id: SkillID, scope: Scope) {
     });
     if (!ok) return;
   }
-  await runDiscardingEdits(discardedEdits(deleted), (discard) => LibraryService.Uninstall(id, scope, { discard_edits: discard }), {
+  // 合成一处的几个 Agent 各自装在不同目录、各有直接安装时一次都撤掉(全成或全不成);只有一处时照常卸载这一处。
+  const places = plan.direct.map((p): SkillInScope => ({ skill_id: p.skill_id, scope: p.scope }));
+  const call = (consent: DeleteConsent) =>
+    places.length > 1 ? LibraryService.UninstallSkills(places, consent) : LibraryService.Uninstall(id, places[0]?.scope ?? scope, consent);
+  await runDeleting(deleteConsent(deleted), call, {
     success: t.uninstalled(skillName(s, id), scopeLabel(s, scope)),
     onError: (err) => {
       if (err.code !== ErrorCode.FailedPrecondition) return false;
@@ -383,8 +393,8 @@ export async function uninstallSkills(ids: SkillID[], scopes: Scope[], where: st
   });
   if (!ok) return false;
   const places = direct.map((p): SkillInScope => ({ skill_id: p.skill_id, scope: p.scope }));
-  const done = await runDiscardingEdits(discardedEdits(deleted), (discard) =>
-    LibraryService.UninstallSkills(places, { discard_edits: discard }).then(() => true),
+  const done = await runDeleting(deleteConsent(deleted), (consent) =>
+    LibraryService.UninstallSkills(places, consent).then(() => true),
   );
   if (!done) return false;
   const rows = skippedPicked(s, picked);
@@ -474,16 +484,10 @@ export async function uninstallGroup(groupID: GroupID, scope: Scope) {
     danger: true,
   });
   if (!ok) return;
-  // 删之前核对出被改过的再问一次时，已经撤掉的那几条不再重撤。
-  const done = new Set<string>();
-  await runDiscardingEdits(
-    discardedEdits(deleted),
-    async (discard) => {
-      for (const sc of scopes.filter((x) => !done.has(scopeKey(x)))) {
-        await LibraryService.UninstallGroup(groupID, sc, { discard_edits: discard });
-        done.add(scopeKey(sc));
-      }
-    },
+  // 合成一处里的几条一次撤掉(全成或全不成),再问一次时还什么都没删。
+  await runDeleting(
+    deleteConsent(deleted),
+    (consent) => (scopes.length > 1 ? LibraryService.UninstallGroupFrom(groupID, scopes, consent) : LibraryService.UninstallGroup(groupID, scopes[0], consent)),
     { success: t.groupUninstalled(groupName(s, groupID), scopeLabel(s, scope)) },
   );
 }

@@ -337,6 +337,10 @@ func (s *LibraryService) UninstallGroup(ctx context.Context, groupID library.Gro
 	return settleErr(ctx, s.lib.UninstallGroup(ctx, groupID, scope, opts))
 }
 
+func (s *LibraryService) UninstallGroupFrom(ctx context.Context, groupID library.GroupID, scopes []library.Scope, opts library.UninstallOptions) error {
+	return settleErr(ctx, s.lib.UninstallGroupFrom(ctx, groupID, scopes, opts))
+}
+
 func (s *LibraryService) ListGroupInstalls(ctx context.Context) ([]library.GroupInstall, error) {
 	return settle(s.lib.ListGroupInstalls(ctx))(ctx)
 }

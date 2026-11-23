@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/tiaot33/mechbox/internal/library"
@@ -269,5 +270,57 @@ func TestAgentDirectoriesThatAliasEachOtherAreRejected(t *testing.T) {
 	for _, directories := range [][]string{{"~/.skills", "~/.alias"}, {"~/.skills", "~/.alias/inner"}} {
 		_, err := lib.AddAgent(t.Context(), library.AgentInput{Name: "Mine", GlobalDirectories: directories, ProjectDirectories: []string{".mine/skills"}})
 		requireLibraryError(t, err, library.InvalidArgument)
+	}
+}
+
+// 大小写不敏感的文件系统上,只差大小写的几个技能目录是同一个目录:项目目录、还不存在的全局目录都和字面上重复一样返回 InvalidArgument。
+// 区分大小写的文件系统上跳过。
+func TestAgentDirectoriesThatDifferOnlyInCaseAreRejected(t *testing.T) {
+	t.Parallel()
+	home := t.TempDir()
+	setTestHome(t, home)
+	if info, err := os.Stat(strings.ToUpper(home)); err != nil || !info.IsDir() {
+		t.Skip("the file system is case-sensitive")
+	}
+	lib := openTestLibrary(t)
+	for _, input := range []library.AgentInput{
+		{Name: "Claude Code", GlobalDirectories: []string{"~/.claude/skills"}, ProjectDirectories: []string{".agents/skills", ".Agents/skills"}},
+		{Name: "Claude Code", GlobalDirectories: []string{"~/.MyAgent/skills", "~/.myagent/skills"}, ProjectDirectories: []string{".claude/skills"}},
+		{Name: "Claude Code", GlobalDirectories: []string{"~/.MyAgent", "~/.myagent/skills"}, ProjectDirectories: []string{".claude/skills"}},
+	} {
+		_, err := lib.EditAgent(t.Context(), library.AgentClaudeCode, input, library.EditAgentOptions{})
+		requireLibraryError(t, err, library.InvalidArgument)
+	}
+}
+
+// 大小写不敏感的文件系统上只改目录的大小写:是同一个目录,安装照常算已装、文件夹不动,迁移也不搬。区分大小写的文件系统上跳过。
+func TestEditAgentChangingOnlyTheCaseOfADirectoryKeepsItsInstalls(t *testing.T) {
+	t.Parallel()
+	for _, migrate := range []bool{false, true} {
+		home := t.TempDir()
+		if info, err := os.Stat(strings.ToUpper(home)); err != nil || !info.IsDir() {
+			t.Skip("the file system is case-sensitive")
+		}
+		setTestHome(t, home)
+		lib := openTestLibrary(t)
+		ctx := t.Context()
+		foo := fetchNamedSkill(t, lib, "foo")
+		codex := library.GlobalScope(library.AgentCodex)
+		if err := lib.Install(ctx, foo.ID, codex, library.InstallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+		agents := filepath.Join(home, ".agents", "skills")
+		result, err := lib.EditAgent(ctx, library.AgentCodex, library.AgentInput{Name: "Codex", GlobalDirectories: []string{"~/.Agents/skills"}, ProjectDirectories: []string{".agents/skills"}}, library.EditAgentOptions{Migrate: migrate})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Migrations) != 0 {
+			t.Fatalf("migrate=%v: Migrations = %#v; want none", migrate, result.Migrations)
+		}
+		scopes := skillScopesOf(t, lib, foo.ID)
+		if got, ok := scopes[codex]; !ok || got.SharedOnly || got.Directory != filepath.Join(home, ".Agents", "skills") {
+			t.Fatalf("migrate=%v: ListSkillScopes(foo) = %#v; want Codex still installed in the renamed directory", migrate, scopes)
+		}
+		requireInstalledFolder(t, agents, "foo", "# foo\n")
 	}
 }

@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { LibraryService } from "@bindings/cmd/desktop";
 import { GroupMemberOutcome, MemberRemovalPolicy, type CollectionID, type GroupID, type SkillID } from "@bindings/internal/library";
-import { discardedEdits } from "@/lib/consent";
+import { deleteConsent, NOTHING_TO_DELETE } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, useSnapshot } from "@/lib/library";
 import { folderPlaces } from "@/lib/installs";
@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Hint } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
 import { DeleteNotes } from "@/components/app/link-notes";
-import { runDiscardingEdits } from "@/components/app/discard-edits";
+import { runDeleting } from "@/components/app/delete-check";
 import { LostMentions, lostMentions, ReadsTwiceNotice, toastInstalled } from "@/features/install/install";
 import { runEach, showResults } from "@/components/app/results";
 import { memberRows, placedBy } from "@/components/app/result-rows";
@@ -120,7 +120,7 @@ export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {
   // 选「一并卸载」会删掉的文件夹里哪几处被手动改过，按界面上已经读到的状态说;确认之后才改过的，删之前由技能库核对出来再问一次。
   const installed = s.groupInstalls.filter((a) => a.group_id === groupID);
   let policy = MemberRemovalPolicy.KeepAsDirectInstall;
-  let discard: string[] = [];
+  let consent = NOTHING_TO_DELETE;
   if (installed.length) {
     const gone = folderPlaces(s, groupOnly(s, groupID, [id]));
     const unfound = await lostMentions(gone);
@@ -138,9 +138,9 @@ export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {
     });
     if (!choice) return;
     policy = choice as MemberRemovalPolicy;
-    discard = discardedEdits(gone);
+    consent = deleteConsent(gone);
   }
-  await runDiscardingEdits(discard, (discard) => LibraryService.RemoveSkillFromGroup(groupID, id, { if_no_other_install: policy, discard_edits: discard }), {
+  await runDeleting(consent, (consent) => LibraryService.RemoveSkillFromGroup(groupID, id, { if_no_other_install: policy, ...consent }), {
     success: t.removedFromGroup(skillName(s, id), groupName(s, groupID)),
   });
 }
@@ -157,7 +157,7 @@ export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[])
   const installed = s.groupInstalls.filter((a) => a.group_id === groupID);
   // 选组的弹窗里已经点过"移出";没有组安装时不再问，和移出一个成员一样直接移出。
   let policy = MemberRemovalPolicy.KeepAsDirectInstall;
-  let discard: string[] = [];
+  let consent = NOTHING_TO_DELETE;
   if (installed.length) {
     const gone = folderPlaces(s, groupOnly(s, groupID, ids));
     const unfound = await lostMentions(gone);
@@ -175,11 +175,11 @@ export async function removeSkillsFromGroup(groupID: GroupID, picked: SkillID[])
     });
     if (!choice) return false;
     policy = choice as MemberRemovalPolicy;
-    discard = discardedEdits(gone);
+    consent = deleteConsent(gone);
   }
-  const done = await runDiscardingEdits(
-    discard,
-    (discard) => LibraryService.RemoveSkillsFromGroup(groupID, ids, { if_no_other_install: policy, discard_edits: discard }).then(() => true),
+  const done = await runDeleting(
+    consent,
+    (consent) => LibraryService.RemoveSkillsFromGroup(groupID, ids, { if_no_other_install: policy, ...consent }).then(() => true),
     { success: t.pickedRemovedFromGroup(ids.length, group) },
   );
   return !!done;
@@ -240,7 +240,7 @@ export async function deleteGroup(groupID: GroupID) {
   });
   if (!choice) return;
   const policy = installs ? (choice as MemberRemovalPolicy) : MemberRemovalPolicy.KeepAsDirectInstall;
-  await runDiscardingEdits(discardedEdits(gone), (discard) => LibraryService.DeleteGroup(groupID, { if_no_other_install: policy, discard_edits: discard }), {
+  await runDeleting(deleteConsent(gone), (consent) => LibraryService.DeleteGroup(groupID, { if_no_other_install: policy, ...consent }), {
     success: t.groupDeleted,
   });
 }

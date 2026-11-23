@@ -124,13 +124,15 @@
 // 安装(install.go):
 //   - [Library.PlanInstall] 再 [Library.Install]:先看会装到哪个文件夹、那里现在是什么情况,再直接安装;
 //     目标处有不是从库里装的同名文件夹时,用户同意后才覆盖。[Library.Uninstall] 撤销,[Library.UninstallSkills] 一次撤销勾选的几处。
-//   - [Library.PlanGroupInstall] 再 [Library.InstallGroup]:组安装;[Library.UninstallGroup] 撤销。
+//   - [Library.PlanGroupInstall] 再 [Library.InstallGroup]:组安装;[Library.UninstallGroup] 撤销,界面上合成一处的几个 Agent
+//     各有这个组的组安装时用 [Library.UninstallGroupFrom] 一次撤销(全成或全不成)。
 //   - [Library.ListSkillScopes]、[Library.ListGroupInstalls] 列出安装记录。看一个技能装在哪些地方,用
 //     [Library.ListSkillScopes] 或 [Library.InspectSkillScopes] 按技能筛选。
 //   - 会删技能文件夹的操作(卸载、组卸载、移除技能、移出组或删除组时一并卸载、注销项目、移除 Agent、恢复默认时移除手填的 Agent)的确认框,
 //     按界面上已有的巡检结果说明哪几处用户改过、修改会丢掉,不必先现查磁盘;这几处放进选项的 DiscardEdits。
 //     库在动磁盘之前只读这次要删的文件夹:确认之后才被改过的,整次返回 Conflict(Details.Paths),一个都不删,
-//     界面再问一次用户,同意后把它们加进 DiscardEdits 重新调用。
+//     界面再问一次用户,同意后把它们加进 DiscardEdits 重新调用。随文件夹一并删掉的旧链接同样按确认框列出的(DeleteLinks)核对:
+//     确认之后才出现的旧链接返回 Conflict(Details.Links),同意后加进 DeleteLinks 重新调用。
 //
 // 安装与安装计划方法都只接受 Scope 身份:新装的技能装进 [Library.ScopeDirectory] 给出的第 1 个技能目录,记录按身份落库;
 // 已经装着的按记录的实际目录找文件夹。未知 Agent、候选池里的 Agent 或未登记项目返回 NotFound。

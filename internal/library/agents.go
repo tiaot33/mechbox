@@ -60,10 +60,11 @@ type AgentInput struct {
 	Name string `json:"name"`
 	// GlobalDirectories 是全局技能目录,至少 1 个,第 1 个装新技能:每项是绝对路径,或以 ~/ 开头表示用户主目录下。
 	// 必须在用户主目录里面(不能是主目录本身),按相对主目录的路径记录,同步到别的机器后对应到那台机器的主目录。
-	// 规范化后不能重复,也不能一项在另一项里面。目录不必已经存在,安装时创建。
+	// 规范化后不能重复,也不能一项在另一项里面;用户主目录所在的文件系统不区分大小写(macOS、Windows 默认)时,只差大小写的算同一个目录。
+	// 目录不必已经存在,安装时创建。
 	GlobalDirectories []string `json:"global_directories"`
 	// ProjectDirectories 是项目里的技能目录,至少 1 个,第 1 个装新技能:每项是相对已登记项目根的路径,不能是绝对路径,
-	// 也不能是项目根本身或在项目外面。规范化后不能重复,也不能一项在另一项里面。
+	// 也不能是项目根本身或在项目外面。规范化后不能重复,也不能一项在另一项里面;只差大小写的按 GlobalDirectories 的规则算。
 	ProjectDirectories []string `json:"project_directories"`
 	// DetectDirectories 是检测这个 Agent 有没有装时看的目录,写法与 GlobalDirectories 相同;可以为空,为空时不检测。重复的只算一次。
 	DetectDirectories []string `json:"detect_directories"`
@@ -114,6 +115,10 @@ type DeleteAgentOptions struct {
 	// 有被改过的(SkillScopeModified,不算 SkillScopeInspection.SourceLatest,也不算是符号链接的那一处,删的只是链接)却不在这里,
 	// 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
 	DiscardEdits []string `json:"discard_edits,omitempty"`
+	// DeleteLinks 是确认时告诉用户会随文件夹一并删掉的旧链接(SkillScopeInspection.StaleLinks)。动磁盘之前现找这次要一并删的旧链接:
+	// 有不在这里的(确认之后才出现的),整次返回 Conflict(Details.Links 为这几个链接),一个都不删;可以和 Details.Paths 同时出现。
+	// 不删文件夹时不核对。
+	DeleteLinks []string `json:"delete_links,omitempty"`
 }
 
 // DeleteAgentResult 是 DeleteAgent 的结果。
@@ -256,7 +261,8 @@ func (l *Library) AddAgent(ctx context.Context, agent AgentInput) (added Agent, 
 
 // EditAgent 修改一个已添加的 Agent 的名称、技能目录和检测目录,代码不变;填写规则同 AgentInput。未知代码或候选池里的 Agent
 // 返回 NotFound。这个 Agent 的每处安装(含只因共用目录而算已装的)按编辑前的实际目录处理:
-//   - 这个目录还在新列表里:磁盘不动,安装记录跟着新列表换算。
+//   - 这个目录还在新列表里:磁盘不动,安装记录跟着新列表换算。用户主目录所在的文件系统不区分大小写时,只改了大小写的也算还在
+//     (记录改成新的写法)。
 //   - 不在了、选了迁移:文件夹原样搬到新的第 1 个目录,不从库里重新安装,这个 Agent 在那里照常算已装;旧目录还有别的已添加 Agent
 //     在读时复制过去,旧文件夹和它的安装记录留给它们。旧目录和新目录其实是同一个文件夹(符号链接)时只改记下的目录。
 //     新目录里已经装着库里的这个技能时不复制、不搬,这个 Agent 的安装记录改指到那一处(MigrationAlreadyInstalled)。
@@ -294,8 +300,10 @@ func (l *Library) editAgent(ctx context.Context, operation string, code AgentCod
 	if err != nil {
 		return EditAgentResult{}, err
 	}
+	kept := l.keptDirectory
 	removed := func(item agentInstall) bool {
-		return !slices.Contains(row.Paths(item.project()), item.place.target.relative)
+		_, ok := kept(row.Paths(item.project()), item.place.target.relative)
+		return !ok
 	}
 	if opts.Migrate {
 		for _, item := range installs {
@@ -329,9 +337,9 @@ func (l *Library) editAgent(ctx context.Context, operation string, code AgentCod
 	planned := map[string]bool{}
 	result.Migrations = []AgentMigration{}
 	for _, item := range installs {
-		if !removed(item) {
+		if path, ok := kept(row.Paths(item.project()), item.place.target.relative); ok {
 			if item.own != nil {
-				rebased = append(rebased, rebase{item.own.ID, store.StoredDirectory(row, item.project(), item.place.target.relative)})
+				rebased = append(rebased, rebase{item.own.ID, store.StoredDirectory(row, item.project(), path)})
 			}
 			continue
 		}
@@ -445,7 +453,7 @@ func (l *Library) editAgent(ctx context.Context, operation string, code AgentCod
 			}
 		}
 		for _, project := range []bool{false, true} {
-			if !opts.Migrate && !slices.Contains(row.Paths(project), current.Paths(project)[0]) {
+			if _, ok := kept(row.Paths(project), current.Paths(project)[0]); !opts.Migrate && !ok {
 				if err := tx.RemoveAgentGroupInstalls(ctx, row.Code, project); err != nil {
 					return err
 				}
@@ -458,6 +466,16 @@ func (l *Library) editAgent(ctx context.Context, operation string, code AgentCod
 	}
 	result.Agent, err = l.agentOf(ctx, row)
 	return result, err
+}
+
+func (l *Library) keptDirectory(paths []string, path string) (string, bool) {
+	foldsCase := agentdir.FoldsCase(l.home.Root())
+	for _, each := range paths {
+		if each == path || foldsCase && strings.EqualFold(each, path) {
+			return each, true
+		}
+	}
+	return "", false
 }
 
 func migrationDestination(item agentInstall, row store.Agent) resolvedScope {
@@ -626,7 +644,7 @@ func (l *Library) deleteAgents(ctx context.Context, operation string, codes []Ag
 	var change agentdir.Change
 	defer func() { err = errors.Join(err, change.Rollback()) }()
 	err = l.applyChange(ctx, &change, func(tx *store.Tx) error {
-		if err := l.removeFolders(ctx, tx, &change, operation, removals, opts.DiscardEdits); err != nil {
+		if err := l.removeFolders(ctx, tx, &change, operation, removals, confirmed{edits: opts.DiscardEdits, links: opts.DeleteLinks}); err != nil {
 			return err
 		}
 		for _, install := range groupInstalls {
@@ -809,7 +827,7 @@ func (l *Library) agentRow(operation string, agent AgentInput) (store.Agent, err
 		}
 		projectPaths = append(projectPaths, path)
 	}
-	if err := distinctDirectories(operation, "project_directories", projectPaths, nil); err != nil {
+	if err := distinctDirectories(operation, "project_directories", projectPaths, nil, agentdir.FoldsCase(l.home.Root())); err != nil {
 		return store.Agent{}, err
 	}
 	detectPaths, err := l.homeDirectories(operation, "detect_directories", agent.DetectDirectories, false)
@@ -840,12 +858,13 @@ func (l *Library) homeDirectories(operation, field string, directories []string,
 	if !skills {
 		return paths, nil
 	}
-	return paths, distinctDirectories(operation, field, paths, l.home.Join)
+	return paths, distinctDirectories(operation, field, paths, l.home.Join, agentdir.FoldsCase(l.home.Root()))
 }
 
-func distinctDirectories(operation, field string, paths []string, absolute func(string) string) error {
+func distinctDirectories(operation, field string, paths []string, absolute func(string) string, foldsCase bool) error {
 	overlap := func(a, b string) bool {
-		if a == b || strings.HasPrefix(b, a+"/") || strings.HasPrefix(a, b+"/") {
+		written := func(a, b string) bool { return a == b || strings.HasPrefix(b, a+"/") || strings.HasPrefix(a, b+"/") }
+		if written(a, b) || foldsCase && written(strings.ToLower(a), strings.ToLower(b)) {
 			return true
 		}
 		if absolute == nil {

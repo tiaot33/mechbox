@@ -142,7 +142,7 @@ func (l *Library) ListMissingMentions(ctx context.Context) (missing []MissingMen
 
 // ListLostMentions 在卸载、从库里删除之前给出:gone 这几处的技能文件夹不在了以后,哪些装着的技能会因此找不到它们提到的技能
 // (现在找得到、之后找不到的,规则同 [Library.ListMissingMentions])。按要删的实际文件夹判断:认同一处的其他 Agent 一并算不在,
-// 同一个作用域另一个技能目录里的同名文件夹照样算找得到;gone 里的技能
+// 随它一并删掉的旧链接(SkillScopeInspection.StaleLinks)也算不在,同一个作用域另一个技能目录里的同名文件夹照样算找得到;gone 里的技能
 // 自己不再算;不是装在那里的忽略。只读,一次扫描算出,排序同 ListMissingMentions;没有时为空列表。
 // gone 里的作用域组合不合法时返回 InvalidArgument。
 func (l *Library) ListLostMentions(ctx context.Context, gone []SkillInScope) (lost []MissingMention, err error) {
@@ -159,12 +159,32 @@ func (l *Library) ListLostMentions(ctx context.Context, gone []SkillInScope) (lo
 		return nil, err
 	}
 	removed := map[string]bool{}
+	var places []installedPlace
 	for _, place := range gone {
 		for _, in := range installed {
-			if in.SkillID == place.SkillID && in.Scope == place.Scope {
-				removed[in.Folder] = true
+			if in.SkillID != place.SkillID || in.Scope != place.Scope {
+				continue
+			}
+			removed[in.Folder] = true
+			target, err := l.resolveScope(ctx, "list lost mentions", in.Scope)
+			if err != nil {
+				return nil, err
+			}
+			at, err := l.installedAt(ctx, in.SkillID, target)
+			if err != nil {
+				return nil, err
+			}
+			if at.installed() {
+				places = append(places, at)
 			}
 		}
+	}
+	removals, err := l.placeRemovals(ctx, places)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range removals {
+		removed[item.folder] = true
 	}
 	before := map[MissingMention]bool{}
 	for _, m := range scan.missing(installed, nil) {

@@ -4,6 +4,7 @@
 import {
   GroupMemberOutcome,
   InstallPlanStatus,
+  type AgentCode,
   type GroupID,
   type GroupMemberResult,
   type InstallPlan,
@@ -19,9 +20,9 @@ import { describeError, occupiedReason } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
 import type { Attempt, LibraryError, Snapshot } from "@/lib/library";
 import { installable, missingNames } from "@/lib/mentions";
-import { errorOccupier, folderKey, folderPlaces, occupierOf, skillScopeIn } from "@/lib/installs";
+import { errorOccupier, folderKey, folderPlaces, occupierOf, skillScopeIn, placesAt } from "@/lib/installs";
 import { placeOf, scopeKey, skillName } from "@/lib/scope";
-import { agentNameIn, scopeLabel, sharedWithNote } from "@/lib/places";
+import { agentNameIn, eachPlace, scopeLabel, sharedWithNote } from "@/lib/places";
 import { shortPath } from "@/lib/paths";
 import { placedBy, type ResultRow } from "@/components/app/result-rows";
 
@@ -169,14 +170,22 @@ export function groupInstalled(results: GroupMemberResult[], blocked: InstallPla
 
 // ---------- 卸载 ----------
 
-// uninstallPlace 是从 scope 卸载一个技能会动到的:place 是这一处;shared 是全局共用目录里还读着它的别的 Agent(卸载会撤销它们的直接安装，
-// 文件夹随之删除;目录列表相同、合成一处的几个 Agent 在界面上本来就是一处，不算);deleted 是会删掉文件夹的各处：直接安装、没有组安装留着时才删。
-export function uninstallPlace(s: Snapshot, id: SkillID, scope: Scope) {
-  const place = skillScopeIn(s, id, scopeKey(scope));
+// uninstallPlace 是从 scope 卸载一个技能会动到的:place 是这一处(合成一处的几个 Agent 各自装在不同目录时是其中有直接安装的第一处);
+// direct 是要撤销直接安装的各处;shared 是其中还被别的 Agent 读着的(全局共用目录，卸载会撤销它们的直接安装，没有组安装留着时文件夹随之删除;
+// 目录列表相同、合成一处的几个 Agent 在界面上本来就是一处，不算),每一处带着读它的那几个 Agent,按各自的文件夹和组安装说明;
+// deleted 是会删掉文件夹的各处：直接安装、没有组安装留着时才删。
+// merged 时(作用域页一行的开关)卸载合成一处里各 Agent 各自装的每一处，不然关掉后又认到另一个 Agent 的那一份;
+// 不 merged 时(技能详情里按文件夹分开的一行)只卸载 scope 自己认的那一处。
+export function uninstallPlace(s: Snapshot, id: SkillID, scope: Scope, merged = false) {
+  const own = skillScopeIn(s, id, scopeKey(scope));
+  const places = merged ? placesAt(s, id, scopeKey(scope)) : own ? [own] : [];
+  const direct = places.filter((p) => p.direct);
+  const place = direct[0] ?? own ?? places[0];
   return {
     place,
-    shared: place ? sharedWithNote(s, place) : [],
-    deleted: place?.direct && !place.groups?.length ? folderPlaces(s, [place]) : [],
+    direct,
+    shared: direct.map((p) => ({ place: p, agents: sharedWithNote(s, p) })).filter((x) => x.agents.length > 0),
+    deleted: folderPlaces(s, direct.filter((p) => !p.groups?.length)),
   };
 }
 
@@ -198,7 +207,10 @@ export function asksBeforeUninstall(p: ReturnType<typeof uninstallPlace>, unfoun
 // deleted 是会删掉文件夹的各处(还有组安装留着的只撤直接安装，文件夹不删),folders 是其中的文件夹数;
 // shared 是会删掉的全局共用文件夹(还有组安装留着的不删，各 Agent 照样算已装,不说);skills 是要卸载的技能数。
 export function uninstallPicked(s: Snapshot, ids: SkillID[], scopes: Scope[]) {
-  const places = scopes.flatMap((sc) => ids.map((id) => skillScopeIn(s, id, scopeKey(sc))).filter((p): p is SkillScopeInspection => !!p));
+  const places = eachPlace(
+    s,
+    scopes.flatMap((sc) => ids.flatMap((id) => placesAt(s, id, scopeKey(sc)))),
+  );
   const direct = places.filter((p) => p.direct);
   const deleted = folderPlaces(s, direct.filter((p) => !p.groups?.length));
   return {
@@ -218,18 +230,24 @@ export function skippedPicked(s: Snapshot, picked: ReturnType<typeof uninstallPi
 }
 
 // uninstallGroupPlaces 是从 scope 卸载整组的组安装会删掉文件夹的成员(gone):只靠这个组安装留着的(没有直接安装，
-// 读这个文件夹的各个 Agent(含全局共用目录的)在同一处也没有别的组安装含它);shared 是其中全局共用的，共用的几个 Agent 都不再算已装。
+// 读这个文件夹的各个 Agent(含全局共用目录的)里在这里有自己安装记录的，在同一处也没有别的组安装含它);shared 是其中全局共用的，
+// 共用的几个 Agent 都不再算已装。只因共用目录才读到它的 Agent(shared_only)在这里没有记录，它的组安装留不住这个文件夹
+// (组安装时它因同名被跳过、之后才读到这个目录的就是这样),和技能库实际删的一致。
 // scopes 是这一次一起撤掉的组安装(合成一处里各 Agent 的那几条,见 groupInstallsIn),一个文件夹只算一次。
 export function uninstallGroupPlaces(s: Snapshot, groupID: GroupID, scope: Scope, scopes: Scope[] = [scope]) {
   const memberOf = (id: GroupID, skill: SkillID) => !!s.groups.find((g) => g.id === id)?.members?.includes(skill);
   const removing = scopes.map((sc) => sc.agent);
+  const owns = (code: AgentCode, p: SkillScopeInspection) =>
+    s.skillScopes.some(
+      (x) => x.skill_id === p.skill_id && x.scope.agent === code && placeOf(x.scope) === placeOf(p.scope) && x.folder === p.folder && !x.shared_only,
+    );
   const seen = new Set<string>();
   const gone = scopes
     .flatMap((sc) => (s.groups.find((g) => g.id === groupID)?.members ?? []).map((id) => skillScopeIn(s, id, scopeKey(sc))))
     .filter((p): p is SkillScopeInspection => !!p && !p.direct)
     .filter((p) => !seen.has(folderKey(p)) && !!seen.add(folderKey(p)))
     .filter((p) => {
-      const readers = [p.scope.agent, ...(p.shared_with ?? [])];
+      const readers = [p.scope.agent, ...(p.shared_with ?? [])].filter((code) => owns(code, p));
       const others = s.groupInstalls.filter(
         (g) =>
           readers.includes(g.scope.agent) &&

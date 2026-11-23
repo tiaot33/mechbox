@@ -34,7 +34,8 @@ import {
   detachedBy,
   linkWrites,
   copiesLeft,
-  discardedEdits,
+  agreedAfter,
+  deleteConsent,
   lostEdits,
   staleLinksOf,
   overwriteKey,
@@ -270,8 +271,14 @@ describe("重新安装", () => {
   it("文件夹不在了的选卸载：卸载这一处，不装回去", () => {
     const { targets } = reinstallTargets(inspected, false);
     const r = planReinstall(targets, false, { overwrite: new Set(), missing: new Map([[folderKey(missing), "uninstall"]]) });
-    expect(r.uninstalls).toEqual([missing]);
+    expect(r.uninstalls.map((x) => x.place)).toEqual([missing]);
     expect(r.requests.some((x) => x.skill_id === 2)).toBe(false);
+  });
+
+  it("文件夹不在了的选卸载：指向它的旧链接交给技能库一并删掉", () => {
+    const gone = { ...missing, stale_links: ["/home/.cursor/skills/s2"] };
+    const r = planReinstall([gone], false, { overwrite: new Set(), missing: new Map([[folderKey(gone), "uninstall"]]) });
+    expect(r.uninstalls).toEqual([{ place: gone, consent: { discard_edits: [], delete_links: ["/home/.cursor/skills/s2"] } }]);
   });
 
   it("只点了一处时，文件夹不在了也直接装回去，不再问", () => {
@@ -327,11 +334,16 @@ describe("删掉文件夹之前说明会丢的修改", () => {
     expect(lostEdits([a, b])).toEqual([a]);
   });
 
-  it("交给技能库放过的就是确认里说过修改会丢的那几个文件夹", () => {
+  it("交给技能库放过的就是确认里说过修改会丢的那几个文件夹，和会一并删掉的旧链接", () => {
     const edited = place(1, global(claude), SkillScopeStatus.SkillScopeModified);
-    const current = place(2, global(claude), SkillScopeStatus.SkillScopeCurrent);
+    const current = place(2, global(claude), SkillScopeStatus.SkillScopeCurrent, { stale_links: ["/home/.cursor/skills/s2"] });
     const shared = { ...place(1, global(codex), SkillScopeStatus.SkillScopeModified), folder: edited.folder };
-    expect(discardedEdits([edited, current, shared])).toEqual([edited.folder]);
+    expect(deleteConsent([edited, current, shared])).toEqual({ discard_edits: [edited.folder], delete_links: ["/home/.cursor/skills/s2"] });
+  });
+
+  it("确认之后才改过的文件夹、才出现的旧链接，再同意后加进交给技能库的", () => {
+    const consent = { discard_edits: ["/a"], delete_links: ["/l1"] };
+    expect(agreedAfter(consent, ["/b"], ["/l2"])).toEqual({ discard_edits: ["/a", "/b"], delete_links: ["/l1", "/l2"] });
   });
 });
 

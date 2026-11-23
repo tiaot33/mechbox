@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/process"
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
@@ -90,6 +91,30 @@ func (native) sameFolder(a, b string) (bool, bool) {
 		return false, false
 	}
 	return os.SameFile(aInfo, bInfo), true
+}
+
+func (native) foldsCase(path string) bool {
+	for current := filepath.Clean(path); ; current = filepath.Dir(current) {
+		base := filepath.Base(current)
+		if swapped := swapCase(base); swapped != base {
+			if info, err := os.Stat(current); err == nil {
+				other, err := os.Stat(filepath.Join(filepath.Dir(current), swapped))
+				return err == nil && os.SameFile(info, other)
+			}
+		}
+		if filepath.Dir(current) == current {
+			return false
+		}
+	}
+}
+
+func swapCase(name string) string {
+	return strings.Map(func(r rune) rune {
+		if upper := unicode.ToUpper(r); upper != r {
+			return upper
+		}
+		return unicode.ToLower(r)
+	}, name)
 }
 
 func (native) within(directories []string) func(string) bool {

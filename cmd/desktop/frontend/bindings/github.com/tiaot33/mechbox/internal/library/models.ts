@@ -127,13 +127,14 @@ export interface AgentInput {
     /**
      * GlobalDirectories 是全局技能目录,至少 1 个,第 1 个装新技能:每项是绝对路径,或以 ~/ 开头表示用户主目录下。
      * 必须在用户主目录里面(不能是主目录本身),按相对主目录的路径记录,同步到别的机器后对应到那台机器的主目录。
-     * 规范化后不能重复,也不能一项在另一项里面。目录不必已经存在,安装时创建。
+     * 规范化后不能重复,也不能一项在另一项里面;用户主目录所在的文件系统不区分大小写(macOS、Windows 默认)时,只差大小写的算同一个目录。
+     * 目录不必已经存在,安装时创建。
      */
     "global_directories": string[] | null;
 
     /**
      * ProjectDirectories 是项目里的技能目录,至少 1 个,第 1 个装新技能:每项是相对已登记项目根的路径,不能是绝对路径,
-     * 也不能是项目根本身或在项目外面。规范化后不能重复,也不能一项在另一项里面。
+     * 也不能是项目根本身或在项目外面。规范化后不能重复,也不能一项在另一项里面;只差大小写的按 GlobalDirectories 的规则算。
      */
     "project_directories": string[] | null;
 
@@ -595,6 +596,13 @@ export interface DeleteAgentOptions {
      * 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
      */
     "discard_edits"?: string[] | null;
+
+    /**
+     * DeleteLinks 是确认时告诉用户会随文件夹一并删掉的旧链接(SkillScopeInspection.StaleLinks)。动磁盘之前现找这次要一并删的旧链接:
+     * 有不在这里的(确认之后才出现的),整次返回 Conflict(Details.Links 为这几个链接),一个都不删;可以和 Details.Paths 同时出现。
+     * 不删文件夹时不核对。
+     */
+    "delete_links"?: string[] | null;
 }
 
 /**
@@ -623,6 +631,13 @@ export interface DeleteGroupOptions {
      * 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
      */
     "discard_edits"?: string[] | null;
+
+    /**
+     * DeleteLinks 是确认时告诉用户会随文件夹一并删掉的旧链接(SkillScopeInspection.StaleLinks)。动磁盘之前现找这次要一并删的旧链接:
+     * 有不在这里的(确认之后才出现的),整次返回 Conflict(Details.Links 为这几个链接),一个都不删;可以和 Details.Paths 同时出现。
+     * 不删文件夹时不核对。
+     */
+    "delete_links"?: string[] | null;
 }
 
 /**
@@ -697,8 +712,10 @@ export enum ErrorCode {
     /**
      * Conflict 计划到执行之间状态已变(拉回时选中的备份在列出之后被删掉或改写;更新计划生成后勾选的技能在来源里又变了、或在库里被改过;
      * 检查更新、跳过、更新期间整个库被同步拉回替换;单独重试时技能在那次更新之后又换了版本;
-     * 卸载、移除技能这类会删技能文件夹的操作里,要删的文件夹被改过、却不在选项的 DiscardEdits 里,即确认时没告诉用户,一个都不删)。
-     * 可重新列出备份、生成同步计划 / 重新发起后再执行;删文件夹时按 Details.Paths 告诉用户这几处的修改会丢掉,同意后把它们加进 DiscardEdits 再调用。
+     * 卸载、移除技能这类会删技能文件夹的操作里,要删的文件夹被改过、却不在选项的 DiscardEdits 里,或要一并删的旧链接不在选项的 DeleteLinks 里,
+     * 即确认时没告诉用户,一个都不删)。
+     * 可重新列出备份、生成同步计划 / 重新发起后再执行;删文件夹时按 Details.Paths 告诉用户这几处的修改会丢掉、按 Details.Links 告诉用户
+     * 这几个旧链接也会删掉,同意后把它们分别加进 DiscardEdits、DeleteLinks 再调用。
      */
     Conflict = "conflict",
 
@@ -793,6 +810,11 @@ export interface ErrorDetails {
      * Conflict:要删的技能文件夹里被改过、却不在 DiscardEdits 里的那几个(SkillScope.Folder)
      */
     "paths"?: string[] | null;
+
+    /**
+     * Conflict:要随文件夹一并删的旧链接里不在 DeleteLinks 里的那几个(确认之后才出现的)
+     */
+    "links"?: string[] | null;
 }
 
 /**
@@ -1729,6 +1751,13 @@ export interface RemoveFromGroupOptions {
      * 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
      */
     "discard_edits"?: string[] | null;
+
+    /**
+     * DeleteLinks 是确认时告诉用户会随文件夹一并删掉的旧链接(SkillScopeInspection.StaleLinks)。动磁盘之前现找这次要一并删的旧链接:
+     * 有不在这里的(确认之后才出现的),整次返回 Conflict(Details.Links 为这几个链接),一个都不删;可以和 Details.Paths 同时出现。
+     * 不删文件夹时不核对。
+     */
+    "delete_links"?: string[] | null;
 }
 
 /**
@@ -1746,15 +1775,24 @@ export interface RemoveSkillOptions {
      * 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
      */
     "discard_edits"?: string[] | null;
+
+    /**
+     * DeleteLinks 是确认时告诉用户会随文件夹一并删掉的旧链接(SkillScopeInspection.StaleLinks)。动磁盘之前现找这次要一并删的旧链接:
+     * 有不在这里的(确认之后才出现的),整次返回 Conflict(Details.Links 为这几个链接),一个都不删;可以和 Details.Paths 同时出现。
+     * 不删文件夹时不核对。
+     */
+    "delete_links"?: string[] | null;
 }
 
 /**
  * ResetAgentsOptions 是 ResetAgents 的选项,只管 ResetAgentsPlan.Removable 里的文件夹,含义同 DeleteAgentOptions:
- * Folders 默认(零值或 Remove)删除,显式 Keep 保留;DiscardEdits 是确认时告诉用户被改过、修改会丢掉的文件夹。
+ * Folders 默认(零值或 Remove)删除,显式 Keep 保留;DiscardEdits 是确认时告诉用户被改过、修改会丢掉的文件夹,
+ * DeleteLinks 是确认时告诉用户会一并删掉的旧链接。
  */
 export interface ResetAgentsOptions {
     "folders": FolderPolicy;
     "discard_edits"?: string[] | null;
+    "delete_links"?: string[] | null;
 }
 
 /**
@@ -2811,6 +2849,13 @@ export interface UninstallOptions {
      * 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
      */
     "discard_edits"?: string[] | null;
+
+    /**
+     * DeleteLinks 是确认时告诉用户会随文件夹一并删掉的旧链接(SkillScopeInspection.StaleLinks)。动磁盘之前现找这次要一并删的旧链接:
+     * 有不在这里的(确认之后才出现的),整次返回 Conflict(Details.Links 为这几个链接),一个都不删;可以和 Details.Paths 同时出现。
+     * 不删文件夹时不核对。
+     */
+    "delete_links"?: string[] | null;
 }
 
 /**
@@ -2947,6 +2992,13 @@ export interface UnregisterProjectOptions {
      * 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
      */
     "discard_edits"?: string[] | null;
+
+    /**
+     * DeleteLinks 是确认时告诉用户会随文件夹一并删掉的旧链接(SkillScopeInspection.StaleLinks)。动磁盘之前现找这次要一并删的旧链接:
+     * 有不在这里的(确认之后才出现的),整次返回 Conflict(Details.Links 为这几个链接),一个都不删;可以和 Details.Paths 同时出现。
+     * 不删文件夹时不核对。
+     */
+    "delete_links"?: string[] | null;
 }
 
 /**

@@ -24,6 +24,10 @@ type UninstallOptions struct {
 	// 有被改过的(SkillScopeModified,不算 SkillScopeInspection.SourceLatest,也不算是符号链接的那一处,删的只是链接)却不在这里,
 	// 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
 	DiscardEdits []string `json:"discard_edits,omitempty"`
+	// DeleteLinks 是确认时告诉用户会随文件夹一并删掉的旧链接(SkillScopeInspection.StaleLinks)。动磁盘之前现找这次要一并删的旧链接:
+	// 有不在这里的(确认之后才出现的),整次返回 Conflict(Details.Links 为这几个链接),一个都不删;可以和 Details.Paths 同时出现。
+	// 不删文件夹时不核对。
+	DeleteLinks []string `json:"delete_links,omitempty"`
 }
 
 // InstallPlanStatus 是安装前,一个技能在所选作用域的情况。和执行时的判定一致,与是否同意覆盖无关。
@@ -265,7 +269,7 @@ func (l *Library) Install(ctx context.Context, id SkillID, scope Scope, opts Ins
 // 文件夹随之删除,它们都不再算已装;只有组安装还留着其中某一处时文件夹才留下。删掉文件夹时,认这一处的 Agent
 // 在自己别的技能目录里指向它、又没有安装记录的同名符号链接一并删掉(SkillScopeInspection.StaleLinks)。
 // 删之前核对文件夹有没有被改过:确认框按界面上已有的巡检结果说明哪几处的修改会丢掉,把它们放进 opts.DiscardEdits;
-// 确认之后才被改过的,返回 Conflict,不删(见 UninstallOptions)。
+// 确认之后才被改过的,返回 Conflict,不删(见 UninstallOptions);一并删掉的旧链接同样要列在 opts.DeleteLinks 里。
 // 要删的文件夹(或链接)被这个技能装出去的其他地方用符号链接指着时(SkillScopeInspection.LinkedBy),先给那几处换上
 // 独立的一份(它们当时读到的内容),它们照常装着,再删;确认前据此说明。
 func (l *Library) Uninstall(ctx context.Context, id SkillID, scope Scope, opts UninstallOptions) (err error) {
@@ -336,7 +340,7 @@ func (l *Library) uninstall(ctx context.Context, operation string, places []Skil
 				removals = append(removals, place.removals(links[i])...)
 			}
 		}
-		return l.removeFolders(ctx, tx, &change, operation, removals, opts.DiscardEdits)
+		return l.removeFolders(ctx, tx, &change, operation, removals, confirmed{edits: opts.DiscardEdits, links: opts.DeleteLinks})
 	})
 }
 
@@ -472,40 +476,74 @@ func (l *Library) InstallGroup(ctx context.Context, groupID GroupID, scope Scope
 
 // UninstallGroup 撤销该组在 scope 的组安装;不再有直接安装或别的组安装留着的成员随之卸载,失败时磁盘和库都保持原样。
 // 共用目录的另一个 Agent 还装着某个成员时,它的文件夹留着;删掉文件夹时旧链接的处理同 Uninstall。
-// 该组没有组安装到这里返回 NotFound。和 Uninstall 一样删之前核对文件夹有没有被改过(见 UninstallOptions)。
+// 该组没有组安装到这里返回 NotFound。和 Uninstall 一样删之前核对文件夹有没有被改过、一并删的旧链接有没有列出(见 UninstallOptions)。
 func (l *Library) UninstallGroup(ctx context.Context, groupID GroupID, scope Scope, opts UninstallOptions) (err error) {
+	defer func() { err = typedError(err) }()
+	return l.uninstallGroup(ctx, "uninstall group", groupID, []Scope{scope}, opts)
+}
+
+// UninstallGroupFrom 一次撤销该组在几个作用域的组安装(界面上合成一处的几个 Agent 各有这个组的组安装时):每个作用域的规则与
+// UninstallGroup 相同,整批一次提交,全成或全不成;有一个作用域没有这个组的组安装,或要删的文件夹、旧链接里有确认之后才变的,
+// 整次返回与 UninstallGroup 相同的错误,一个都不撤。同一个作用域列了几次只撤一次。空列表什么都不做。
+func (l *Library) UninstallGroupFrom(ctx context.Context, groupID GroupID, scopes []Scope, opts UninstallOptions) (err error) {
+	defer func() { err = typedError(err) }()
+	return l.uninstallGroup(ctx, "uninstall group", groupID, scopes, opts)
+}
+
+func (l *Library) uninstallGroup(ctx context.Context, operation string, groupID GroupID, scopes []Scope, opts UninstallOptions) (err error) {
 	ctx, unlock := l.exclusiveOperation(ctx)
 	defer unlock()
-	defer func() { err = typedError(err) }()
-	target, err := l.resolveScope(ctx, "uninstall group", scope)
-	if err != nil {
-		return err
+	if len(scopes) == 0 {
+		return nil
+	}
+	targets := make([]resolvedScope, len(scopes))
+	for i, scope := range scopes {
+		if targets[i], err = l.resolveScope(ctx, operation, scope); err != nil {
+			return err
+		}
 	}
 	if err := l.requireGroup(ctx, groupID); err != nil {
 		return err
 	}
-	groupInstallID, err := l.store.FindGroupInstall(ctx, int64(groupID), target.Scope)
-	if errors.Is(err, store.ErrNotFound) {
-		return &Error{Code: NotFound, Message: "uninstall group: group is not installed in scope"}
+	type pending struct {
+		groupInstallID int64
+		released       []releasedMemberScope
 	}
-	if err != nil {
-		return err
-	}
-	released, err := l.releasedMemberScopes(ctx, int64(groupID), 0, new(target.Scope))
-	if err != nil {
-		return err
+	var all []pending
+	seen := map[Scope]bool{}
+	for _, target := range targets {
+		if seen[target.scope()] {
+			continue
+		}
+		seen[target.scope()] = true
+		groupInstallID, err := l.store.FindGroupInstall(ctx, int64(groupID), target.Scope)
+		if errors.Is(err, store.ErrNotFound) {
+			return &Error{Code: NotFound, Message: operation + ": group is not installed in scope"}
+		}
+		if err != nil {
+			return err
+		}
+		released, err := l.releasedMemberScopes(ctx, int64(groupID), 0, new(target.Scope))
+		if err != nil {
+			return err
+		}
+		all = append(all, pending{groupInstallID: groupInstallID, released: released})
 	}
 	var change agentdir.Change
 	defer func() { err = errors.Join(err, change.Rollback()) }()
 	return l.applyChange(ctx, &change, func(tx *store.Tx) error {
-		if err := tx.RemoveGroupInstall(ctx, groupInstallID); err != nil {
-			return err
+		var removals []removal
+		for _, each := range all {
+			if err := tx.RemoveGroupInstall(ctx, each.groupInstallID); err != nil {
+				return err
+			}
+			released, err := releaseMemberScopes(ctx, tx, each.released, UninstallMember)
+			if err != nil {
+				return err
+			}
+			removals = append(removals, released...)
 		}
-		removals, err := releaseMemberScopes(ctx, tx, released, UninstallMember)
-		if err != nil {
-			return err
-		}
-		return l.removeFolders(ctx, tx, &change, "uninstall group", removals, opts.DiscardEdits)
+		return l.removeFolders(ctx, tx, &change, operation, removals, confirmed{edits: opts.DiscardEdits, links: opts.DeleteLinks})
 	})
 }
 

@@ -92,7 +92,7 @@ export function SkillRow(props: {
   const at: RowAt | undefined = scope ? { scope, fromGlobal: props.fromGlobal } : undefined;
   // 这里装着的那一处、和它一模一样但不是库装的那一份、最后一列说的那一处(来自全局的是全局那一处)。
   const install = rowInstall(s, skill, at);
-  const { here, identical, place, via, foreign } = install;
+  const { here, direct, identical, place, via, foreign } = install;
   // 这一份不是库装的、同一层的别处有同名不同内容的：和「不在技能库里」的行一样说出来。
   const elsewhere = useSameNameCopies(identical ? scope : undefined).copies.get(identical?.folder ?? "");
   const groups = foreign ? [] : s.groups.filter((g) => g.members?.includes(skill.id) && g.id !== props.hideGroup);
@@ -120,9 +120,9 @@ export function SkillRow(props: {
   const toggle = () => {
     if (!scope) return;
     const sc = parseScope(scope);
-    // 只随组安装的：开关不改安装，说明随哪个组装、怎样在这里不用它。
-    if (here && !here.direct) return ui.toast(t.list.groupOnly(skill.name, via));
-    void (here ? uninstallSkill(skill.id, sc) : installSkill(skill.id, sc));
+    // 只随组安装的：开关不改安装，说明随哪个组装、怎样在这里不用它。合成一处的几个 Agent 各自装在不同目录时，关掉卸载其中每一处的直接安装。
+    if (here && !direct) return ui.toast(t.list.groupOnly(skill.name, via));
+    void (here ? uninstallSkill(skill.id, sc, true) : installSkill(skill.id, sc));
   };
 
   const layout = layouts[scope ? "scope" : "library"];
@@ -162,9 +162,9 @@ export function SkillRow(props: {
           ) : (
             <Switch
               checked={!!here}
-              tone={here && !here.direct ? "group" : undefined}
+              tone={here && !direct ? "group" : undefined}
               onCheckedChange={toggle}
-              title={!here ? t.list.installDirect : here.direct ? t.list.uninstallDirect : t.list.groupOnly(skill.name, via)}
+              title={!here ? t.list.installDirect : direct ? t.list.uninstallDirect : t.list.groupOnly(skill.name, via)}
             />
           )}
         </span>

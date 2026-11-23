@@ -26,6 +26,7 @@ type fileSystem interface {
 	readFile(path string) ([]byte, error)
 	sameEntry(a, b string) (same, known bool)
 	sameFolder(a, b string) (same, known bool)
+	foldsCase(path string) bool
 	within(directories []string) func(resolved string) bool
 	canonicalAll(paths []string) []string
 	modes() bool

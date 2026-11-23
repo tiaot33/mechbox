@@ -9,7 +9,7 @@ import {
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import { toggled } from "@/lib/utils";
-import { overwriteKey, placeKey, planReinstall, reinstallsNothing, reinstallTargets, type MissingChoice, type ReinstallChoices } from "@/lib/consent";
+import { overwriteKey, placeKey, planReinstall, reinstallsNothing, reinstallTargets, staleLinksOf, type MissingChoice, type ReinstallChoices } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, useSnapshot } from "@/lib/library";
 import { agentName, groupName, skillName } from "@/lib/scope";
@@ -28,13 +28,15 @@ import { confirmLinkWrites } from "@/components/app/link-notes";
 // reinstall 把 filter 范围内不是当前版本的各处换成当前版本。先现查状态：快照可能已落后于磁盘，
 // 而重新安装只换列出的几处。被改过的几处逐处让用户勾选是否覆盖，没勾选的保持原样。
 // 文件夹不在了的几处可能是用户有意删掉的：只点了这一处时直接装回去;批量时逐处让用户选不动、装回去还是卸载，默认不动。
-// what 是重新安装的是什么：技能名(经 reinstallSkill 加上引号)或作用域。
-export async function reinstall(filter: SkillScopeFilter, what: string) {
+// what 是重新安装的是什么：技能名(经 reinstallSkill 加上引号)或作用域。filter 给几个时(合成一处的几个 Agent 各自的作用域)合起来看，
+// 共用一个文件夹的几处只算一处。
+export async function reinstall(filter: SkillScopeFilter | SkillScopeFilter[], what: string) {
   const s = currentSnapshot();
   const t = messages().actions;
-  const inspected = await ui.read(() => LibraryService.InspectSkillScopes(filter));
+  const filters = Array.isArray(filter) ? filter : [filter];
+  const inspected = await ui.read(async () => eachPlace(s, (await Promise.all(filters.map((f) => LibraryService.InspectSkillScopes(f)))).flatMap((x) => x ?? [])));
   if (inspected === undefined) return;
-  const single = !!filter.skill_id && !!filter.scope;
+  const single = filters.length === 1 && !!filters[0].skill_id && !!filters[0].scope;
   const { targets, modified, missing } = reinstallTargets(inspected ?? [], single);
   if (!targets.length) {
     // 项目不在这台机器上的几处没核对过，不说成「都是当前版本」。
@@ -61,8 +63,8 @@ export async function reinstall(filter: SkillScopeFilter, what: string) {
   if (requests.length && !(await confirmLinkWrites(inspected ?? [], written, t.reinstallTitle(what), t.reinstall, explained))) return;
   const done = await ui.run(async () => {
     const results = requests.length ? ((await LibraryService.Reinstall(requests)) ?? []) : [];
-    const removed = await eachCall(uninstalls, (p) => LibraryService.Uninstall(p.skill_id, p.scope, {}));
-    const rows = failedAttemptRows(removed, (i) => `${skillName(s, uninstalls[i].skill_id)} · ${scopeLabel(s, uninstalls[i].scope)}`, t.notUninstalled);
+    const removed = await eachCall(uninstalls, ({ place: p, consent }) => LibraryService.Uninstall(p.skill_id, p.scope, consent));
+    const rows = failedAttemptRows(removed, (i) => `${skillName(s, uninstalls[i].place.skill_id)} · ${scopeLabel(s, uninstalls[i].place.scope)}`, t.notUninstalled);
     return { results, rows, uninstalled: removed.length - rows.length };
   }, { failed: (d) => d.rows.length > 0 || d.results.some((r) => r.outcome === ReinstallOutcome.ReinstallFailed) });
   if (!done) return;
@@ -143,6 +145,11 @@ function ReinstallDialog({
                     )}
                     {groups.length > 0 && (
                       <div className="text-caption text-muted-foreground">{t.actions.missingGrouped(groups.map((g) => groupName(s, g)))}</div>
+                    )}
+                    {!groups.length && staleLinksOf(places).length > 0 && (
+                      <div className="missing-stale-links text-caption text-muted-foreground">
+                        {t.actions.missingStaleLinks(staleLinksOf(places).map((link) => shortPath(s, link)))}
+                      </div>
                     )}
                   </div>
                   <Segmented
