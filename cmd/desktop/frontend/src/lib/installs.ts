@@ -1,11 +1,11 @@
 // 安装状态：技能装在哪几处、每一处和库里的当前版本一不一样、要不要重新安装，都从快照里的巡检结果派生。
 // 逐处列出、数几处、写名字时目录列表相同、合成一处的几个 Agent 算一处，见 lib/places。
-import { ErrorCode, SkillScopeStatus, type Group, type Scope, type SkillID, type SkillScopeInspection } from "@bindings/internal/library";
+import { ErrorCode, SkillScopeStatus, type Agent, type Group, type Scope, type SkillID, type SkillScopeInspection } from "@bindings/internal/library";
 import { messages } from "./i18n";
 import { worstLevel, type Level, type Mark, type Tone } from "./level";
 import type { Snapshot } from "./library";
 import { shortPath } from "./paths";
-import { eachPlace, mergedAgents, placeNames, scopeLabel } from "./places";
+import { agentShown, eachPlace, mergedAgents, placeAgentNames, placeNames, scopeLabel } from "./places";
 import { parseScope, placeOf, projectName, scopeKey, type ScopeKey } from "./scope";
 
 // ---------- 装在哪 ----------
@@ -33,10 +33,16 @@ export function folderPlaces(s: Snapshot, places: SkillScopeInspection[]): Skill
 
 // groupInstallIn 是组在某个作用域的组安装落在哪个作用域上：合成一处的几个 Agent 里任何一个有这个组的组安装都算(代表换了也不变),
 // 卸载组安装要落在有记录的那个上;没有时为 undefined。
-export function groupInstallIn(s: Snapshot, group: Group, key: ScopeKey): Scope | undefined {
+export function groupInstallIn(s: Snapshot, group: Pick<Group, "id">, key: ScopeKey): Scope | undefined {
+  return groupInstallsIn(s, group, key)[0];
+}
+
+// groupInstallsIn 是合成一处里各 Agent 这个组的全部组安装(编辑目录让两个各有组安装的 Agent 合成一处时会有几条);
+// 关掉这一处的组安装要把它们都撤掉，不然开关仍是开。
+export function groupInstallsIn(s: Snapshot, group: Pick<Group, "id">, key: ScopeKey): Scope[] {
   const scope = parseScope(key);
   const agents = mergedAgents(s, scope.agent, placeOf(scope));
-  return s.groupInstalls.find((a) => a.group_id === group.id && placeOf(a.scope) === placeOf(scope) && agents.includes(a.scope.agent))?.scope;
+  return s.groupInstalls.filter((a) => a.group_id === group.id && placeOf(a.scope) === placeOf(scope) && agents.includes(a.scope.agent)).map((a) => a.scope);
 }
 
 // groupStateIn 是组在某个作用域的组安装状态：组安装是独立记录(空组也可以有),有记录即为 on(见 groupInstallIn)。
@@ -61,11 +67,13 @@ export function installedWhere(s: Snapshot, skillID: number): InstalledWhere {
 // 项目只有一个时写项目名，多个时写个数。没装在任何地方时 text 为空。title 逐处列出;bad 表示有地方真要重新安装(needsRepair)。
 export function installedSummary(s: Snapshot, skillID: SkillID): { text: string; title: string; bad: boolean } {
   const m = messages().model;
-  const places = skillScopesOf(s, skillID);
-  const globals = s.agents.filter((a) => places.some((p) => !placeOf(p.scope) && p.scope.agent === a.code));
+  // 只因共用目录被动算出已装、又被关掉显示的 Agent 不写;合成一处的几个 Agent 写一次(名字按 placeNames 的规则)。
+  const places = skillScopesOf(s, skillID).filter((p) => !p.shared_only || agentShown(s.agentsShown, s.agents.find((a) => a.code === p.scope.agent) ?? ({ code: p.scope.agent } as Agent)));
+  const order = (p: SkillScopeInspection) => s.agents.findIndex((a) => a.code === p.scope.agent);
+  const globals = eachPlace(s, places.filter((p) => !placeOf(p.scope)).sort((a, b) => order(a) - order(b))).map((p) => placeAgentNames(s, p));
   const projects = [...new Set(places.map((p) => placeOf(p.scope)).filter(Boolean))];
   const text = [
-    !globals.length ? "" : m.agentsGlobal(globals.map((a) => a.name)),
+    !globals.length ? "" : m.agentsGlobal(globals),
     !projects.length ? "" : projects.length === 1 ? projectName(s, projects[0]) : m.projectCount(projects.length),
   ]
     .filter(Boolean)

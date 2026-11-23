@@ -6,7 +6,7 @@ import { unmanagedSourceError } from "@/lib/errors";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, type LibraryError } from "@/lib/library";
 import { foundSource, useFoundSources } from "@/lib/found-sources";
-import { outsideLinkNote } from "@/lib/unmanaged";
+import { handOverNote, outsideLinkNote } from "@/lib/unmanaged";
 import { sameNameFetchNote, sameNameInLibrary, twinNote } from "@/lib/same-name";
 import { scopeKey } from "@/lib/scope";
 import { placeNames, scopeLabel } from "@/lib/places";
@@ -43,7 +43,7 @@ export async function fetchUnmanaged(skill: UnmanagedSkill) {
   // 别的作用域里是同一个文件夹(这里链过去，或那里链过来，见 UnmanagedSkill.same_folder)的，库一起记为装在那里：确认时说出来。
   const companions = placeNames(s, skill.same_folder ?? []);
   const r = await ui.open<FetchUnmanagedResult>((close) => (
-    <FetchUnmanagedDialog place={place} skill={skill} twins={twins} same={same} outside={outside} companions={companions} close={close} />
+    <FetchUnmanagedDialog handOver={handOverNote(s, skill, place)} skill={skill} twins={twins} same={same} outside={outside} companions={companions} close={close} />
   ));
   if (!r) return;
   // 一句话说清它已在技能库里(提示要一眼读完),给下一步"装到别处…";它那一行换成库里技能的一行，闪一下。
@@ -58,7 +58,7 @@ export async function fetchUnmanaged(skill: UnmanagedSkill) {
 
 // FetchUnmanagedDialog 是入库确认：来源链接可改可清空;读来源失败时留在框里说明原因，用户可以重试、改链接或清空后入库。
 function FetchUnmanagedDialog({
-  place,
+  handOver,
   skill,
   twins,
   same,
@@ -66,7 +66,7 @@ function FetchUnmanagedDialog({
   companions,
   close,
 }: {
-  place: string;
+  handOver: string; // 开头那句：交给 app 管，文件夹原样不动(写出是哪个文件夹)
   skill: UnmanagedSkill;
   twins: string[];
   same?: string; // 和库里某个技能一模一样时的说明：不问来源
@@ -111,7 +111,7 @@ function FetchUnmanagedDialog({
         </>
       }
     >
-      <Hint>{t.actions.fetchHandOver(place)}</Hint>
+      <Hint className="unmanaged-hand-over">{handOver}</Hint>
       {same && <Hint className="unmanaged-same-as">{same}</Hint>}
       {companions.length > 0 && <Hint className="unmanaged-same-folder">{t.actions.fetchSameFolder(companions)}</Hint>}
       <Hint>{t.actions.fetchCliCost}</Hint>

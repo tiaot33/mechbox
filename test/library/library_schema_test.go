@@ -13,8 +13,6 @@ import (
 	"github.com/tiaot33/mechbox/internal/library"
 )
 
-// 内置 Agent 的名称和目录以应用版本为准:库里的行缺了或被改过,重开后都恢复为应用内置的值;
-
 // 打开数据库时只插入应用收录的、表里还没有的 Agent,放进候选池;表里已有的行(包括用户改过名称和目录的)从不改写,
 // 装在那里的技能照旧按改过的目录算。
 func TestOpenInsertsMissingAgentsButNeverRewritesExistingOnes(t *testing.T) {

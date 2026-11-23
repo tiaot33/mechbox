@@ -1,19 +1,22 @@
 // Agent:从候选池添加、手填添加、编辑(去掉的目录里装着技能时可选把它们搬到新的第 1 个目录)、移除(回到候选池)。
 import { LibraryService } from "@bindings/cmd/desktop";
-import { FolderPolicy, MigrationOutcome, type Agent, type AgentInput } from "@bindings/internal/library";
+import { FolderPolicy, type Agent, type AgentInput } from "@bindings/internal/library";
 import { detachedBy, discardedEdits, lostEdits } from "@/lib/consent";
-import { messages } from "@/lib/i18n";
-import { currentSnapshot, type LibraryError } from "@/lib/library";
+import { messages, useT } from "@/lib/i18n";
+import { currentSnapshot, useSnapshot, type LibraryError } from "@/lib/library";
 import { folderPlaces } from "@/lib/installs";
-import { projectName, skillName } from "@/lib/scope";
-import { shortPath } from "@/lib/paths";
+import { scopeLabel } from "@/lib/places";
+import { nativePath, shortPath, wslTitle } from "@/lib/paths";
+import { skillName } from "@/lib/scope";
 import { ui } from "@/lib/ui";
 import { Hint } from "@/components/ui/field";
 import { Notice } from "@/components/ui/notice";
+import { ListBox, ListRow } from "@/components/ui/list";
+import { AgentMark } from "@/components/app/parts";
 import { DetachNotice, SharedFolders, StaleNotes } from "@/components/app/link-notes";
 import { runDiscardingEdits } from "@/components/app/discard-edits";
 import { showResults } from "@/components/app/results";
-import { agentDelete, agentEdit } from "./agents-rules";
+import { agentDelete, agentEdit, agentReset, migrationReport, type AgentChange } from "./agents-rules";
 
 // addAgentsFromPool 一次添加候选池里勾选的几个 Agent。
 export async function addAgentsFromPool(agents: Agent[]): Promise<boolean> {
@@ -46,12 +49,8 @@ export async function editAgent(agent: Agent, input: AgentInput, onInvalid: (err
       body: (
         <>
           <Hint>{t.editAgentHint(affected.length, groupInstalls)}</Hint>
-          {shared.length > 0 && (
-            <>
-              <Notice>{t.editAgentShared(shared.length)}</Notice>
-              <SharedFolders places={shared} />
-            </>
-          )}
+          {shared.length > 0 && <Notice>{t.editAgentShared(shared.length)}</Notice>}
+          {affected.length > 0 && <SharedFolders places={affected} />}
           <DetachNotice items={detached} when="move" prefix={t.ifMigrate} />
         </>
       ),
@@ -67,21 +66,11 @@ export async function editAgent(agent: Agent, input: AgentInput, onInvalid: (err
   const result = await ui.run(() => LibraryService.EditAgent(agent.code, input, { migrate }), { onError: onInvalid });
   if (!result) return false;
   const name = result.agent.name;
-  const migrations = result.migrations ?? [];
-  const skipped = migrations.filter((m) => m.outcome === MigrationOutcome.MigrationSkipped);
-  if (skipped.length) {
-    await showResults(
-      t.agentSaved(name),
-      skipped.map((m) => ({
-        label: `${skillName(s, m.skill_id)} · ${m.scope.project_id ? projectName(s, m.scope.project_id) : messages().model.global}`,
-        outcome: t.notMigrated,
-        tone: "warn" as const,
-        reason: t.notMigratedReason(shortPath(s, m.to), shortPath(s, m.from)),
-      })),
-      t.migratedPartly(migrations.length - skipped.length, skipped.length),
-    );
+  const report = migrationReport(s, result.migrations ?? []);
+  if (report.listed) {
+    await showResults(t.agentSaved(name), report.rows, t.migratedPartly(report.migrated, report.skipped));
   } else {
-    ui.toast(migrations.length ? t.agentSavedMigrated(name, migrations.length) : t.agentSaved(name));
+    ui.toast(report.migrated ? t.agentSavedMigrated(name, report.migrated) : t.agentSaved(name));
   }
   return true;
 }
@@ -126,4 +115,131 @@ export async function removeAgent(agent: Agent) {
   await runDiscardingEdits(discardedEdits(own), (discard) => LibraryService.DeleteAgent(agent.code, { folders: policy, discard_edits: discard }), {
     success: t.agentRemoved(agent.name),
   });
+}
+
+// resetAgents 是设置页 Agent 分区的「恢复默认」:先说清会改哪些 Agent、移除哪些手填的 Agent、哪些技能要迁移、哪些文件夹删除或保留，
+// 用户确认后才动磁盘和数据库(技能库的 ResetAgents)。手填 Agent 只有它读的文件夹和移除 Agent 一样让用户选，默认保留;
+// 迁移之后没迁移成的列出来。已经和内置的默认一样时只提示。
+export async function resetAgents() {
+  const s = currentSnapshot();
+  const t = messages().agents;
+  const a = messages().actions;
+  const read = await ui.read(() => LibraryService.PlanResetAgents());
+  if (!read) return;
+  const plan = agentReset(s, read);
+  if (plan.nothing) {
+    ui.toast(t.resetNothing);
+    return;
+  }
+  const choice = await ui.confirm({
+    title: t.resetTitle,
+    body: <ResetBody plan={plan} />,
+    choices: plan.own.length
+      ? [
+          { value: FolderPolicy.Keep, label: a.keepInstalled, desc: t.resetKeepDesc },
+          { value: FolderPolicy.Remove, label: a.removeInstalled, desc: a.removeFolders(plan.own.length, lostEdits(plan.own).length) },
+        ]
+      : undefined,
+    confirm: t.resetAgents,
+    danger: plan.removed.length > 0,
+  });
+  if (!choice) return;
+  const policy = choice === FolderPolicy.Remove ? FolderPolicy.Remove : FolderPolicy.Keep;
+  const result = await runDiscardingEdits(discardedEdits(plan.own), (discard) => LibraryService.ResetAgents({ folders: policy, discard_edits: discard }));
+  if (!result) return;
+  const done = t.resetDone((result.reset ?? []).length, (result.removed ?? []).length);
+  const report = migrationReport(currentSnapshot(), result.migrations ?? []);
+  if (report.listed) await showResults(done, report.rows, a.migratedPartly(report.migrated, report.skipped));
+  else ui.toast(done);
+}
+
+type ResetPlan = ReturnType<typeof agentReset>;
+
+function ResetBody({ plan }: { plan: ResetPlan }) {
+  const s = useSnapshot();
+  const t = useT().agents;
+  const a = useT().actions;
+  const dirs = (list: string[] | null | undefined, project: boolean) => (list ?? []).map((d) => (project ? nativePath(d) : shortPath(s, d))).join("、");
+  const field = (c: AgentChange, f: AgentChange["fields"][number]) =>
+    f === "name" ? t.resetField(f, c.agent.name, c.defaults.name) : t.resetField(f, dirs(c.agent[f], f === "project_directories"), dirs(c.defaults[f], f === "project_directories"));
+  const heading = (text: string) => <div className="mt-1 text-body font-semibold">{text}</div>;
+  return (
+    <>
+      <Hint>{t.resetLead}</Hint>
+      {plan.changed.length > 0 && (
+        <>
+          {heading(t.resetChanged(plan.changed.length))}
+          <ListBox className="reset-changed">
+            {plan.changed.map((c) => (
+              <ListRow key={c.agent.code} className="items-start">
+                <AgentMark name={c.agent.name} />
+                <div className="min-w-0 grow">
+                  <div>{c.agent.name}</div>
+                  {c.fields.map((f) => (
+                    <div key={f} className="font-mono text-caption break-all text-muted-foreground">
+                      {field(c, f)}
+                    </div>
+                  ))}
+                </div>
+              </ListRow>
+            ))}
+          </ListBox>
+        </>
+      )}
+      {plan.changedPooled.length > 0 && <Hint>{t.resetChangedPooled(plan.changedPooled.map((agent) => agent.name))}</Hint>}
+      {plan.removed.length > 0 && (
+        <>
+          {heading(t.resetRemoved(plan.removed.length))}
+          <ListBox className="reset-removed">
+            {plan.removed.map((agent) => (
+              <ListRow key={agent.code}>
+                <AgentMark name={agent.name} />
+                <div className="min-w-0 grow">
+                  <div>{agent.name}</div>
+                  <div className="truncate font-mono text-caption text-muted-foreground">{dirs(agent.global_directories, false)}</div>
+                </div>
+              </ListRow>
+            ))}
+          </ListBox>
+        </>
+      )}
+      {plan.removedPooled.length > 0 && <Hint>{t.resetRemovedPooled(plan.removedPooled.map((x) => x.name))}</Hint>}
+      {plan.migrations.length > 0 && (
+        <>
+          {heading(t.resetMigrations(plan.migrations.length))}
+          <ListBox className="reset-migrations">
+            {plan.migrations.map(({ place, to }) => (
+              <ListRow key={`${place.skill_id}:${place.scope.agent}:${place.scope.project_id ?? 0}`}>
+                <div className="min-w-0 grow">
+                  <div>
+                    {skillName(s, place.skill_id)} · {scopeLabel(s, place.scope)}
+                  </div>
+                  <div className="truncate font-mono text-caption text-muted-foreground" title={wslTitle(place.folder)}>
+                    {t.resetMigrateTo(shortPath(s, place.folder), shortPath(s, to))}
+                  </div>
+                </div>
+              </ListRow>
+            ))}
+          </ListBox>
+          <DetachNotice items={plan.detached} when="move" />
+        </>
+      )}
+      {plan.kept.length > 0 && (
+        <>
+          <Notice>{a.removeAgentShared(plan.kept.length)}</Notice>
+          <SharedFolders places={plan.kept} />
+        </>
+      )}
+      {plan.own.length > 0 && (
+        <>
+          {heading(t.resetRemovable(plan.own.length))}
+          <div className="reset-removable">
+            <SharedFolders places={plan.own} />
+          </div>
+        </>
+      )}
+      <DetachNotice items={detachedBy(folderPlaces(s, plan.own))} when="delete" prefix={a.ifRemoveToo} />
+      <StaleNotes deleted={plan.own} prefix={a.ifRemoveToo} copies={false} />
+    </>
+  );
 }

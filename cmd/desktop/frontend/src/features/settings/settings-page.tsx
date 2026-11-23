@@ -14,7 +14,9 @@ import { useSnapshot, type LibraryError } from "@/lib/library";
 import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { useView } from "@/lib/view";
-import { AddAgentDialog, AgentSection } from "@/features/scope/agent-settings";
+import { AddAgentDialog, AgentSection, offerDistroAgents } from "@/features/scope/agent-settings";
+import { switchedToDistro } from "@/features/scope/agents-rules";
+import { resetAgents } from "@/features/scope/agents";
 import { ProjectPathDialog } from "@/features/scope/project-path-dialog";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -37,6 +39,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
   const s = useSnapshot();
   const ui = useUI();
   const { settings: t, agents: agentsT, credentials: credentialsT } = useT();
+  const [resetting, setResetting] = useState(false);
   const { setLanguage } = useLanguage();
   const [settings, setSettings] = useState<Settings>();
   const [current, setCurrent] = useState<Section>(sections[0]);
@@ -86,6 +89,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
   // 保存完(包括保存失败退回原设置)都再问 Go 端实际用哪种，以它为准。
   const save = (change: Partial<Settings>) => {
     if (!latest.current) return;
+    const before = latest.current.wsl_distro ?? "";
     const next = { ...latest.current, ...change };
     show(next);
     if (change.language) setLanguage(toLanguage(change.language));
@@ -96,6 +100,8 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
         onError: (err) => switching && distroFailed(err, next.wsl_distro ?? ""),
       });
       if (!saved) await AppService.Settings().then(show, () => {});
+      // 全局目录换到了另一个 WSL 发行版：按那里检测到的补弹一次「添加 Agent」。
+      else if (switching && switchedToDistro(before, next.wsl_distro ?? "")) void offerDistroAgents(next.wsl_distro ?? "");
       if ("language" in change) await AppService.Language().then((l) => setLanguage(toLanguage(l)), () => {});
     });
   };
@@ -194,10 +200,29 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
               )}
               {card(
                 "agents",
-                <Button onClick={() => ui.open((close) => <AddAgentDialog onClose={close} />)}>
-                  <Icon name="plus" />
-                  {t.addAgent}
-                </Button>,
+                <span className="flex items-center gap-2">
+                  <Button
+                    className="reset-agents"
+                    title={agentsT.resetAgentsTitle}
+                    loading={resetting}
+                    onClick={async () => {
+                      // 读计划、确认、执行期间不再响应，免得叠出两个确认框。
+                      if (resetting) return;
+                      setResetting(true);
+                      try {
+                        await resetAgents();
+                      } finally {
+                        setResetting(false);
+                      }
+                    }}
+                  >
+                    {agentsT.resetAgents}
+                  </Button>
+                  <Button onClick={() => ui.open((close) => <AddAgentDialog onClose={close} />)}>
+                    <Icon name="plus" />
+                    {t.addAgent}
+                  </Button>
+                </span>,
                 <AgentSection
                   shown={settings && (settings.agents_shown ?? null)}
                   onShown={(a, on) => save({ agents_shown: { ...latest.current?.agents_shown, [a.code]: on } })}

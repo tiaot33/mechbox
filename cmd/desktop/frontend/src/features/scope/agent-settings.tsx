@@ -1,24 +1,40 @@
 // 设置页的 Agent 分区：列出已添加的 Agent,每行有显示勾选(应用设置，存在数据库的 config 表里，随推送、拉回走)、编辑与移除;
 // 「添加 Agent」默认列出候选池(可以搜索、勾选几个一次添加),也能切到手填表单。显示勾选的说明在设置页分区标题的提示里。
 // 编辑表单改名称、技能目录(第 1 个装新技能，其余是附加目录)和检测目录。
-import { useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { LibraryService } from "@bindings/cmd/desktop";
+import { AppService, LibraryService } from "@bindings/cmd/desktop";
 import { ErrorCode, type Agent, type AgentInput } from "@bindings/internal/library";
 import { addAgent, addAgentsFromPool, editAgent, removeAgent } from "./agents";
-import { alreadyRead, poolMatches, sortPool } from "./agents-rules";
+import {
+  alreadyRead,
+  asksWhere,
+  detectedPicks,
+  directoryKey,
+  enterSubmits,
+  directoryOptions,
+  filterDirectoryOptions,
+  opensWhileTyping,
+  poolMatches,
+  sortPool,
+  undetected,
+  type DirectoryKind,
+  type DirectoryOptions,
+} from "./agents-rules";
 import { describeError } from "@/lib/errors";
-import { useT } from "@/lib/i18n";
-import { toLibraryError, useHasWSL, useSnapshot, type LibraryError, type Snapshot } from "@/lib/library";
+import { messages, useT } from "@/lib/i18n";
+import { currentSnapshot, toLibraryError, useHasWSL, useSnapshot, type LibraryError, type Snapshot } from "@/lib/library";
 import { agentShown, directoriesAt } from "@/lib/places";
 import { insideHome, isWSLPath, resolveLocalPath, nativePath, shortPath, slashPath } from "@/lib/paths";
-import { Modal, useUI } from "@/lib/ui";
+import { Modal, ui, useUI } from "@/lib/ui";
+import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FieldError, Hint } from "@/components/ui/field";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
 import { ListBox, ListRow } from "@/components/ui/list";
+import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { Switch } from "@/components/ui/switch";
 import { pickDirectory } from "@/features/fetch/fetch-dialog";
 import { AgentMark, PathWhere } from "@/components/app/parts";
@@ -52,7 +68,7 @@ export function AgentSection({
             <AgentMark name={a.name} />
             {/* 一行：名字、没检测到时标出，后面是它的全部技能目录(放不下就截断，悬停逐个看)。 */}
             <span className="shrink-0">{a.name}</span>
-            {!a.detected && <Badge title={t.notDetectedTitle}>{t.notDetected}</Badge>}
+            {undetected(a) && <Badge title={t.notDetectedTitle}>{t.notDetected}</Badge>}
             <span className="min-w-0 grow truncate font-mono text-caption text-muted-foreground select-text" title={dirs.title}>
               {dirs.text}
             </span>
@@ -74,18 +90,81 @@ export function AgentSection({
 
 // AddAgentDialog 是「添加 Agent」:默认列出候选池，检测到的排在前面并标出，可以按名称、目录搜索、勾选几个一次添加;
 // 独有的目录已经有已添加的 Agent 在读的标出「已有 Agent 读这个目录」,不阻止勾选。底部能切到手填表单。
-export function AddAgentDialog({ onClose }: { onClose: () => void }) {
+// picks 是打开时已经勾上的，title、lead 换掉标题、在搜索框上面加一句说明(升级后提示添加时用)。
+export function AddAgentDialog({ onClose, picks, title, lead }: { onClose: () => void; picks?: string[]; title?: string; lead?: string }) {
   const [manual, setManual] = useState(false);
+  const [picked, setPicked] = useState<Set<string>>(new Set(picks));
   if (manual) return <AgentDialog onClose={onClose} onBack={() => setManual(false)} />;
-  return <AgentPoolDialog onClose={onClose} onManual={() => setManual(true)} />;
+  return <AgentPoolDialog onClose={onClose} onManual={() => setManual(true)} picked={picked} setPicked={setPicked} title={title} lead={lead} />;
 }
 
-function AgentPoolDialog({ onClose, onManual }: { onClose: () => void; onManual: () => void }) {
+// offerAgentPool 在从旧版本升级上来的数据库升级后第一次打开时弹一次「添加 Agent」:升级时原有的 Agent 保持已添加，
+// 其余收录的进了候选池，按检测结果添加只在第一次打开时做过。读到候选池之后才记下已经提示过(读不到时下次再提示);
+// 设置里选的 WSL 发行版没能打开时 Go 端先不让提示，等它打开了再说。
+export async function offerAgentPool() {
+  if (!(await AppService.AgentPoolPending().catch(() => false))) return;
+  const pool = await LibraryService.ListAgentPool().catch(() => null);
+  if (!pool) return;
+  await AppService.AgentPoolOffered().catch(() => {});
+  const t = messages().agents;
+  await offerDetected(pool, t.upgradeTitle, t.upgradeLead);
+}
+
+// chooseWhere 在第一次打开、这台电脑有 WSL 发行版时，先问 Agent 装在 Windows 本机还是哪个发行版(#387:选好之后再检测);
+// 选了发行版就把全局目录换过去，换不成时提示原因、照旧用 Windows 本机。关掉确认框等于选 Windows 本机。
+export async function chooseWhere() {
+  const distros = (await LibraryService.ListWSLDistros().catch(() => null)) ?? [];
+  const settings = await AppService.Settings().catch(() => null);
+  if (!settings || !asksWhere(distros, settings.wsl_distro ?? "")) return;
+  const t = messages();
+  const choice = await ui.confirm({
+    title: t.agents.whereTitle,
+    body: <Hint>{t.agents.whereLead}</Hint>,
+    choices: [
+      { value: "windows", label: t.agents.whereWindows, desc: t.agents.whereWindowsDesc },
+      ...distros.map((d) => ({ value: `wsl:${d}`, label: t.paths.wsl(d), desc: t.agents.whereDistroDesc })),
+    ],
+    confirm: t.agents.whereContinue,
+  });
+  if (!choice?.startsWith("wsl:")) return;
+  await ui.run(() => AppService.SaveSettings({ ...settings, wsl_distro: choice.slice(4) }), { reload: true });
+}
+
+// offerDistroAgents 在设置里把全局目录换到一个 WSL 发行版之后，按那里检测到的补弹一次「添加 Agent」。
+export async function offerDistroAgents(distro: string) {
+  const pool = await LibraryService.ListAgentPool().catch(() => null);
+  if (!pool) return;
+  const t = messages();
+  await offerDetected(pool, t.agents.distroPoolTitle(t.paths.wsl(distro)), t.agents.distroPoolLead(t.paths.wsl(distro)));
+}
+
+// offerDetected 打开「添加 Agent」,候选池里检测到的默认勾上(已有 Agent 读它独有目录的不勾),用户确认后才添加;
+// 候选池里一个都没检测到时不弹。
+async function offerDetected(pool: Agent[], title: string, lead: string) {
+  if (!pool.some((a) => a.detected)) return;
+  const picks = detectedPicks(pool, currentSnapshot().agents);
+  await ui.open((close) => <AddAgentDialog onClose={close} picks={picks} title={title} lead={lead} />);
+}
+
+function AgentPoolDialog({
+  onClose,
+  onManual,
+  picked,
+  setPicked,
+  title,
+  lead,
+}: {
+  onClose: () => void;
+  onManual: () => void;
+  picked: Set<string>;
+  setPicked: (update: (set: Set<string>) => Set<string>) => void;
+  title?: string;
+  lead?: string;
+}) {
   const s = useSnapshot();
   const t = useT().agents;
   const pool = useQuery({ queryKey: ["agent-pool"], queryFn: () => LibraryService.ListAgentPool(), gcTime: 0, staleTime: 0 });
   const [search, setSearch] = useState("");
-  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [working, setWorking] = useState(false);
   const all = sortPool(pool.data ?? []);
   const rows = all.filter((a) => poolMatches(a, search));
@@ -107,7 +186,7 @@ function AgentPoolDialog({ onClose, onManual }: { onClose: () => void; onManual:
   };
   return (
     <Modal
-      title={t.addTitle}
+      title={title ?? t.addTitle}
       wide
       onClose={onClose}
       footer={
@@ -122,6 +201,7 @@ function AgentPoolDialog({ onClose, onManual }: { onClose: () => void; onManual:
         </>
       }
     >
+      {lead && <Hint className="agent-pool-lead">{lead}</Hint>}
       <Input autoFocus placeholder={t.searchPool} value={search} onChange={(e) => setSearch(e.target.value)} />
       {pool.isPending ? (
         <Hint>{t.loadingPool}</Hint>
@@ -170,7 +250,10 @@ function AgentPoolDialog({ onClose, onManual }: { onClose: () => void; onManual:
 }
 
 type AgentField = keyof AgentInput;
-type DirectoryKind = "global_directories" | "project_directories" | "detect_directories";
+
+// keystroke 取出一次按键与输入法是否还在选词:WebKit 里确定候选词的那次 Enter 有时 isComposing 已经是 false,
+// 但 keyCode 仍是 229,也算选词中。
+const keystroke = (e: KeyboardEvent<HTMLInputElement>) => ({ key: e.key, composing: e.nativeEvent.isComposing || e.keyCode === 229 });
 
 // AgentDialog 手填添加一个 Agent,或给出 agent 时编辑它:名称、全局与项目里的技能目录(第 1 个装新技能，其余是附加目录)、检测目录。
 // 全局技能目录与检测目录必须在用户主目录里面;项目里的技能目录相对项目根目录。onBack 给出时(从候选池切过来)底部能回到候选池。
@@ -187,6 +270,10 @@ export function AgentDialog({ agent, onClose, onBack }: { agent?: Agent; onClose
   });
   const [errors, setErrors] = useState<Partial<Record<AgentField, string>>>({});
   const [working, setWorking] = useState(false);
+  // 目录下拉的候选来自应用内置的收录表(不是数据库里那一行):先列这个 Agent 的默认目录，再列其他 Agent 用到的。
+  const defaults = useQuery({ queryKey: ["agent-defaults"], queryFn: () => LibraryService.ListAgentDefaults(), gcTime: 0, staleTime: 0 });
+  const options = (kind: DirectoryKind) =>
+    directoryOptions(defaults.data ?? [], agent?.code, kind, kind === "project_directories" ? nativePath : (d) => shortPath(s, d));
   // 提交进行中(含等迁移确认)时不再提交：按钮禁用挡不住输入框里的 Enter。
   const submitting = useRef(false);
 
@@ -263,6 +350,8 @@ export function AgentDialog({ agent, onClose, onBack }: { agent?: Agent; onClose
       onChange={(values) => setDirs((d) => ({ ...d, [kind]: values }))}
       placeholder={kind === "project_directories" ? nativePath(".my-agent/skills") : shortPath(s, home + nativePath("/.my-agent/skills"))}
       chooseTitle={chooseTitle}
+      options={options(kind)}
+      own={!!agent}
       first={kind !== "detect_directories"}
       onEnter={submit}
       error={error(kind)}
@@ -294,7 +383,7 @@ export function AgentDialog({ agent, onClose, onBack }: { agent?: Agent; onClose
         {/* 图标按名字认，边输入边预览。 */}
         <div className="flex min-w-0 items-center gap-2">
           <AgentMark name={name} className="size-6 rounded-control" />
-          <Input className="grow" autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+          <Input className="grow" autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => enterSubmits(keystroke(e)) && submit()} />
         </div>
         {error("name")}
       </label>
@@ -315,6 +404,8 @@ function DirectoryList({
   onChange,
   placeholder,
   chooseTitle,
+  options,
+  own,
   first,
   onEnter,
   error,
@@ -327,6 +418,8 @@ function DirectoryList({
   onChange: (values: string[]) => void;
   placeholder: string;
   chooseTitle?: string;
+  options: DirectoryOptions;
+  own: boolean; // 编辑时:defaults 那一组叫「这个 Agent 的默认目录」
   first: boolean;
   onEnter: () => void;
   error: ReactNode;
@@ -341,13 +434,15 @@ function DirectoryList({
       {values.map((value, i) => (
         <div key={i} className="flex min-w-0 flex-col gap-0.5">
           <div className="flex min-w-0 items-center gap-2">
-            <Input
-              className="grow font-mono"
-              aria-label={label}
+            <DirectoryInput
+              label={label}
               placeholder={placeholder}
               value={value}
-              onChange={(e) => set(i, e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && onEnter()}
+              onChange={(v) => set(i, v)}
+              onEnter={onEnter}
+              options={options}
+              own={own}
+              taken={values.filter((_, j) => j !== i)}
             />
             {/* 有几行时第 1 行标「装新技能」;每行留同样宽的位置，输入框对齐。 */}
             {first && values.length > 1 && (
@@ -381,5 +476,153 @@ function DirectoryList({
       </div>
       {error}
     </div>
+  );
+}
+
+// DirectoryInput 是一个目录的输入框，带下拉：点右边的箭头(或按 ↓)列出候选，输入时按文字过滤，也能直接填自己的路径。
+// 候选先列这个 Agent 的默认目录，再列其他 Agent 用到的(见 directoryOptions);这组里别的行已经填了的不列。
+// 下拉开着时 ↑↓ 选、Enter 填进去、Esc 收起;没选中候选时 Enter 照常提交表单。
+function DirectoryInput({
+  label,
+  placeholder,
+  value,
+  onChange,
+  onEnter,
+  options,
+  own,
+  taken,
+}: {
+  label: string;
+  placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
+  onEnter: () => void;
+  options: DirectoryOptions;
+  own: boolean;
+  taken: string[];
+}) {
+  const t = useT().agents;
+  const [open, setOpen] = useState(false);
+  // typed 是打开下拉之后输入过的文字：点箭头打开时列出全部，输入了才过滤。
+  const [typed, setTyped] = useState("");
+  const [active, setActive] = useState(-1);
+  const anchor = useRef<HTMLDivElement>(null);
+  const shown = filterDirectoryOptions(options, typed, taken);
+  const items = [...shown.defaults, ...shown.others];
+  const show = (on: boolean) => {
+    setOpen(on);
+    setTyped("");
+    setActive(-1);
+  };
+  const pick = (dir: string) => {
+    onChange(dir);
+    show(false);
+  };
+  const listId = useId();
+  const optionId = (i: number) => `${listId}-${i}`;
+  // 用键盘移到的那一项滚进看得见的地方。
+  useEffect(() => {
+    if (open && active >= 0) document.getElementById(optionId(active))?.scrollIntoView({ block: "nearest" });
+  }, [open, active]);
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    const action = directoryKey(keystroke(e), { open, active, count: items.length });
+    if (action.type === "none") return;
+    e.preventDefault();
+    if (action.type === "open") show(true);
+    else if (action.type === "move") setActive(action.active);
+    else if (action.type === "pick") pick(items[active]);
+    else if (action.type === "submit") {
+      show(false);
+      onEnter();
+    } else {
+      // 只收起下拉，不关掉整个弹窗。
+      e.stopPropagation();
+      show(false);
+    }
+  };
+  const group = (heading: string, dirs: string[], offset: number) =>
+    dirs.length > 0 && (
+      <div role="group" aria-label={heading}>
+        <div className="px-2 pt-1.5 pb-1 text-caption font-semibold text-muted-foreground">{heading}</div>
+        {dirs.map((dir, i) => (
+          <div
+            key={dir}
+            id={optionId(offset + i)}
+            role="option"
+            aria-selected={active === offset + i}
+            className={cn(
+              "directory-option flex h-7 cursor-default items-center truncate rounded-control px-2 font-mono text-body select-none hover:bg-fill",
+              active === offset + i && "bg-fill",
+            )}
+            // 按下时就填进去：不让输入框先失去焦点。
+            onMouseDown={(e) => {
+              e.preventDefault();
+              pick(dir);
+            }}
+          >
+            {dir}
+          </div>
+        ))}
+      </div>
+    );
+  return (
+    <Popover open={open} onOpenChange={(on) => !on && show(false)}>
+      <PopoverAnchor asChild>
+        <div ref={anchor} className="relative flex min-w-0 grow">
+          <Input
+            className="grow pr-6 font-mono"
+            aria-label={label}
+            role="combobox"
+            aria-expanded={open}
+            aria-autocomplete="list"
+            aria-controls={open ? listId : undefined}
+            aria-activedescendant={open && active >= 0 ? optionId(active) : undefined}
+            placeholder={placeholder}
+            value={value}
+            onChange={(e) => {
+              onChange(e.target.value);
+              setTyped(e.target.value);
+              setActive(-1);
+              if (!open && opensWhileTyping(options, e.target.value, taken)) setOpen(true);
+            }}
+            onKeyDown={onKeyDown}
+          />
+          <button
+            type="button"
+            tabIndex={-1}
+            className="directory-options absolute inset-y-0 right-0 flex w-6 items-center justify-center text-muted-foreground hover:text-foreground"
+            title={t.knownDirectories}
+            aria-label={t.knownDirectories}
+            // 按下时不让输入框失去焦点;点一下展开，再点一下收起。
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              anchor.current?.querySelector("input")?.focus();
+              show(!open);
+            }}
+          >
+            <Icon name="down" className="size-3" />
+          </button>
+        </div>
+      </PopoverAnchor>
+      <PopoverContent
+        align="start"
+        sideOffset={4}
+        id={listId}
+        className="directory-menu z-[60] max-h-64 w-[var(--radix-popover-trigger-width)] overflow-y-auto"
+        role="listbox"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onCloseAutoFocus={(e) => e.preventDefault()}
+        onInteractOutside={(e) => anchor.current?.contains(e.target as Node) && e.preventDefault()}
+      >
+        {items.length ? (
+          <>
+            {group(own ? t.defaultDirectories : t.knownDirectories, shown.defaults, 0)}
+            {group(t.otherDirectories, shown.others, shown.defaults.length)}
+          </>
+        ) : (
+          <div className="px-2 py-3 text-center text-body text-muted-foreground">{t.noDirectoryMatch}</div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }

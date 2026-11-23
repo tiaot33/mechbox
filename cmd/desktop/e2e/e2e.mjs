@@ -3163,7 +3163,7 @@ await step("设置页：分区、应用设置写进数据库、项目、关于",
   await idle();
   await page.unroute("**/wails/runtime", slowSave);
   await settle();
-  assert.deepStrictEqual(appConfig(), { auto_check: "true", check_interval: "weekly", stay_in_menu_bar: "true", dock_badge: "false", auto_translate: "true", fold_collections: "false", fold_below: "3", first_open_done: "true" });
+  assert.deepStrictEqual(appConfig(), { auto_check: "true", check_interval: "weekly", stay_in_menu_bar: "true", dock_badge: "false", auto_translate: "true", fold_collections: "false", fold_below: "3", first_open_done: "true", agent_pool_offered: "true" });
   await page.reload();
   await page.waitForSelector(".a-list");
   await open();
@@ -3510,7 +3510,7 @@ await step("设置页 Agent 分区：显示勾选、手填添加 / 编辑迁移 
   await btn(modal(), "添加").click();
   await toast("已添加 Agent「My Agent」");
   await settle();
-  assert((await row("My Agent").locator('[data-slot="badge"]', { hasText: "未检测到" }).count()) === 1, "手填添加的 Agent 没有检测目录，应标未检测到");
+  assert((await row("My Agent").locator('[data-slot="badge"]', { hasText: "未检测到" }).count()) === 0, "手填添加的 Agent 没填检测目录是不检测，不应标未检测到");
   assert((await shownSwitch("My Agent").getAttribute("aria-checked")) === "true", "手填添加的 Agent 默认应显示");
   await back();
 
@@ -3528,6 +3528,9 @@ await step("设置页 Agent 分区：显示勾选、手填添加 / 编辑迁移 
   await modal().locator('[data-slot="input"]').nth(1).fill("~/.my-agent2/skills");
   await btn(modal(), "保存").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "改 Agent「My Agent」的目录" }).waitFor();
+  for (const skill of ["alpha", "gamma"]) {
+    assert((await modal().locator('[data-slot="list-row"]', { hasText: `${skill} · 全局` }).count()) === 1, `迁移确认框应列出受影响的 ${skill}`);
+  }
   await modal().locator('[data-slot="choice"]', { hasText: "迁移到新目录" }).click();
   await btn(modal(), "保存").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "已保存 Agent「My Agent」" }).waitFor();
@@ -3786,6 +3789,69 @@ await step("添加 Agent：候选池检测到的置顶、能搜索、勾选添�
   await back();
 });
 
+await step("目录输入框能从下拉里选也能自己填;恢复默认先说清改哪些、移除哪些手填 Agent,确认后收录的换回内置值、手填的移除且不回候选池", async () => {
+  const agents = () => section("Agent");
+  const row = (name) => agents().locator(".set-row", { hasText: name });
+  const menu = () => page.locator(".directory-menu");
+  await page.locator(".a-left .nav-item", { hasText: "设置" }).click();
+  await page.locator('.settings [role="switch"]').first().waitFor();
+
+  // 编辑 Claude Code:点箭头列出候选，先列它的默认目录(内置的值),再列其他 Agent 用到的;输入时按文字过滤。只改名字。
+  await btn(row("Claude Code"), "编辑").click();
+  const global = modal().locator(".agent-directories.global_directories");
+  await global.locator(".directory-options").first().click();
+  await menu().waitFor();
+  const groups = await menu().locator('[role="group"]').evaluateAll((els) => els.map((el) => el.getAttribute("aria-label")));
+  assert.deepEqual(groups, ["这个 Agent 的默认目录", "其他 Agent 用到的目录"], `下拉应先列默认目录再列其他 Agent 的:${groups}`);
+  assert.deepEqual(await menu().locator('[role="group"]').first().locator(".directory-option").allTextContents(), ["~/.claude/skills"]);
+  assert((await menu().locator(".directory-option", { hasText: "~/.cursor/skills" }).count()) === 1, "其他 Agent 用到的目录里应有 ~/.cursor/skills");
+  await global.locator('[data-slot="input"]').first().press("Escape");
+  await menu().waitFor({ state: "detached" });
+  assert((await modal().count()) === 1, "Esc 只收起下拉，不关弹窗");
+  await modal().locator('[data-slot="input"]').nth(0).fill("Claude Work");
+  await btn(modal(), "保存").click();
+  await toast("已保存 Agent「Claude Work」");
+  await settle();
+
+  // 手填添加：项目目录从下拉里挑一个;全局目录自己填。
+  await addAgentByHand(agents());
+  await modal().locator('[data-slot="input"]').nth(0).fill("Hand Agent");
+  await modal().locator('.agent-directories.global_directories [data-slot="input"]').first().fill("~/.hand/skills");
+  const project = modal().locator(".agent-directories.project_directories");
+  await project.locator('[data-slot="input"]').first().fill(".clau");
+  await menu().waitFor();
+  assert.deepEqual(await menu().locator(".directory-option").allTextContents(), [".claude/skills"], "输入时按文字过滤");
+  await menu().locator(".directory-option", { hasText: ".claude/skills" }).dispatchEvent("mousedown");
+  await menu().waitFor({ state: "detached" });
+  assert.equal(await project.locator('[data-slot="input"]').first().inputValue(), ".claude/skills", "选中的候选应填进输入框");
+  await project.locator('[data-slot="input"]').first().fill(".hand/skills");
+  await btn(modal(), "添加").click();
+  await toast("已添加 Agent「Hand Agent」");
+  await settle();
+
+  // 恢复默认：确认框写出改哪些 Agent、移除哪些手填 Agent(候选池里手填的一并删掉)。
+  await btn(agents(), "恢复默认").click();
+  await modal().locator('[data-slot="dialog-title"]', { hasText: "把 Agent 设置恢复默认" }).waitFor();
+  assert((await modal().locator(".reset-changed [data-slot=\"list-row\"]", { hasText: "名称：Claude Work → Claude Code" }).count()) === 1, "应写出 Claude Work 换回 Claude Code");
+  assert((await modal().locator(".reset-removed [data-slot=\"list-row\"]", { hasText: "Hand Agent" }).count()) === 1, "应列出要移除的 Hand Agent");
+  assert((await modal().locator('[data-slot="hint"]', { hasText: "候选池里手填的" }).count()) === 1, "应说明候选池里手填的也删掉");
+  await page.screenshot({ path: path.join(SHOTS, "reset-agents.png") });
+  await btn(modal(), "恢复默认").click();
+  await toast("已恢复默认");
+  await settle();
+  assert((await row("Claude Code").count()) === 1 && (await row("Claude Work").count()) === 0, "Claude Code 应换回内置的名字");
+  assert((await row("Hand Agent").count()) === 0, "手填的 Hand Agent 应移除");
+  await btn(agents(), "添加 Agent").click();
+  await modal().locator(".pool-agent").first().waitFor();
+  for (const name of ["Hand Agent", "My Agent", "Old Cursor"]) {
+    assert((await modal().locator(".pool-agent", { hasText: name }).count()) === 0, `手填的 ${name} 不应回到候选池`);
+  }
+  await btn(modal(), "取消").click();
+  await page.locator(".titlebar button[title='返回技能库']").click();
+  await page.waitForSelector(".a-list");
+  await settle();
+});
+
 // ============ 冲突与失败路径 ============
 group("failures", ["drag", "settings"]);
 await step("占用冲突：同名技能已在该作用域，安装被拦下并说明占用者", async () => {
@@ -3852,6 +3918,8 @@ await step("组安装遇到外来文件夹：选择跳过，结果列出被跳�
   await btn(modal(), "安装").click();
   await modal().locator('[data-slot="dialog-title"]', { hasText: "组安装「前端调试」" }).waitFor();
   assert((await modal().locator('[data-slot="list-row"]', { hasText: "delta" }).locator('[data-slot="badge"]', { hasText: "已跳过" }).count()) === 1, "delta 应被跳过");
+  const reason = await modal().locator('[data-slot="list-row"]', { hasText: "delta" }).textContent();
+  assert(reason.includes("已存在，但不是从技能库装的") && reason.includes("~/") && !reason.includes("target already exists"), `跳过原因应是中文说明、路径缩写成 ~:${reason}`);
   await btn(modal(), "知道了").click();
   assert(fs.existsSync(path.join(dir, "delta", "x.txt")), "外来文件夹应保持原样");
   await page.locator(".gchip", { hasText: "前端调试" }).click(); // 卸载组安装，恢复

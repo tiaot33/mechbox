@@ -36,6 +36,7 @@ type AppService struct {
 	mu           sync.Mutex
 	settings     Settings
 	firstOpen    bool
+	offerPool    bool
 	hidden       bool
 	opened       bool
 	uninstalling bool
@@ -80,11 +81,12 @@ func NewAppService(lib *LibraryService) *AppService {
 func (a *AppService) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
 	values, err := a.library.lib.AppSettings(ctx)
 	a.warn(err, "settings unreadable, using defaults")
-	settings, done := settingsFrom(values)
+	settings, marks := settingsFrom(values)
 	distro, distroErr := a.library.lib.WSLDistro(ctx)
 	a.warn(distroErr, "WSL distro setting unreadable")
 	settings.WSLDistro = distro
-	a.settings, a.firstOpen = settings, err == nil && !done
+	a.settings, a.firstOpen = settings, err == nil && !marks.firstOpen
+	a.offerPool = err == nil && marks.firstOpen && !marks.agentPool
 	if distro != "" {
 		if err := a.library.lib.SetWSLDistro(ctx, distro); err != nil {
 			a.distroError = library.ErrorOf(err).Message
@@ -206,21 +208,48 @@ func (a *AppService) FirstOpen() bool {
 	if !first {
 		return false
 	}
-	done := true
-	a.warn(a.saveSettings(context.Background(), settings, &done), "settings unwritable, first open not recorded")
+	a.warn(a.saveSettings(context.Background(), settings, nil), "settings unwritable, first open not recorded")
 	return true
 }
 
-// saveSettings 把设置写进技能库的应用设置，写成了才换掉 a.settings;firstOpenDone 为 nil 时按现在的记录。
+// AgentPoolPending 在从旧版本升级上来的数据库(第一次打开的流程在升级前就做过了,当时还没有按检测结果添加 Agent)还没提示过
+// 按检测结果添加 Agent 时返回 true;前端据此弹一次「添加 Agent」,检测到的默认勾上,读到候选池之后调用 AgentPoolOffered 记下。
+// 第一次打开的流程里已经按检测结果添加过,不再提示。设置里选的 WSL 发行版启动时没能打开时也返回 false:
+// 这时检测的是 Windows 本机的目录,等发行版打开了(重试或下次启动)再提示。
+func (a *AppService) AgentPoolPending() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.offerPool && a.distroError == ""
+}
+
+// AgentPoolOffered 记下已经按检测结果提示过添加 Agent,之后(含重启、拉回)AgentPoolPending 都返回 false。
+// 记不下来时下次启动会再提示一次。
+func (a *AppService) AgentPoolOffered() {
+	a.mu.Lock()
+	offer := a.offerPool
+	a.offerPool = false
+	settings := a.settings
+	a.mu.Unlock()
+	if offer {
+		a.warn(a.saveSettings(context.Background(), settings, nil), "settings unwritable, agent pool offer not recorded")
+	}
+}
+
+// marks 是按这台机器上现在的状态,已经做过了的一次性的事。调用方持有 a.mu。
+func (a *AppService) marks() openedMarks {
+	return openedMarks{firstOpen: !a.firstOpen, agentPool: !a.firstOpen && !a.offerPool}
+}
+
+// saveSettings 把设置写进技能库的应用设置，写成了才换掉 a.settings;marks 为 nil 时按现在的记录。
 // 写入依次进行，免得较早的一次后写、盖掉较新的设置。
-func (a *AppService) saveSettings(ctx context.Context, settings Settings, firstOpenDone *bool) error {
+func (a *AppService) saveSettings(ctx context.Context, settings Settings, marks *openedMarks) error {
 	a.saveMu.Lock()
 	defer a.saveMu.Unlock()
 	a.mu.Lock()
-	done := !a.firstOpen
+	done := a.marks()
 	a.mu.Unlock()
-	if firstOpenDone != nil {
-		done = *firstOpenDone
+	if marks != nil {
+		done = *marks
 	}
 	if err := a.library.lib.SetAppSettings(ctx, settings.appValues(done)); err != nil {
 		return err
@@ -240,13 +269,14 @@ func (a *AppService) reloadSettings(ctx context.Context) {
 		a.warn(err, "settings unreadable after pull")
 		return
 	}
-	settings, done := settingsFrom(values)
+	settings, pulled := settingsFrom(values)
 	a.mu.Lock()
 	settings.WSLDistro = a.settings.WSLDistro
-	keep := !a.firstOpen && !done
+	here := a.marks()
+	keep := openedMarks{firstOpen: pulled.firstOpen || here.firstOpen, agentPool: pulled.agentPool || here.agentPool}
 	a.settings = settings
 	a.mu.Unlock()
-	if keep {
+	if keep != pulled {
 		a.warn(a.saveSettings(ctx, settings, &keep), "settings unwritable, first open not kept after pull")
 	}
 	a.menus.setLanguage(settings.Language.resolve())

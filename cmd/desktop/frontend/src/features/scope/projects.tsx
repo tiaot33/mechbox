@@ -8,7 +8,8 @@ import { projectName } from "@/lib/scope";
 import { wslLocation, shortPath } from "@/lib/paths";
 import { ui } from "@/lib/ui";
 import { Hint } from "@/components/ui/field";
-import { DetachNotice } from "@/components/app/link-notes";
+import { DetachNotice, StaleNotes } from "@/components/app/link-notes";
+import { unregisterDeletes } from "./projects-rules";
 import { runDiscardingEdits } from "@/components/app/discard-edits";
 import { offerProject } from "@/features/fetch/fetch-unmanaged-all";
 
@@ -38,7 +39,7 @@ export async function relocateProject(project: RegisteredProject, path: string):
 // 确认之后才被改过的，技能库删之前核对出来再问一次(runDiscardingEdits)。
 export async function unregisterProject(project: RegisteredProject) {
   const s = currentSnapshot();
-  const places = s.skillScopes.filter((p) => p.scope.project_id === project.id);
+  const { places } = unregisterDeletes(s, project.id);
   const installed = places.length;
   const t = messages().actions;
   const choice = await ui.confirm({
@@ -47,6 +48,8 @@ export async function unregisterProject(project: RegisteredProject) {
       <>
         <Hint>{t.unregisterHint(shortPath(s, project.path))}</Hint>
         <DetachNotice items={detachedBy(places)} when="delete" prefix={t.ifRemoveToo} />
+        {/* 选同时删除时，技能库连同项目里指向这些文件夹的旧链接一起删掉：逐个写出。 */}
+        <StaleNotes deleted={places} prefix={t.ifRemoveToo} copies={false} />
       </>
     ),
     choices: installed
@@ -68,5 +71,3 @@ export async function unregisterProject(project: RegisteredProject) {
     success: t.unregistered,
   });
 }
-
-// 只有自定义 Agent 能改、能删。它离开或删除时，旧目录里还有别的 Agent 在读的文件夹不动，确认框里逐个列出。

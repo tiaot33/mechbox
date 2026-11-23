@@ -349,6 +349,73 @@ func TestFirstOpenIsTrueOnlyOnceOnThisMachine(t *testing.T) {
 	}
 }
 
+// 从旧版本升级上来的数据库(第一次打开在升级前就做过了)升级后第一次打开时提示一次按检测结果添加 Agent:只提示一次,重启、拉回后都不再提示;
+// 新数据库在第一次打开的流程里已经按检测结果添加过,不再提示。
+func TestAgentPoolIsOfferedOnceAfterUpgrade(t *testing.T) {
+	lib := startLibrary(t)
+	if err := lib.lib.SetAppSettings(t.Context(), map[string]string{firstOpenDoneKey: "true"}); err != nil {
+		t.Fatal(err)
+	}
+	upgraded := startApp(t, lib)
+	if upgraded.FirstOpen() {
+		t.Fatal("FirstOpen() on an upgraded library = true; want false")
+	}
+	// 没记下之前(如读候选池失败)一直待提示,不会被白白用掉。
+	if !upgraded.AgentPoolPending() || !upgraded.AgentPoolPending() {
+		t.Fatal("AgentPoolPending() after upgrade = false; want true until the offer is recorded")
+	}
+	upgraded.AgentPoolOffered()
+	if upgraded.AgentPoolPending() {
+		t.Fatal("AgentPoolPending() after AgentPoolOffered = true; want false")
+	}
+	if err := lib.lib.SetAppSettings(t.Context(), map[string]string{firstOpenDoneKey: "true", "language": "en"}); err != nil {
+		t.Fatal(err)
+	}
+	upgraded.reloadSettings(t.Context())
+	if values, err := lib.lib.AppSettings(t.Context()); err != nil || values[agentPoolOfferedKey] != "true" || values["language"] != "en" {
+		t.Fatalf("app settings after pull = %v, %v; want the offer kept", values, err)
+	}
+	if err := upgraded.ServiceShutdown(); err != nil {
+		t.Fatalf("ServiceShutdown: %v", err)
+	}
+	if startApp(t, lib).AgentPoolPending() {
+		t.Fatal("AgentPoolPending() after restart = true; want false")
+	}
+
+	fresh := startLibrary(t)
+	first := startApp(t, fresh)
+	if !first.FirstOpen() || first.AgentPoolPending() {
+		t.Fatal("a new library: want FirstOpen() and no agent pool offer")
+	}
+	if err := first.ServiceShutdown(); err != nil {
+		t.Fatalf("ServiceShutdown: %v", err)
+	}
+	if startApp(t, fresh).AgentPoolPending() {
+		t.Fatal("AgentPoolPending() after first open and restart = true; want false")
+	}
+}
+
+// 设置里选的 WSL 发行版启动时没能打开时,检测的是 Windows 本机,先不提示添加 Agent,也不记下;发行版打开后再提示。
+func TestAgentPoolWaitsForTheChosenDistro(t *testing.T) {
+	lib := startLibrary(t)
+	if err := lib.lib.SetAppSettings(t.Context(), map[string]string{firstOpenDoneKey: "true"}); err != nil {
+		t.Fatal(err)
+	}
+	app := startApp(t, lib)
+	app.mu.Lock()
+	app.distroError = "distro unavailable"
+	app.mu.Unlock()
+	if app.AgentPoolPending() {
+		t.Fatal("AgentPoolPending() while the chosen distro is unavailable = true; want false")
+	}
+	app.mu.Lock()
+	app.distroError = ""
+	app.mu.Unlock()
+	if !app.AgentPoolPending() {
+		t.Fatal("AgentPoolPending() once the distro opened = false; want true")
+	}
+}
+
 // 设置读不出时用默认值，不当作第一次打开，也不拿默认值覆盖库里的设置。
 func TestFirstOpenLeavesUnreadableSettingsAlone(t *testing.T) {
 	lib := startLibrary(t)

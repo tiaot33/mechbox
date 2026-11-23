@@ -1,8 +1,10 @@
 // 把技能库的错误码翻成界面文案。技能库的 message 是英文、面向开发者，界面契约是码 + Details
 // (见 internal/library/errors.go 的 ErrorCode 注释);message 只作为次要信息附在文案后面。
-import { ErrorCode } from "@bindings/internal/library";
+import { ErrorCode, type SkillID } from "@bindings/internal/library";
 import { messages } from "./i18n";
-import type { LibraryError } from "./library";
+import type { LibraryError, Snapshot } from "./library";
+import { shortPath } from "./paths";
+import { noSource, sourceLabel } from "./source";
 
 function codeText(code: string): string | undefined {
   const m = messages().errors;
@@ -83,4 +85,14 @@ export function aiError(err: LibraryError): string | undefined {
       };
   const head = heads[field || err.code];
   return head && `${head}\n${err.message}`;
+}
+
+// occupiedReason 说明一处装不上是因为文件夹被占用：这个技能的另一个作用域(occupier 就是 id)、或同名的另一个技能已装在 folder;
+// 另一个技能按来源区分是哪一个。单个安装的计划和组安装、加入组的逐个结果都用它，说法一致。
+export function occupiedReason(s: Snapshot, id: SkillID, occupier: SkillID | undefined, folder: string): string {
+  const t = messages().actions;
+  const at = shortPath(s, folder);
+  if (occupier === id) return t.occupiedSelf(at);
+  const skill = s.skills.find((x) => x.id === occupier);
+  return !skill ? t.occupiedOther(at) : noSource(skill.source) ? t.occupiedNoSource(at) : t.occupiedSource(sourceLabel(s, skill.source), at);
 }

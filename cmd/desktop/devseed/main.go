@@ -191,6 +191,7 @@ func (s *seeder) populate(ctx context.Context, anthropics, openai, superpowers g
 		return err
 	}
 	settings["first_open_done"] = "true"
+	settings["agent_pool_offered"] = "true"
 	if err := s.lib.SetAppSettings(ctx, settings); err != nil {
 		return err
 	}

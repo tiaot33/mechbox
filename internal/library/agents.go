@@ -81,7 +81,11 @@ type MigrationOutcome string
 const (
 	MigrationMoved   MigrationOutcome = "moved"   // 文件夹原样搬到了新目录
 	MigrationCopied  MigrationOutcome = "copied"  // 旧目录还有别的 Agent 在读:文件夹原样复制到新目录,旧文件夹留给它们,认这一处的照常算已装
-	MigrationSkipped MigrationOutcome = "skipped" // 新目录里已有同名文件夹,或库里已有别的技能装在那里:不覆盖、不搬,旧文件夹留在原处,这个 Agent 在这一处不再算已装
+	MigrationSkipped MigrationOutcome = "skipped" // 新目录里已有不是这个技能的同名文件夹,或库里已有别的技能装在那里:不覆盖、不搬,旧文件夹留在原处,这个 Agent 在这一处不再算已装
+	// 新目录里已经装着库里的这个技能(同一层级里别的 Agent 装的、文件夹在磁盘上,文件夹名可以不同;或没有记录、内容和库里某一版一致):
+	// 不复制、不搬,这个 Agent 的安装记录改指到那一处,保留直接安装与组安装,照常算已装;
+	// 旧文件夹留在原处,还有别的 Agent 在读的连同安装记录留给它们,没有的库不再管理它。
+	MigrationAlreadyInstalled MigrationOutcome = "already_installed"
 )
 
 // AgentMigration 是改目录并迁移时一处安装的结果:这个 Agent 的某个作用域里的一个技能,含只因共用目录而算已装的。
@@ -229,6 +233,7 @@ func (l *Library) ApplyDetectedAgents(ctx context.Context) (agents []Agent, err 
 
 // AddAgent 手填添加一个 Agent,生成它的代码;它直接是已添加的,和其他已添加的 Agent 一样组成全局与各已登记项目的作用域,可以安装。
 // 目录与已添加的 Agent 有相同的时,那里已经装着的技能这个 Agent 立刻也算已装。填写的内容不合法返回 InvalidArgument(规则见 AgentInput)。
+// 先检测(Detected)再写进数据库:检测失败时什么都不添加,用户重试不会加出两个。
 func (l *Library) AddAgent(ctx context.Context, agent AgentInput) (added Agent, err error) {
 	ctx, unlock := l.sharedOperation(ctx)
 	defer unlock()
@@ -237,19 +242,25 @@ func (l *Library) AddAgent(ctx context.Context, agent AgentInput) (added Agent, 
 	if err != nil {
 		return Agent{}, err
 	}
-	row.Code = "custom-" + hex.EncodeToString(randomBytes(6))
+	row.Code = customAgentPrefix + hex.EncodeToString(randomBytes(6))
 	row.Enabled = true
+	added, err = l.agentOf(ctx, row)
+	if err != nil {
+		return Agent{}, err
+	}
 	if err := l.store.AddAgent(ctx, row); err != nil {
 		return Agent{}, err
 	}
-	return l.agentOf(ctx, row)
+	return added, nil
 }
 
 // EditAgent 修改一个已添加的 Agent 的名称、技能目录和检测目录,代码不变;填写规则同 AgentInput。未知代码或候选池里的 Agent
 // 返回 NotFound。这个 Agent 的每处安装(含只因共用目录而算已装的)按编辑前的实际目录处理:
 //   - 这个目录还在新列表里:磁盘不动,安装记录跟着新列表换算。
 //   - 不在了、选了迁移:文件夹原样搬到新的第 1 个目录,不从库里重新安装,这个 Agent 在那里照常算已装;旧目录还有别的已添加 Agent
-//     在读时复制过去,旧文件夹和它的安装记录留给它们。新目录里已有同名文件夹、或库里已有别的技能装在那里的不覆盖、不搬,
+//     在读时复制过去,旧文件夹和它的安装记录留给它们。旧目录和新目录其实是同一个文件夹(符号链接)时只改记下的目录。
+//     新目录里已经装着库里的这个技能时不复制、不搬,这个 Agent 的安装记录改指到那一处(MigrationAlreadyInstalled)。
+//     新目录里已有别的同名文件夹、或库里已有别的技能装在那里的不覆盖、不搬(旧文件夹已经不在了也一样),
 //     旧文件夹留在原处,这个 Agent 在这一处不再算已装。逐处结果见 EditAgentResult.Migrations。新的第 1 个目录落在某个要迁移的
 //     技能文件夹里面时返回 InvalidArgument(Details.Field 为对应目录字段),什么都不改;复制期间新目录里出现了同名文件夹时
 //     返回 AlreadyExists(Details.Path 为该文件夹),什么都不改。
@@ -266,12 +277,20 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent AgentInpu
 	if err != nil {
 		return EditAgentResult{}, err
 	}
+	return l.editAgent(ctx, operation, code, row, opts)
+}
+
+func (l *Library) editAgent(ctx context.Context, operation string, code AgentCode, row store.Agent, opts EditAgentOptions) (result EditAgentResult, err error) {
 	current, err := l.enabledAgent(ctx, string(code))
 	if err != nil {
 		return EditAgentResult{}, err
 	}
 	row.Code, row.SameName, row.Enabled = current.Code, current.SameName, true
-	installs, err := l.agentInstalls(ctx, code)
+	others, err := l.enabledAgentsExcept(ctx, []AgentCode{code})
+	if err != nil {
+		return EditAgentResult{}, err
+	}
+	installs, err := l.agentInstalls(ctx, code, others)
 	if err != nil {
 		return EditAgentResult{}, err
 	}
@@ -299,10 +318,14 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent AgentInpu
 		id        int64
 		directory string
 	}
+	type claim struct {
+		item   agentInstall
+		folder string
+	}
 	var handOver []agentInstall
 	var dropped []int64
 	var rebased []rebase
-	var claimed []agentInstall
+	var claimed []claim
 	planned := map[string]bool{}
 	result.Migrations = []AgentMigration{}
 	for _, item := range installs {
@@ -324,15 +347,26 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent AgentInpu
 		destination := migrationDestination(item, row)
 		name := agentdir.FolderName(item.Folder)
 		migration := AgentMigration{SkillID: item.SkillID, Scope: item.Scope, From: item.Folder, To: agentdir.FolderPath(destination.directory, name)}
-		renamed, err := l.installedUnderAnotherName(ctx, item.SkillID, name, destination)
+		if agentdir.SameFolder(item.Folder, migration.To) {
+			if item.own != nil {
+				rebased = append(rebased, rebase{item.own.ID, ""})
+			} else {
+				claimed = append(claimed, claim{item, name})
+			}
+			continue
+		}
+		folder, recorded, already, err := l.sameSkillInDestination(ctx, code, item, destination, migration.To)
 		if err != nil {
 			return EditAgentResult{}, err
 		}
-		if renamed {
+		if already {
+			migration.To, migration.Outcome = agentdir.FolderPath(destination.directory, folder), MigrationAlreadyInstalled
 			if item.own != nil {
 				dropped = append(dropped, item.own.ID)
 			}
-			migration.Outcome = MigrationSkipped
+			if item.own != nil || !recorded {
+				claimed = append(claimed, claim{item, folder})
+			}
 			result.Migrations = append(result.Migrations, migration)
 			continue
 		}
@@ -340,15 +374,15 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent AgentInpu
 		if err != nil {
 			return EditAgentResult{}, fmt.Errorf("inspect installed folder: %w", err)
 		}
-		if !exists {
+		occupied, err := l.migrationBlocked(ctx, code, installs, removed, item.SkillID, name, destination, planned)
+		if err != nil {
+			return EditAgentResult{}, err
+		}
+		if !exists && !occupied {
 			if item.own != nil {
 				rebased = append(rebased, rebase{item.own.ID, ""})
 			}
 			continue
-		}
-		occupied, err := l.migrationBlocked(ctx, code, installs, removed, item.SkillID, name, destination, planned)
-		if err != nil {
-			return EditAgentResult{}, err
 		}
 		if occupied {
 			migration.Outcome = MigrationSkipped
@@ -369,12 +403,12 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent AgentInpu
 		}
 		switch {
 		case item.own == nil:
-			claimed = append(claimed, item)
+			claimed = append(claimed, claim{item, item.place.rows[0].Folder})
 		case item.receiver == "":
 			rebased = append(rebased, rebase{item.own.ID, ""})
 		default:
 			dropped = append(dropped, item.own.ID)
-			claimed = append(claimed, item)
+			claimed = append(claimed, claim{item, item.place.rows[0].Folder})
 		}
 		result.Migrations = append(result.Migrations, migration)
 	}
@@ -397,14 +431,15 @@ func (l *Library) EditAgent(ctx context.Context, code AgentCode, agent AgentInpu
 		if err := tx.EditAgent(ctx, row); err != nil {
 			return err
 		}
-		for _, item := range claimed {
+		for _, c := range claimed {
+			item := c.item
 			direct, created := true, item.CreatedAt
 			if item.own != nil {
 				direct, created = item.own.Direct, item.own.CreatedAt
 			}
 			if err := tx.RecordSkillScope(ctx, store.NewSkillScope{
 				SkillID: int64(item.SkillID), Scope: item.place.target.Scope, Directory: row.Paths(item.project())[0],
-				Folder: item.place.rows[0].Folder, Direct: direct, CreatedAt: created,
+				Folder: c.folder, Direct: direct, CreatedAt: created,
 			}); err != nil {
 				return err
 			}
@@ -429,18 +464,31 @@ func migrationDestination(item agentInstall, row store.Agent) resolvedScope {
 	return item.place.target.in(row.Paths(item.project())[0])
 }
 
-func (l *Library) installedUnderAnotherName(ctx context.Context, id SkillID, name string, destination resolvedScope) (bool, error) {
-	want := agentdir.Canonical(destination.directory)
-	installed, err := l.listSkillScopes(ctx, id, nil)
+func (l *Library) sameSkillInDestination(ctx context.Context, code AgentCode, item agentInstall, destination resolvedScope, target string) (folder string, recorded, found bool, err error) {
+	want, old := agentdir.Canonical(destination.directory), agentdir.Canonical(item.Folder)
+	installed, err := l.listSkillScopes(ctx, item.SkillID, nil)
 	if err != nil {
-		return false, err
+		return "", false, false, err
 	}
 	for _, other := range installed {
-		if agentdir.Canonical(agentdir.FolderDirectory(other.Folder)) == want && agentdir.FolderName(other.Folder) != name {
-			return true, nil
+		if other.Scope.Agent == code || other.Scope.ProjectID != item.Scope.ProjectID ||
+			agentdir.Canonical(agentdir.FolderDirectory(other.Folder)) != want || agentdir.Canonical(other.Folder) == old {
+			continue
+		}
+		exists, err := agentdir.Exists(other.Folder)
+		if err != nil || exists {
+			return agentdir.FolderName(other.Folder), true, exists, err
 		}
 	}
-	return false, nil
+	if claimant, err := l.targetClaimant(ctx, item.SkillID, agentdir.FolderName(target), destination); err != nil || claimant != nil {
+		return "", false, false, err
+	}
+	state, err := agentdir.ReadFolder(ctx, target, maxFetchFiles, maxFetchSize)
+	if err != nil || !state.Directory {
+		return "", false, false, nil
+	}
+	matched, _, err := matchingSkill(ctx, l.store, diskOf(state))
+	return agentdir.FolderName(target), false, SkillID(matched) == item.SkillID, err
 }
 
 func (l *Library) migrationBlocked(ctx context.Context, code AgentCode, installs []agentInstall, removed func(agentInstall) bool, id SkillID, name string, destination resolvedScope, planned map[string]bool) (bool, error) {
@@ -463,7 +511,7 @@ func (l *Library) migrationBlocked(ctx context.Context, code AgentCode, installs
 		return false, err
 	}
 	for _, other := range claimants {
-		if moving(other) {
+		if moving(other) || SkillID(other.SkillID) == id {
 			continue
 		}
 		claimed, err := l.resolveRow(ctx, other.Scope)
@@ -493,38 +541,77 @@ func (l *Library) DeleteAgent(ctx context.Context, code AgentCode, opts DeleteAg
 	if err := validateFolderPolicy(operation, opts.Folders); err != nil {
 		return DeleteAgentResult{}, err
 	}
-	agent, err := l.enabledAgent(ctx, string(code))
+	return l.deleteAgents(ctx, operation, []AgentCode{code}, opts, nil)
+}
+
+// agentRemoval 是一次移除的几个 Agent 会怎样:它们当一批算,还在读的 Agent 只算这一批以外的已添加 Agent。
+// kept 是还有这一批以外的 Agent 在读、总是保留的(SharedWith 为那些 Agent),handOver 是其中要把记录转交出去的;
+// owned 是只有这一批在读、为它们装的,按选项删除或保留;heirs 是各 Agent 每个层级的组安装转给谁。
+type agentRemoval struct {
+	heirs    map[AgentCode]map[bool]AgentCode
+	handOver []agentInstall
+	kept     []SkillScope
+	owned    []agentInstall
+}
+
+func (l *Library) planAgentRemoval(ctx context.Context, codes []AgentCode) (agentRemoval, error) {
+	plan := agentRemoval{heirs: map[AgentCode]map[bool]AgentCode{}, kept: []SkillScope{}}
+	others, err := l.enabledAgentsExcept(ctx, codes)
 	if err != nil {
-		return DeleteAgentResult{}, err
+		return agentRemoval{}, err
 	}
-	heirs, err := l.groupHeirs(ctx, agent)
-	if err != nil {
-		return DeleteAgentResult{}, err
+	allowed := func(code AgentCode) bool {
+		return slices.ContainsFunc(others, func(row store.Agent) bool { return row.Code == string(code) })
 	}
-	installs, err := l.agentInstalls(ctx, code)
-	if err != nil {
-		return DeleteAgentResult{}, err
-	}
-	var change agentdir.Change
-	defer func() { err = errors.Join(err, change.Rollback()) }()
-	var handOver []agentInstall
-	var removed []installedPlace
-	result.Kept = []SkillScope{}
-	for i, item := range installs {
-		if heir := heirs[item.project()]; heir != "" && slices.Contains(item.SharedWith, heir) {
-			installs[i].receiver, item.receiver = heir, heir
+	seen := map[string]bool{}
+	for _, code := range codes {
+		agent, err := l.enabledAgent(ctx, string(code))
+		if err != nil {
+			return agentRemoval{}, err
 		}
-		switch {
-		case item.receiver != "":
-			result.Kept = append(result.Kept, item.SkillScope)
-			if item.own != nil {
-				handOver = append(handOver, item)
+		heirs := groupHeirs(agent, others)
+		plan.heirs[code] = heirs
+		installs, err := l.agentInstalls(ctx, code, others)
+		if err != nil {
+			return agentRemoval{}, err
+		}
+		for _, item := range installs {
+			if heir := heirs[item.project()]; heir != "" && slices.Contains(item.SharedWith, heir) {
+				item.receiver = heir
 			}
-		case len(item.readers) > 0:
-			kept := item.SkillScope
-			kept.SharedWith = item.readers
-			result.Kept = append(result.Kept, kept)
-		case opts.Folders != Keep && item.own != nil:
+			key := fmt.Sprintf("%d\x00%s", item.SkillID, agentdir.Canonical(item.Folder))
+			switch {
+			case item.receiver != "" || len(item.readers) > 0:
+				if item.receiver != "" && item.own != nil {
+					plan.handOver = append(plan.handOver, item)
+				}
+				if !seen[key] {
+					kept := item.SkillScope
+					kept.SharedWith = slices.DeleteFunc(slices.Clone(kept.SharedWith), func(code AgentCode) bool { return !allowed(code) })
+					if len(kept.SharedWith) == 0 {
+						kept.SharedWith = item.readers
+					}
+					plan.kept = append(plan.kept, kept)
+				}
+				seen[key] = true
+			case item.own != nil && !seen[key]:
+				plan.owned = append(plan.owned, item)
+				seen[key] = true
+			}
+		}
+	}
+	slices.SortFunc(plan.kept, func(a, b SkillScope) int { return compareSkillInScope(a.SkillID, a.Scope, b.SkillID, b.Scope) })
+	return plan, nil
+}
+
+func (l *Library) deleteAgents(ctx context.Context, operation string, codes []AgentCode, opts DeleteAgentOptions, forget []string) (result DeleteAgentResult, err error) {
+	plan, err := l.planAgentRemoval(ctx, codes)
+	if err != nil {
+		return DeleteAgentResult{}, err
+	}
+	var removed []installedPlace
+	if opts.Folders != Keep {
+		for _, item := range plan.owned {
 			removed = append(removed, item.place)
 		}
 	}
@@ -536,47 +623,67 @@ func (l *Library) DeleteAgent(ctx context.Context, code AgentCode, opts DeleteAg
 	if err != nil {
 		return DeleteAgentResult{}, err
 	}
+	var change agentdir.Change
+	defer func() { err = errors.Join(err, change.Rollback()) }()
 	err = l.applyChange(ctx, &change, func(tx *store.Tx) error {
 		if err := l.removeFolders(ctx, tx, &change, operation, removals, opts.DiscardEdits); err != nil {
 			return err
 		}
 		for _, install := range groupInstalls {
-			heir := heirs[install.Scope.ProjectID != nil]
-			if install.Scope.Agent != string(code) || heir == "" {
+			heir := plan.heirs[AgentCode(install.Scope.Agent)][install.Scope.ProjectID != nil]
+			if heir == "" {
 				continue
 			}
 			if err := tx.RecordGroupInstall(ctx, install.GroupID, store.Scope{Agent: string(heir), ProjectID: install.Scope.ProjectID}, install.CreatedAt); err != nil {
 				return err
 			}
 		}
-		for _, item := range handOver {
+		for _, item := range plan.handOver {
 			if err := tx.HandOverSkillScope(ctx, item.own.ID, string(item.receiver)); err != nil {
 				return err
 			}
 		}
-		return tx.DisableAgent(ctx, string(code))
+		for _, code := range codes {
+			if forget != nil {
+				if err := tx.ForgetAgent(ctx, string(code)); err != nil {
+					return err
+				}
+			} else if err := tx.DisableAgent(ctx, string(code)); err != nil {
+				return err
+			}
+		}
+		for _, code := range forget {
+			if err := tx.ForgetAgent(ctx, code); err != nil {
+				return err
+			}
+		}
+		return nil
 	})
 	if err != nil {
 		return DeleteAgentResult{}, err
 	}
-	return result, nil
+	return DeleteAgentResult{Kept: plan.kept}, nil
 }
 
-func (l *Library) groupHeirs(ctx context.Context, agent store.Agent) (map[bool]AgentCode, error) {
-	agents, err := l.store.ListAgents(ctx)
+func (l *Library) enabledAgentsExcept(ctx context.Context, codes []AgentCode) ([]store.Agent, error) {
+	rows, err := l.store.ListAgents(ctx)
 	if err != nil {
 		return nil, err
 	}
+	return slices.DeleteFunc(rows, func(row store.Agent) bool { return !row.Enabled || slices.Contains(codes, AgentCode(row.Code)) }), nil
+}
+
+func groupHeirs(agent store.Agent, others []store.Agent) map[bool]AgentCode {
 	heirs := map[bool]AgentCode{}
 	for _, project := range []bool{false, true} {
-		for _, other := range agents {
-			if other.Enabled && other.Code != agent.Code && slices.Equal(other.Paths(project), agent.Paths(project)) {
+		for _, other := range others {
+			if other.Code != agent.Code && slices.Equal(other.Paths(project), agent.Paths(project)) {
 				heirs[project] = AgentCode(other.Code)
 				break
 			}
 		}
 	}
-	return heirs, nil
+	return heirs
 }
 
 type agentInstall struct {
@@ -591,14 +698,13 @@ func (i agentInstall) project() bool {
 	return i.place.target.ProjectID != nil
 }
 
-func (l *Library) agentInstalls(ctx context.Context, code AgentCode) ([]agentInstall, error) {
+func (l *Library) agentInstalls(ctx context.Context, code AgentCode, others []store.Agent) ([]agentInstall, error) {
 	skillScopes, err := l.listSkillScopes(ctx, 0, nil)
 	if err != nil {
 		return nil, err
 	}
-	agents, err := l.store.ListAgents(ctx)
-	if err != nil {
-		return nil, err
+	other := func(code AgentCode) bool {
+		return slices.ContainsFunc(others, func(row store.Agent) bool { return row.Code == string(code) })
 	}
 	var installs []agentInstall
 	for _, skillScope := range skillScopes {
@@ -617,15 +723,15 @@ func (l *Library) agentInstalls(ctx context.Context, code AgentCode) ([]agentIns
 		for _, row := range place.rows {
 			if row.Agent == string(code) {
 				item.own = &row
-			} else if item.receiver == "" && slices.Contains(skillScope.SharedWith, AgentCode(row.Agent)) {
+			} else if item.receiver == "" && other(AgentCode(row.Agent)) && slices.Contains(skillScope.SharedWith, AgentCode(row.Agent)) {
 				item.receiver = AgentCode(row.Agent)
 			}
 		}
-		if item.receiver == "" && len(skillScope.SharedWith) > 0 {
-			item.receiver = skillScope.SharedWith[0]
+		if i := slices.IndexFunc(skillScope.SharedWith, other); item.receiver == "" && i >= 0 {
+			item.receiver = skillScope.SharedWith[i]
 		}
-		for _, agent := range agents {
-			if agent.Enabled && agent.Code != string(code) && slices.Contains(agent.Paths(item.project()), place.target.relative) {
+		for _, agent := range others {
+			if agent.Code != string(code) && slices.Contains(agent.Paths(item.project()), place.target.relative) {
 				item.readers = append(item.readers, AgentCode(agent.Code))
 			}
 		}
@@ -647,16 +753,9 @@ func (l *Library) agentsOf(ctx context.Context, rows []store.Agent) ([]Agent, er
 	var detect []string
 	var owners []int
 	for i, row := range rows {
-		agents[i] = Agent{
-			Code: AgentCode(row.Code), Name: row.Name, SameName: SameNameRule(row.SameName),
-			GlobalDirectories: []string{}, ProjectDirectories: slices.Clone(row.ProjectPaths), DetectDirectories: []string{},
-		}
-		for _, path := range row.GlobalPaths {
-			agents[i].GlobalDirectories = append(agents[i].GlobalDirectories, l.home.Join(path))
-		}
-		for _, path := range row.DetectPaths {
-			agents[i].DetectDirectories = append(agents[i].DetectDirectories, l.home.Join(path))
-			detect = append(detect, l.home.Join(path))
+		agents[i] = l.agentFromRow(row)
+		for _, directory := range agents[i].DetectDirectories {
+			detect = append(detect, directory)
 			owners = append(owners, i)
 		}
 	}
@@ -668,6 +767,20 @@ func (l *Library) agentsOf(ctx context.Context, rows []store.Agent) ([]Agent, er
 		agents[owners[i]].Detected = agents[owners[i]].Detected || state.Directory
 	}
 	return agents, nil
+}
+
+func (l *Library) agentFromRow(row store.Agent) Agent {
+	agent := Agent{
+		Code: AgentCode(row.Code), Name: row.Name, SameName: SameNameRule(row.SameName),
+		GlobalDirectories: []string{}, ProjectDirectories: slices.Clone(row.ProjectPaths), DetectDirectories: []string{},
+	}
+	for _, path := range row.GlobalPaths {
+		agent.GlobalDirectories = append(agent.GlobalDirectories, l.home.Join(path))
+	}
+	for _, path := range row.DetectPaths {
+		agent.DetectDirectories = append(agent.DetectDirectories, l.home.Join(path))
+	}
+	return agent
 }
 
 func (l *Library) agentRow(operation string, agent AgentInput) (store.Agent, error) {

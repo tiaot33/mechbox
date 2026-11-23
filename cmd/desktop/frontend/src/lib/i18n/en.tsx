@@ -171,6 +171,11 @@ export const en = {
       `Can't install: a skill with the same name from ${source} is already installed at\n${folder}\nUninstall it first, then install`,
     occupiedOther: (folder: string) => `Can't install: another skill with the same name is already installed at\n${folder}\nUninstall it first, then install`,
     occupiedNoSource: (folder: string) => `Can't install: a skill with the same name and no Source is already installed at\n${folder}\nUninstall it first, then install`,
+    memberUntracked: (folder: string) =>
+      `${folder} already exists but wasn't installed by the Library, so it wasn't overwritten. To overwrite it, install the Group again and choose “Overwrite these folders”`,
+    memberDuplicate: (name: string, folder: string) => `Several skills in the Group are named “${name}” and would go into the same folder ${folder}; none of them was installed`,
+    memberDuplicateAdded: (name: string, folder: string) => `The Group already has a skill named “${name}” that would go into the same folder ${folder}; this one wasn't installed`,
+    memberRootMissing: (root: string) => `${root} isn't on this machine, so nothing can be installed there; relocate the project in the right sidebar first`,
     openOccupier: "Open the skill using it",
     untrackedTitle: "A folder with the same name is already there",
     untrackedBody: (folder: string, name: string) => `${folder} exists but wasn't installed by the Library. Overwriting replaces it with “${name}”.`,
@@ -388,17 +393,22 @@ export const en = {
       `${n === 1 ? "1 of these folders is" : `${n} of these folders are`} still used by other Agents and stay in the old directory for them: migrating copies them to the new directory; not migrating leaves them alone.`,
     migrate: "Migrate to the new directory",
     migrateDesc:
-      "Move the installed folders over as they are and keep the Group installs; where the new directory already has a folder with the same name, it isn't overwritten or moved—the old folder stays and is listed afterwards",
+      "Move the installed folders over as they are and keep the Group installs; where the new directory already has the same skill, this Agent uses that one; where it has a different folder with the same name, it isn't overwritten or moved—the old folder stays and is listed afterwards",
     noMigrate: "Don't migrate",
     noMigrateDesc: "Only change the directory; leave the folders in the old directory alone and drop this Agent's install records and Group installs there",
     save: "Save",
     agentSaved: (name: string) => `Saved Agent “${name}”`,
     notMigrated: "Not migrated",
     notMigratedReason: (to: string, from: string) =>
-      `The new directory already has a folder with the same name, or it's taken by another skill's install: ${to}\nThe old folder stays where it is: ${from}`,
+      `The new directory already has a different folder with the same name, or it's taken by another skill's install: ${to}\nThe old folder stays where it is: ${from}`,
+    alreadyMigrated: "Already in the new directory",
+    alreadyMigratedReason: (to: string, from: string) =>
+      `The new directory already has this skill (installed for another Agent): ${to}\nThis Agent now uses that one and still counts it as installed; the old folder stays where it is: ${from}`,
     migratedPartly: (migrated: number, skipped: number) =>
-      `Migrated ${count(migrated, "folder")}; ${skipped === 1 ? "the 1 below wasn't migrated, and this Agent no longer counts it" : `the ${skipped} below weren't migrated, and this Agent no longer counts them`} as installed there.`,
-    agentSavedMigrated: (name: string, n: number) => `Saved Agent “${name}” and migrated ${count(n, "folder")}`,
+      `Migrated ${count(migrated, "install")}${skipped ? `; ${count(skipped, "install")} ${skipped === 1 ? "wasn't" : "weren't"} migrated, and this Agent no longer counts ${skipped === 1 ? "it" : "them"} as installed there` : ""}.`,
+    agentSavedMigrated: (name: string, n: number) => `Saved Agent “${name}” and migrated ${count(n, "install")}`,
+    addToGroupReadsTwiceTitle: (group: string) => `Add to Group “${group}”`,
+    addToGroupConfirm: "Add",
     readsTwice: (agents: string[], skill: string) =>
       `${and(agents)} also read this directory and already have ${skill} in another of their directories, so they'll see two copies`,
     staleLinks: (n: number) => `${count(n, "old link")} pointing to these folders will be deleted too:`,
@@ -428,7 +438,8 @@ export const en = {
     fetchIdentical: (name: string, source: string, place: string) =>
       `This copy is identical to “${name}” in the Library (${source}). Fetching it only records that it is also installed in ${place}; no second skill is added, and it follows “${name}” in the Library from now on.`,
     fetch: "Fetch",
-    fetchHandOver: (place: string) => `Fetching hands it over to the app. The folder in ${place} stays exactly as it is, and the Agent sees the same content.`,
+    fetchHandOver: (place: string, folder: string) =>
+      `Fetching hands it over to the app. The folder ${folder} in ${place} stays exactly as it is, and the Agent sees the same content.`,
     fetchCliCost: "If you keep updating it with a command-line tool afterwards: when it is updated to the author’s newer version, the app recognizes it, and “Update” in the app brings the Library in line; other changes are reported as edited by hand.",
     fetchInRepository: "It's committed in the project repository. Updating it in the app later changes files in the project repository.",
     sourceLink: "Source link",
@@ -1255,7 +1266,7 @@ export const en = {
     retry: "Retry",
     uninstall: "Uninstall and quit",
     what: () =>
-      "Deletes the Library on this machine (its skills, Version history and Update history, Groups, registered projects, custom Agents, and the settings on the Settings page, including the GitHub token, AI and Sync); " +
+      "Deletes the Library on this machine (its skills, Version history and Update history, Groups, registered projects, the Agent settings, and the settings on the Settings page, including the GitHub token, AI and Sync); " +
       {
         mac: "then quits and moves Mechbox to the Trash. If it can't be moved to the Trash, it's selected in Finder so you can drag it there.",
         windows: "then quits. Mechbox itself isn't removed; uninstall it afterwards in Settings → Apps.",
@@ -1447,6 +1458,16 @@ export const en = {
     projectInside: "Must be inside the project root (not the project root itself)",
     editTitle: (name: string) => `Edit Agent “${name}”`,
     addTitle: "Add Agents",
+    upgradeLead: "You can now add Agents from the built-in list. The ones detected on this machine are checked below; nothing is added until you confirm. Ones marked “Directory already read” are left unchecked — most likely the same Agent you added by hand earlier.",
+    distroPoolTitle: (distro: string) => `Add the Agents in ${distro}`,
+    distroPoolLead: (distro: string) => `The global directories now live in ${distro}. The Agents detected there are checked below; nothing is added until you confirm. Ones marked “Directory already read” are left unchecked.`,
+    whereTitle: "Where are your Agents installed?",
+    whereLead: "This PC has WSL. Are the Agents you use installed on Windows or in a WSL distribution? Mechbox adds the Agents it detects there; you can change this later under Settings → General.",
+    whereWindows: "This Windows PC",
+    whereWindowsDesc: "Use the Agent directories under your Windows home directory",
+    whereDistroDesc: "Use the Agent directories under this distribution's home directory",
+    whereContinue: "Continue",
+    upgradeTitle: "Add the Agents on this machine",
     addManualTitle: "Add an Agent by hand",
     searchPool: "Search by name or directory",
     loadingPool: "Reading the candidates…",
@@ -1473,6 +1494,28 @@ export const en = {
     choose: "Choose…",
     chooseGlobal: "Choose the global skill directory",
     chooseDetect: "Choose a detection directory",
+    resetAgents: "Restore Defaults",
+    resetAgentsTitle: "Put the Agent settings back to this version's built-in defaults: built-in Agents get their built-in names and directories back, and Agents you added by hand are removed",
+    resetTitle: "Restore the Agent settings to defaults",
+    resetLead: "Built-in Agents get this version's built-in names and directories back; every Agent you added by hand is removed so it doesn't duplicate a built-in one. Which Agents are added stays the same.",
+    resetChanged: (n: number) => `Agents restored to built-in settings (${n})`,
+    resetChangedPooled: (names: string[]) => `${names.join(", ")} in the pool ${names.length === 1 ? "is" : "are"} restored too.`,
+    resetRemoved: (n: number) => `Agents added by hand that are removed (${n}); they don't go back to the pool`,
+    resetRemovedPooled: (names: string[]) => `${names.join(", ")}, added by hand and in the pool, ${names.length === 1 ? "is" : "are"} deleted too.`,
+    resetMigrations: (n: number) =>
+      `Skills migrated (${n}): their directory isn't a built-in one, so they move to the first built-in directory; where the new directory already has the same skill, the Agent uses that one`,
+    resetMigrateTo: (from: string, to: string) => `${from} → ${to}`,
+    resetField: (field: string, from: string, to: string) =>
+      `${{ name: "Name", global_directories: "Global", project_directories: "In projects", detect_directories: "Detection" }[field] ?? field}: ${from || "(none)"} → ${to || "(none)"}`,
+    resetRemovable: (n: number) => `Folders only the hand-added Agents read (${n}): deleted if you choose to delete them, otherwise left where they are`,
+    resetKeepDesc: "Folders installed for the hand-added Agents stay where they are; the Library no longer manages them",
+    resetNothing: "The Agent settings already match the built-in defaults",
+    resetDone: (changed: number, removed: number) =>
+      ["Restored defaults", [changed && `${count(changed, "Agent")} restored`, removed && `${count(removed, "hand-added Agent")} removed`].filter(Boolean).join(", ")].filter(Boolean).join(": "),
+    defaultDirectories: "This Agent's default directories",
+    otherDirectories: "Directories other Agents use",
+    knownDirectories: "Known directories",
+    noDirectoryMatch: "No matching directory; you can type your own",
   },
 
   scopes: {

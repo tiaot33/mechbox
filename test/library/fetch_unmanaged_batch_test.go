@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -486,4 +487,39 @@ func TestFetchUnmanagedSkillsKeepsTheSourceOfTheFirstOfTwoIdenticalFolders(t *te
 	if results[1].Error != nil || !results[1].Matched || results[1].Skill.ID != results[0].Skill.ID {
 		t.Fatalf("results[1] = %#v, want the copy matched to the same skill", results[1])
 	}
+}
+
+// 整批入库校验请求时按主目录换算目录,和切换全局目录(WSL 发行版)同时进行也不读到换到一半的主目录(go test -race 能查出来)。
+func TestFetchUnmanagedSkillsValidatesUnderTheLibraryLock(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	setTestHome(t, t.TempDir())
+	lib := openTestLibrary(t)
+	request := library.FetchUnmanagedSkillsRequest{Skills: []library.UnmanagedFetchItem{{
+		Folders: []library.FolderInScope{
+			{Scope: library.GlobalScope(library.AgentCodex), Name: "x"},
+			{Scope: library.GlobalScope(library.AgentCodex), Name: "x"},
+		},
+	}}}
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for range 50 {
+			if err := lib.SetWSLDistro(ctx, ""); err != nil {
+				t.Error(err)
+				return
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for range 50 {
+			if _, err := lib.FetchUnmanagedSkills(ctx, request); !library.IsCode(err, library.InvalidArgument) {
+				t.Errorf("FetchUnmanagedSkills() = %v; want InvalidArgument for a folder given twice", err)
+				return
+			}
+		}
+	}()
+	wg.Wait()
 }

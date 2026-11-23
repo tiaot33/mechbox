@@ -641,3 +641,32 @@ func TestUnmanagedCopiesAreNotAdoptedWhileTheDistroIsUnavailable(t *testing.T) {
 	requireUnmanagedSkills(t, lib, nil)
 	requireScopeStatus(t, lib, skill.ID, claude, library.SkillScopeCurrent)
 }
+
+// 手填添加 Agent 时检测出错(如发行版里的命令一时失败):什么都不添加,用户照原样重试不会加出两个。以前先写进数据库再检测。
+func TestAddAgentAddsNothingWhenDetectionFails(t *testing.T) {
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	setTestHome(t, home)
+	t.Setenv("HOME", home)
+	// 充当发行版的 sh 外面套一层:命令里出现 BREAK-DETECTION 时这个会话就断掉,检测那里的目录就会出错。
+	shell := filepath.Join(t.TempDir(), "flaky-sh")
+	writeFile(t, shell, []byte("#!/bin/sh\nwhile IFS= read -r line; do case \"$line\" in *BREAK-DETECTION*) exit 1;; esac; printf '%s\\n' \"$line\"; done | sh \"$@\"\n"), 0o755)
+	platformtest.EmulateWSL(t, shell)
+	lib := openTestLibrary(t)
+	if err := lib.SetWSLDistro(t.Context(), t.Name()); err != nil {
+		t.Fatal(err)
+	}
+	before := len(listAgents(t, lib))
+	_, err = lib.AddAgent(t.Context(), library.AgentInput{
+		Name: "Mine", GlobalDirectories: []string{wslPath(t, filepath.Join(home, ".mine/skills"))}, ProjectDirectories: []string{".mine/skills"},
+		DetectDirectories: []string{wslPath(t, filepath.Join(home, "BREAK-DETECTION"))},
+	})
+	if err == nil {
+		t.Fatal("AddAgent() with a failing detection = nil error; want the failure reported")
+	}
+	if after := len(listAgents(t, lib)); after != before {
+		t.Fatalf("ListAgents() after a failed AddAgent has %d agents, want %d", after, before)
+	}
+}

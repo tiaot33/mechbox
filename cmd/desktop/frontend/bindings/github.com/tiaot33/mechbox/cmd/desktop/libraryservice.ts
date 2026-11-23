@@ -165,6 +165,10 @@ export function KeepDeletedSkill(id: library$0.SkillID): $CancellablePromise<lib
     return $Call.ByID(2236391569, id);
 }
 
+export function ListAgentDefaults(): $CancellablePromise<library$0.Agent[] | null> {
+    return $Call.ByID(3665394065);
+}
+
 export function ListAgentPool(): $CancellablePromise<library$0.Agent[] | null> {
     return $Call.ByID(1173585253);
 }
@@ -257,6 +261,10 @@ export function PlanInstall(id: library$0.SkillID, scope: library$0.Scope): $Can
     return $Call.ByID(3522939696, id, scope);
 }
 
+export function PlanResetAgents(): $CancellablePromise<library$0.ResetAgentsPlan> {
+    return $Call.ByID(1621974982);
+}
+
 export function PlanSyncPull(backup: library$0.SyncBackupID): $CancellablePromise<library$0.SyncPullPlan> {
     return $Call.ByID(986267041, backup);
 }
@@ -319,6 +327,10 @@ export function ReorderCollections(ids: library$0.CollectionID[] | null): $Cance
 
 export function ReorderGroups(ids: library$0.GroupID[] | null): $CancellablePromise<void> {
     return $Call.ByID(3016330733, ids);
+}
+
+export function ResetAgents(opts: library$0.ResetAgentsOptions): $CancellablePromise<library$0.ResetAgentsResult> {
+    return $Call.ByID(1537500011, opts);
 }
 
 export function RetryUpdateInstalls(id: library$0.UpdateRecordID, installs: library$0.ReinstallRequest[] | null): $CancellablePromise<library$0.ReinstallResult[] | null> {

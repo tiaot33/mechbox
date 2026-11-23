@@ -188,7 +188,7 @@ function LostEdits({ places, prefix }: { places: SkillScopeInspection[]; prefix:
   );
 }
 
-// SharedFolders 列出还有别的 Agent 在读、因而保留的技能文件夹。
+// SharedFolders 逐个列出几处技能文件夹(技能 · 作用域、文件夹路径);还有别的 Agent 在读的写出是哪几个在用。
 export function SharedFolders({ places }: { places: SkillScopeInspection[] }) {
   const s = useSnapshot();
   const t = useT();
@@ -204,7 +204,9 @@ export function SharedFolders({ places }: { places: SkillScopeInspection[] }) {
               {shortPath(s, p.folder)}
             </div>
           </div>
-          <span className="text-caption text-muted-foreground">{t.actions.sharedBy((p.shared_with ?? []).map((code) => agentName(s, code)))}</span>
+          {!!p.shared_with?.length && (
+            <span className="text-caption text-muted-foreground">{t.actions.sharedBy(p.shared_with.map((code) => agentName(s, code)))}</span>
+          )}
         </ListRow>
       ))}
     </ListBox>

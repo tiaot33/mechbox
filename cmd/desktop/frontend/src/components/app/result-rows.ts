@@ -1,11 +1,12 @@
 // 写操作结果列表里的一行(results.tsx 的 showResults 列出它们):组安装、加入组的逐个成员，重新安装失败的条目。
 // 不碰界面、不调技能库，流程里的判断(features/ 下的 *-rules.ts)也用它们归并结果。
-import { GroupMemberOutcome, type GroupMemberResult, type ReinstallResult, type SkillID } from "@bindings/internal/library";
-import { describeError } from "@/lib/errors";
+import { ErrorCode, GroupMemberOutcome, type GroupMemberResult, type ReinstallResult, type SkillID } from "@bindings/internal/library";
+import { describeError, occupiedReason } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
 import type { Attempt, Snapshot } from "@/lib/library";
 import type { Tone } from "@/lib/level";
 import { errorOccupier } from "@/lib/installs";
+import { shortPath } from "@/lib/paths";
 import { scopeLabel } from "@/lib/places";
 import { skillName } from "@/lib/scope";
 
@@ -33,14 +34,32 @@ function memberOutcome(outcome: string): { text: string; tone: ResultRow["tone"]
 }
 
 // memberRows 是组安装、加入组的逐个结果;被同名的另一个技能占用而跳过的，能点开占着的那个(错误里带着它)。
-export function memberRows(s: Snapshot, results: GroupMemberResult[]): ResultRow[] {
+// adding 是把技能加入组(组里已有同名的那一个可能装着),否则是整组安装(同名的几个都没装)。
+export function memberRows(s: Snapshot, results: GroupMemberResult[], adding = false): ResultRow[] {
   return results.map((r) => ({
     label: `${skillName(s, r.skill_id)} → ${scopeLabel(s, r.scope)}`,
     outcome: memberOutcome(r.outcome)?.text ?? r.outcome,
     tone: memberOutcome(r.outcome)?.tone ?? "info",
-    reason: r.error ? describeError(r.error) : undefined,
+    reason: memberReason(s, r, adding),
     occupier: errorOccupier(s, r.skill_id, r.error),
   }));
+}
+
+// memberReason 说明一个成员为什么跳过，和单个安装时的说法一致(occupiedReason),路径按界面惯例缩写(主目录下的写成 ~);
+// 按技能库给的字段认原因(见 GroupMemberResult),认不出的照 describeError 写。
+function memberReason(s: Snapshot, r: GroupMemberResult, adding: boolean): string | undefined {
+  const err = r.error;
+  if (!err) return undefined;
+  const t = messages().actions;
+  const d = err.details ?? {};
+  const path = d.path ? shortPath(s, d.path) : "";
+  if (err.code === ErrorCode.AlreadyExists && path) return t.memberUntracked(path);
+  if (err.code === ErrorCode.FailedPrecondition && path) {
+    if (d.skill_id) return occupiedReason(s, r.skill_id, d.skill_id, d.path!);
+    if (d.name) return adding ? t.memberDuplicateAdded(d.name, path) : t.memberDuplicate(d.name, path);
+    if (d.project_id) return t.memberRootMissing(path);
+  }
+  return describeError(err);
 }
 
 // placedBy 是组安装、加进组时随组安装装上(或已经在那里)的各处，装好后的提示按它看提到的技能找不找得到。

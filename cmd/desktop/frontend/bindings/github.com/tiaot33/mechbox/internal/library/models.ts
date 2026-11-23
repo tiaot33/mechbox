@@ -163,6 +163,16 @@ export interface AgentMigration {
 }
 
 /**
+ * AgentReset 是「恢复默认」里的一个 Agent:Agent 是它现在的样子,Added 表示已添加(否则在候选池里);
+ * Defaults 是要换回的内置值,要移除的手填 Agent 没有。
+ */
+export interface AgentReset {
+    "agent": Agent;
+    "defaults"?: Agent | null;
+    "added": boolean;
+}
+
+/**
  * AgentSettings 是技能对 Claude Code、Codex 声明的设置:只有那个 Agent 才读的字段,决定它怎样用这个技能。
  * Claude Code 的取自 SKILL.md 开头的 frontmatter,Codex 的取自技能文件夹里的 agents/openai.yaml。
  * 只给出和默认不同的;写错了、解析不出来的按 Agent 自己的做法当作没写,不报错。
@@ -1098,6 +1108,8 @@ export enum GroupMemberOutcome {
 /**
  * GroupMemberResult 是一个成员在一个 Scope 上的结果。Error 仅在 MemberSkipped 时非空,按跳过原因:
  *   - 被另一个技能占用:FailedPrecondition,Details.SkillID / Name / Path 为占用者与其文件夹;
+ *   - 这个技能的另一个作用域已装在同一个文件夹(两个技能目录经符号链接是同一处):FailedPrecondition,Details.SkillID 为这个技能自己,
+ *     Name / Path 为那个文件夹;
  *   - 组里同名:FailedPrecondition,Details.Name 为同名的名字,Path 为共同的文件夹;
  *   - 作用域根目录不存在(仅加入成员时):FailedPrecondition,Details.Path 为根目录,项目带 ProjectID;
  *   - 有不是从库里装的同名文件夹且没同意覆盖:AlreadyExists,Details.Path 为该文件夹。
@@ -1299,9 +1311,16 @@ export enum MigrationOutcome {
     MigrationCopied = "copied",
 
     /**
-     * 新目录里已有同名文件夹,或库里已有别的技能装在那里:不覆盖、不搬,旧文件夹留在原处,这个 Agent 在这一处不再算已装
+     * 新目录里已有不是这个技能的同名文件夹,或库里已有别的技能装在那里:不覆盖、不搬,旧文件夹留在原处,这个 Agent 在这一处不再算已装
      */
     MigrationSkipped = "skipped",
+
+    /**
+     * 新目录里已经装着库里的这个技能(同一层级里别的 Agent 装的、文件夹在磁盘上,文件夹名可以不同;或没有记录、内容和库里某一版一致):
+     * 不复制、不搬,这个 Agent 的安装记录改指到那一处,保留直接安装与组安装,照常算已装;
+     * 旧文件夹留在原处,还有别的 Agent 在读的连同安装记录留给它们,没有的库不再管理它。
+     */
+    MigrationAlreadyInstalled = "already_installed",
 };
 
 /**
@@ -1361,6 +1380,16 @@ export enum PlannedChange {
      */
     PlannedDeleted = "deleted",
 };
+
+/**
+ * PlannedMigration 是「恢复默认」会迁移的一处安装:已添加的收录 Agent 的这一处所在的目录不在内置目录里,迁移到 To(新的技能文件夹)。
+ * Leaves 表示恢复默认之后旧文件夹不再有已添加的 Agent 在读,会被搬走;否则复制一份过去,旧文件夹留给还在读的 Agent。
+ */
+export interface PlannedMigration {
+    "place": SkillScope;
+    "to": string;
+    "leaves": boolean;
+}
 
 /**
  * PlannedSkill 是更新计划里的一个技能。
@@ -1717,6 +1746,71 @@ export interface RemoveSkillOptions {
      * 整次返回 Conflict(Details.Paths 为这几个文件夹),一个都不删;列了而现在没被改过的照常删。不删文件夹时不核对。
      */
     "discard_edits"?: string[] | null;
+}
+
+/**
+ * ResetAgentsOptions 是 ResetAgents 的选项,只管 ResetAgentsPlan.Removable 里的文件夹,含义同 DeleteAgentOptions:
+ * Folders 默认(零值或 Remove)删除,显式 Keep 保留;DiscardEdits 是确认时告诉用户被改过、修改会丢掉的文件夹。
+ */
+export interface ResetAgentsOptions {
+    "folders": FolderPolicy;
+    "discard_edits"?: string[] | null;
+}
+
+/**
+ * ResetAgentsPlan 是 [Library.PlanResetAgents] 给出的「恢复默认」会做的事,和 [Library.ResetAgents] 按同一套规则算。
+ * 要移除的手填 Agent 当一批算:还在读的 Agent 只算这一批以外的已添加 Agent。
+ */
+export interface ResetAgentsPlan {
+    /**
+     * Reset 是会换回内置值的收录 Agent(已添加的和候选池里的),只列和内置值不一样的,按代码排序。
+     */
+    "reset": AgentReset[] | null;
+
+    /**
+     * Removed 是会移除的手填 Agent(已添加的和候选池里的),按代码排序;它们不回候选池。
+     */
+    "removed": AgentReset[] | null;
+
+    /**
+     * Migrations 是已添加的收录 Agent 去掉的目录里会迁移的各处,按技能 ID、作用域排序。
+     */
+    "migrations": PlannedMigration[] | null;
+
+    /**
+     * Kept 是移除手填 Agent 时还有这一批以外的已添加 Agent 在读、不管怎么选都保留的技能文件夹,SharedWith 是在读的 Agent。
+     */
+    "kept": SkillScope[] | null;
+
+    /**
+     * Removable 是只有这一批手填 Agent 在读、为它们装的技能文件夹:ResetAgentsOptions.Folders 选删除时删掉,一个文件夹只列一处。
+     */
+    "removable": SkillScope[] | null;
+}
+
+/**
+ * ResetAgentsResult 是 ResetAgents 的结果,各项按代码(技能 ID、作用域)排序。
+ */
+export interface ResetAgentsResult {
+    /**
+     * Removed 是移除了的用户手填添加的 Agent,含候选池里的。
+     */
+    "removed": AgentCode[] | null;
+
+    /**
+     * Reset 是换回了内置值的收录 Agent(已添加的和候选池里的),只列原来和内置值不一样的。
+     */
+    "reset": AgentCode[] | null;
+
+    /**
+     * Migrations 是已添加的收录 Agent 去掉了的目录里那几处安装的迁移结果,同 EditAgentResult.Migrations。
+     */
+    "migrations": AgentMigration[] | null;
+
+    /**
+     * Kept 同 ResetAgentsPlan.Kept。
+     */
+    "kept": SkillScope[] | null;
 }
 
 /**

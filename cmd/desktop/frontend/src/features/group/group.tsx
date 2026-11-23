@@ -15,19 +15,20 @@ import { Field, Hint } from "@/components/ui/field";
 import { NativeSelect } from "@/components/ui/native-select";
 import { DeleteNotes } from "@/components/app/link-notes";
 import { runDiscardingEdits } from "@/components/app/discard-edits";
-import { LostMentions, lostMentions, toastInstalled } from "@/features/install/install";
+import { LostMentions, lostMentions, ReadsTwiceNotice, toastInstalled } from "@/features/install/install";
 import { runEach, showResults } from "@/components/app/results";
 import { memberRows, placedBy } from "@/components/app/result-rows";
-import { addedToGroup, groupOnly, inGroup, notInGroup } from "./group-rules";
+import { addReadsTwice, addedToGroup, groupOnly, inGroup, notInGroup } from "./group-rules";
 
 export async function addSkillToGroup(groupID: GroupID, id: SkillID) {
   const s = currentSnapshot();
   const t = messages().actions;
+  if (!(await confirmReadsTwice(groupID, [id]))) return;
   const results = await ui.run(() => LibraryService.AddSkillToGroup(groupID, id));
   if (!results) return;
   const skipped = results.filter((r) => r.outcome === GroupMemberOutcome.MemberSkipped);
   if (skipped.length) {
-    await showResults(t.addedToGroupTitle(skillName(s, id), groupName(s, groupID)), memberRows(s, results), t.addedToGroupPartly);
+    await showResults(t.addedToGroupTitle(skillName(s, id), groupName(s, groupID)), memberRows(s, results, true), t.addedToGroupPartly);
   } else {
     await toastInstalled(placedBy(results), t.addedToGroup(skillName(s, id), groupName(s, groupID), results.length));
     return;
@@ -81,6 +82,7 @@ async function addEachToGroup(
 ): Promise<boolean> {
   const s = currentSnapshot();
   const t = messages().actions;
+  if (!(await confirmReadsTwice(groupID, ids))) return false;
   const results = await runEach(ids, (id) => LibraryService.AddSkillToGroup(groupID, id).then((r) => r ?? []));
   if (!results) return false;
   const { all, skipped, added, placed, rows } = addedToGroup(s, ids, results);
@@ -91,6 +93,24 @@ async function addEachToGroup(
   await showResults(text.title(added, ids.length), rows, skipped ? t.membersAddedPartly : undefined);
   await toastInstalled(placed);
   return added > 0;
+}
+
+// confirmReadsTwice 在把技能加入组之前，对这个组已组安装的各处取安装计划;有别的 Agent 会读到两份时先说明，用户同意再加入。
+// 组还没有组安装、或没有会读到两份的时直接返回 true;取计划失败的那几处不说(加入后照常装，结果里会列出)。
+async function confirmReadsTwice(groupID: GroupID, ids: SkillID[]): Promise<boolean> {
+  const s = currentSnapshot();
+  const scopes = s.groupInstalls.filter((a) => a.group_id === groupID).map((a) => a.scope);
+  if (!scopes.length) return true;
+  const plans = await ui.read(() =>
+    Promise.all(
+      ids.flatMap((id) => scopes.map((scope) => LibraryService.PlanInstall(id, scope).then((plan) => (plan ? [{ scope, plan }] : []), () => []))),
+    ).then((all) => all.flat()),
+  );
+  if (!plans) return false;
+  const notes = addReadsTwice(s, plans);
+  if (!notes.length) return true;
+  const t = messages().actions;
+  return !!(await ui.confirm({ title: t.addToGroupReadsTwiceTitle(groupName(s, groupID)), body: <ReadsTwiceNotice notes={notes} />, confirm: t.addToGroupConfirm }));
 }
 
 export async function removeSkillFromGroup(groupID: GroupID, id: SkillID) {

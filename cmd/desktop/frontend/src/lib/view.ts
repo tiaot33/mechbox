@@ -292,7 +292,7 @@ export function reveal(scope: Scope) {
 export const startDrag = (item: DragItem) => set({ drag: item, right: true });
 export const endDrag = () => set({ drag: null });
 
-// reconcile 在快照变了之后校正在哪一页：更新都处理完了、作用域的项目或 Agent 被移除(注销项目、删除自定义 Agent、
+// reconcile 在快照变了之后校正在哪一页：更新都处理完了、作用域的项目或 Agent 被移除(注销项目、移除 Agent、
 // 拉取了别的库)时退回技能库，并记下来，之后又有了更新也不会自己跳回去。
 // 勾选的技能只留这一页还列着的(移除了的、项目页上卸载了的去掉),
 // 免得看不见的技能被带进下一次操作。
