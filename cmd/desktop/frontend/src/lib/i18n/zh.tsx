@@ -376,7 +376,7 @@ export const zh = {
     notMigratedReason: (to: string, from: string) => `新目录里已有不是这个技能的同名文件夹，或被库里另一个技能的安装占用：${to}\n旧文件夹留在原处：${from}`,
     alreadyMigrated: "新目录里已装着",
     alreadyMigratedReason: (to: string, from: string, agents: string[]) =>
-      (agents.length ? `新目录里已经装着这个技能（${agents.join("、")} 装的）：${to}` : `新目录里已经有这个技能，内容和技能库里的一致：${to}`) +
+      (agents.length ? `新目录里已经装着这个技能（${agents.join("、")} 装的）：${to}` : `新目录里已经有这个技能，和技能库里它的某一版一致：${to}`) +
       `\n这个 Agent 改认那一份，照常算已装；旧文件夹留在原处：${from}`,
     migratedPartly: (migrated: number, skipped: number) =>
       `迁移了 ${migrated} 处${skipped ? `；${skipped} 处没有迁移，这个 Agent 在那里不再算已装` : ""}。`,

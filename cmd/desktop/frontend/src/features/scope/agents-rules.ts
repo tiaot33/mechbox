@@ -54,7 +54,7 @@ export function agentDelete(s: Snapshot, code: AgentCode) {
 }
 
 // migrationReport 是改目录并迁移之后要说的：rows 逐个列出没有原样搬过去的(新目录里已有别的同名文件夹而没迁移的，
-// 新目录里已经装着同一个技能、改认那一份而旧文件夹留在原处的：那一份是别的 Agent 装的写出是谁，没有安装记录的只说内容一致);listed 是要不要弹出结果列表：有这两种之一就弹，否则只提示迁移了几处;
+// 新目录里已经装着同一个技能、改认那一份而旧文件夹留在原处的：那一份是库为别的 Agent 装的写出是谁，没有安装记录的只说和库里某一版一致);listed 是要不要弹出结果列表：有这两种之一就弹，否则只提示迁移了几处;
 // migrated 是这个 Agent 在新目录照常算已装的处数(搬过去的、复制过去的、改认那一份的)。
 export function migrationReport(s: Snapshot, migrations: AgentMigration[]) {
   const t = messages().actions;
@@ -67,7 +67,7 @@ export function migrationReport(s: Snapshot, migrations: AgentMigration[]) {
       label: label(m),
       outcome: t.alreadyMigrated,
       tone: "plain" as const,
-      reason: t.alreadyMigratedReason(shortPath(s, m.to), shortPath(s, m.from), (m.shared_with ?? []).map((code) => agentName(s, code))),
+      reason: t.alreadyMigratedReason(shortPath(s, m.to), shortPath(s, m.from), (m.installed_for ?? []).map((code) => agentName(s, code))),
     })),
   ];
   return { rows, listed: rows.length > 0, migrated: migrations.length - skipped.length, skipped: skipped.length };

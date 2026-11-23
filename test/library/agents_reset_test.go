@@ -36,7 +36,7 @@ func TestEditAgentMigrationCountsTheSameSkillAlreadyInTheNewDirectory(t *testing
 	}
 	want := []library.AgentMigration{{
 		SkillID: skill.ID, Scope: global, Outcome: library.MigrationAlreadyInstalled,
-		From: filepath.Join(oldDir, "only-here"), To: filepath.Join(newDir, "only-here"), SharedWith: []library.AgentCode{library.AgentCodex},
+		From: filepath.Join(oldDir, "only-here"), To: filepath.Join(newDir, "only-here"), InstalledFor: []library.AgentCode{library.AgentCodex},
 	}}
 	if !reflect.DeepEqual(result.Migrations, want) {
 		t.Fatalf("EditAgent() migrations = %#v, want %#v", result.Migrations, want)
@@ -66,15 +66,41 @@ func TestEditAgentMigrationTellsWhoseFolderIsAlreadyInTheNewDirectory(t *testing
 	}
 	oldDir, sharedDir := filepath.Join(home, ".agent", "skills"), filepath.Join(home, ".agents", "skills")
 	away := editMigrating(t, lib, agent, sharedDir)
-	if len(away) != 1 || away[0].Outcome != library.MigrationAlreadyInstalled || !slices.Equal(away[0].SharedWith, []library.AgentCode{library.AgentCodex}) {
+	if len(away) != 1 || away[0].Outcome != library.MigrationAlreadyInstalled || !slices.Equal(away[0].InstalledFor, []library.AgentCode{library.AgentCodex}) {
 		t.Fatalf("EditAgent() to the shared directory migrations = %#v; want already installed, shared with codex", away)
 	}
 	agent.GlobalDirectories = []string{sharedDir}
 	back := editMigrating(t, lib, agent, oldDir)
-	if len(back) != 1 || back[0].Outcome != library.MigrationAlreadyInstalled || back[0].To != filepath.Join(oldDir, "foo") || len(back[0].SharedWith) != 0 {
+	if len(back) != 1 || back[0].Outcome != library.MigrationAlreadyInstalled || back[0].To != filepath.Join(oldDir, "foo") || len(back[0].InstalledFor) != 0 {
 		t.Fatalf("EditAgent() back migrations = %#v; want the folder left behind adopted, shared with no agent", back)
 	}
 	requireOwnInstall(t, lib, library.GlobalScope(agent.Code), filepath.Join(oldDir, "foo"))
+}
+
+// 新目录那一份只写库为谁装的:另一个也读这个目录、只因共用目录才算已装的 Agent 不算。以前结果里把它也写成「装的」。
+func TestEditAgentMigrationInstalledForLeavesOutAgentsThatOnlyShareTheDirectory(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	home := t.TempDir()
+	setTestHome(t, home)
+	lib := openTestLibrary(t)
+	agent := addAgent(t, lib, home, "Agent", ".agent/skills", ".agent/skills")
+	reader := addAgent(t, lib, home, "Reader", ".agents/skills", ".reader/skills")
+	skill := fetchNamedSkill(t, lib, "foo")
+	for _, scope := range []library.Scope{library.GlobalScope(library.AgentCodex), library.GlobalScope(agent.Code)} {
+		if err := lib.Install(ctx, skill.ID, scope, library.InstallOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	readerScope := library.GlobalScope(reader.Code)
+	scopes, err := lib.ListSkillScopes(ctx, library.SkillScopeFilter{Scope: &readerScope})
+	if err != nil || len(scopes) != 1 || !scopes[0].SharedOnly {
+		t.Fatalf("ListSkillScopes(reader) = %#v, %v; want it counted only through the shared directory", scopes, err)
+	}
+	migrations := editMigrating(t, lib, agent, filepath.Join(home, ".agents", "skills"))
+	if len(migrations) != 1 || migrations[0].Outcome != library.MigrationAlreadyInstalled || !slices.Equal(migrations[0].InstalledFor, []library.AgentCode{library.AgentCodex}) {
+		t.Fatalf("EditAgent() migrations = %#v; want already installed for codex only", migrations)
+	}
 }
 
 // editMigrating 把 agent 的全局目录改成 directory 并选迁移,返回迁移结果。

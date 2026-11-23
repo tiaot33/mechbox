@@ -196,12 +196,12 @@ describe("改目录并迁移之后", () => {
     expect(r.rows[1].reason).toContain("照常算已装");
     expect(r.rows[1].reason).not.toContain("不再算已装");
   });
-  it("新目录那一份是别的 Agent 装的才说是谁装的;没有安装记录的(如上次迁移留在原处的旧文件夹)只说内容一致，不说别的 Agent 装的", () => {
+  it("新目录那一份是别的 Agent 装的才说是谁装的;没有安装记录的(如上次迁移留在原处的旧文件夹)只说和库里某一版一致，不说别的 Agent 装的", () => {
     const named = { ...s, agents: [{ code: AgentCode.AgentCodex, name: "Codex" }] } as unknown as Snapshot;
-    const [codex] = migrationReport(named, [{ ...migration(2, MigrationOutcome.MigrationAlreadyInstalled), shared_with: [AgentCode.AgentCodex] }]).rows;
+    const [codex] = migrationReport(named, [{ ...migration(2, MigrationOutcome.MigrationAlreadyInstalled), installed_for: [AgentCode.AgentCodex] }]).rows;
     expect(codex.reason).toContain("新目录里已经装着这个技能（Codex 装的）：~/.agents/skills/s2");
     const [left] = migrationReport(named, [migration(2, MigrationOutcome.MigrationAlreadyInstalled)]).rows;
-    expect(left.reason).toContain("新目录里已经有这个技能，内容和技能库里的一致：~/.agents/skills/s2");
+    expect(left.reason).toContain("新目录里已经有这个技能，和技能库里它的某一版一致：~/.agents/skills/s2");
     expect(left.reason).not.toContain("装的");
   });
 });

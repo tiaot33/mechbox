@@ -409,7 +409,7 @@ export const en = {
     alreadyMigratedReason: (to: string, from: string, agents: string[]) =>
       (agents.length
         ? `The new directory already has this skill (installed for ${and(agents)}): ${to}`
-        : `The new directory already has this skill, identical to the one in the library: ${to}`) +
+        : `The new directory already has this skill, matching a version of it in the library: ${to}`) +
       `\nThis Agent now uses that one and still counts it as installed; the old folder stays where it is: ${from}`,
     migratedPartly: (migrated: number, skipped: number) =>
       `Migrated ${count(migrated, "install")}${skipped ? `; ${count(skipped, "install")} ${skipped === 1 ? "wasn't" : "weren't"} migrated, and this Agent no longer counts ${skipped === 1 ? "it" : "them"} as installed there` : ""}.`,
