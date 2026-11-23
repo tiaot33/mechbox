@@ -16,9 +16,9 @@ import {
   type SkillScopeInspection,
   type UnmanagedSkill,
 } from "@bindings/internal/library";
-import type { Snapshot } from "@/lib/library";
-import { scopeKey } from "@/lib/scope";
-import { sourceChanges, todoSkills } from "@/lib/source-state";
+import type { Snapshot } from "./library";
+import { scopeKey } from "./scope";
+import { sourceChanges, todoSkills } from "./source-state";
 import { rowInstall, skillRowState, unmanagedRowState, updateAlerts, type RowAt } from "./row-state";
 
 const claude = AgentCode.AgentClaudeCode;

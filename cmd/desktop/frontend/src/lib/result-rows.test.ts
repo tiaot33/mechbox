@@ -1,7 +1,7 @@
 // 组安装、加入组的逐个结果：跳过的成员用中文说明原因，路径按界面惯例缩写，不显示技能库的英文原始错误。
 import { describe, expect, it } from "vitest";
 import { AgentCode, ErrorCode, GroupMemberOutcome, ScopeKind, type GroupMemberResult } from "@bindings/internal/library";
-import type { Snapshot } from "@/lib/library";
+import type { Snapshot } from "./library";
 import { memberRows } from "./result-rows";
 
 const s = {

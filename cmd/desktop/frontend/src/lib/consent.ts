@@ -110,13 +110,13 @@ export function updateInstalls(plan: UpdatePlan, checked: Set<SkillID>, installO
 // 其余换成当前版本。keptEdited / keptMissing 是没动的文件夹数。
 export function refreshRequests(inspected: SkillScopeInspection[]) {
   const behind = inspected.filter(needsReinstall);
-  const kept = (status: SkillScopeStatus) => new Set(behind.filter((p) => p.status === status).map(folderKey)).size;
+  const kept = (which: (p: SkillScopeInspection) => boolean) => new Set(behind.filter(which).map(folderKey)).size;
   return {
     requests: behind
       .filter((p) => !consented(p))
       .map((p): ReinstallRequest => ({ skill_id: p.skill_id, scope: p.scope, overwrite: false })),
-    keptEdited: kept(SkillScopeStatus.SkillScopeModified),
-    keptMissing: kept(SkillScopeStatus.SkillScopeMissing),
+    keptEdited: kept(edited),
+    keptMissing: kept((p) => p.status === SkillScopeStatus.SkillScopeMissing),
   };
 }
 

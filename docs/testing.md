@@ -27,7 +27,7 @@
 各项检查覆盖的范围：
 
 - **Go 测试**：技能库的全部公开方法（`test/library/`），各子包的内部实现，以及桌面端的 Go 代码（绑定服务、设置、自动检查更新、自动推送、菜单、卸载，和 `cmd/desktop/internal/` 下的回收站、新版本、系统平台代码）。
-- **前端单元测试**：不碰界面、不调技能库的纯函数：`frontend/src/lib/` 里的，`frontend/src/features/` 下各写操作流程里抽出来的判断（`*-rules.ts`），以及列表一行的状态写什么（`components/app/skill-list/row-state.ts`）。
+- **前端单元测试**：不碰界面、不调技能库的纯函数：`frontend/src/lib/` 里的，以及 `frontend/src/features/` 下各写操作流程里抽出来的判断（`*-rules.ts`）。
 - **e2e**：把桌面端编译成 server 模式，用 Chrome 按界面操作走一遍技能库的全部功能，并核对磁盘上的技能文件夹。
 - **在 app 里看界面**：e2e 覆盖不到的视觉细节，以及只有原生窗口才有的行为（见[在 app 里验证界面](#在-app-里验证界面)）。
 
@@ -190,7 +190,7 @@ Windows 本机的目录读不出可执行位，相关的测试也不需要 Windo
 - 从快照算出界面内容的函数按主题放在 `lib/` 下各自的文件里（`scope.ts`、`places.ts`、`installs.ts`、`unmanaged.ts`、`same-name.ts`、`source.ts`、`source-state.ts`、`pages.ts`、`result-rows.ts`），测试是旁边的同名 `.test.ts`。新函数放进对应主题的文件，不另开一个什么都放的文件；只有一个流程用的，放进那个流程的 `-rules.ts`。有三条规则各只有一个入口，改界面时用它们，不在调用处另写一遍：
   - 写出几处的名字、数几处、逐处列出，用 `lib/places.ts` 的 `placeNames`、`placeCount`、`eachPlace`；不分技能、只问涉及几个地方用 `scopeCount`。同一层级目录列表相同的几个 Agent 在里面合成一处，一个技能按实际的文件夹分开。
   - 一个技能在来源那边的情况（有新版本、可能改名、来源里已删除、目录里改过，是否计入角标），读 `lib/source-state.ts` 的 `sourceState`；一组技能里各有几个，读 `sourceChanges`。技能库的检查结论（`last_update_check`）只在这个文件里读。
-  - 列表一行的状态写哪几条，在 `components/app/skill-list/row-state.ts` 里改，它给出的几条已按画出来的先后排好，行组件只接上点击和菜单。
+  - 列表一行的状态写哪几条，在 `lib/row-state.ts` 里改，它给出的几条已按画出来的先后排好，行组件只接上点击和菜单。
 
 ## 运行端到端验证
 

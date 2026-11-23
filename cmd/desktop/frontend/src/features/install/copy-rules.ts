@@ -224,9 +224,6 @@ const placeKeys = (p: CopyPlace) => [...p.groups.map((g) => groupKey(p, g.id)), 
 // Planned 是一项的安装计划(见 consent.ts 的 CopyPlanned):直接安装是一个技能的，组安装是各成员的;读不出时是技能库错误。
 export type Planned = Exclude<CopyPlanned, { error: unknown }> | { error: LibraryError };
 
-// canCheck 是这一项能不能勾：组安装读出计划就能勾，直接安装还要装得了(没被占用)。
-const canCheck = (planned: Planned | undefined) => !!planned && ("members" in planned || ("plan" in planned && copyable(planned.plan.status)));
-
 const state = Symbol("copy");
 
 // CopyChoices 是确认框里的一份勾选，绑着选了照着谁之后要装的各处(places)与各处打开时默认勾不勾(byDefault):
@@ -357,17 +354,18 @@ export function copyView(s: Snapshot, c: CopyChoices): CopyView {
     };
   };
   const placeView = (p: CopyPlace): CopyPlaceView => {
-    const keys = placeKeys(p);
-    const on = keys.filter((k) => checked.has(k)).length;
-    const checkable = keys.filter((k) => canCheck(plans?.get(k))).length;
+    const groups = p.groups.map((g) => groupItem(p, g));
+    const skills = p.skills.map((x) => skillItem(p, x));
+    const items = [...groups, ...skills];
+    const on = items.filter((i) => i.on).length;
     return {
       key: scopeKey(p.to),
       place: p,
       on: on > 0,
-      mixed: on > 0 && on < checkable,
+      mixed: on > 0 && on < items.filter((i) => i.can).length,
       count: copyItems(p),
-      groups: p.groups.map((g) => groupItem(p, g)),
-      skills: p.skills.map((x) => skillItem(p, x)),
+      groups,
+      skills,
     };
   };
   const counted = [...checked];

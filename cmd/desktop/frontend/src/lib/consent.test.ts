@@ -225,6 +225,12 @@ describe("本地目录来源的重新读取(目录内容没变)", () => {
     expect(r.keptEdited).toBe(1);
     expect(r.keptMissing).toBe(1);
   });
+
+  it("在 app 外更新到作者新版的一处照常补换，不算进用户改过、保持原样的", () => {
+    const r = refreshRequests([place(1, global(codex), SkillScopeStatus.SkillScopeModified, { source_latest: true })]);
+    expect(r.requests).toEqual([{ skill_id: 1, scope: global(codex), overwrite: false }]);
+    expect(r.keptEdited).toBe(0);
+  });
 });
 
 describe("重新安装", () => {

@@ -5,9 +5,8 @@ import type { Agent, AgentCode, Scope, SkillID } from "@bindings/internal/librar
 import { useT } from "@/lib/i18n";
 import { currentSnapshot, reloadLibrary, useSnapshot } from "@/lib/library";
 import { agentNameIn, installAgentsIn } from "@/lib/places";
-import { parseScope, placeOf, projectName, scopeKey, scopeOf, type Place } from "@/lib/scope";
+import { projectName, scopeKey, scopeOf, type Place } from "@/lib/scope";
 import { skillScopeIn } from "@/lib/installs";
-import type { Page } from "@/lib/pages";
 import { Modal, ui } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -114,13 +113,6 @@ export function AgentPicker({ target, taken }: { target: InstallTarget; taken: s
       </PopoverContent>
     </Popover>
   );
-}
-
-// pageInstallTarget 是在这一页上"安装到…"默认选的地方与 Agent:作用域页是这个作用域，项目页是这个项目，其余不预选。
-export function pageInstallTarget(page: Page): Initial {
-  if (page.kind === "scope") return { place: placeOf(parseScope(page.scope)), agent: parseScope(page.scope).agent };
-  if (page.kind === "project") return { place: page.project };
-  return {};
 }
 
 // chooseAndInstall 是勾选后操作栏、入库完成提示上的"安装到…":先选装到哪里，再把这些技能一起装到勾上的各个 Agent。

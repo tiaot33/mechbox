@@ -4,12 +4,12 @@
 // 集合和组不是筛选，是技能库页里的分节;左栏点它们只是跳到那一节，关系图从节标题或左栏右键菜单打开。
 // 集合与组的先后由技能库给出(ListCollections / ListGroups 按用户拖出来的先后列出),左栏、技能库页与作用域页的分节、
 // 更新列表、作用域摘要里的组都直接按快照里的顺序。
-import type { Agent, CollectionID, GroupID, ProjectID, Scope, Skill, SkillID, UnmanagedSkill } from "@bindings/internal/library";
+import type { Agent, AgentCode, CollectionID, GroupID, ProjectID, Scope, Skill, SkillID, UnmanagedSkill } from "@bindings/internal/library";
 import { messages } from "./i18n";
 import { placesIn } from "./installs";
 import type { Snapshot } from "./library";
 import { globalScopesSeenFrom, mergeAgents, scopeLabel } from "./places";
-import { parseScope, placeOf, projectName, scopeKey, scopeOf, type ScopeKey } from "./scope";
+import { parseScope, placeOf, projectName, scopeKey, scopeOf, type Place, type ScopeKey } from "./scope";
 import { collectionSkills, noSource, sourceLabel } from "./source";
 import { todoSkills, updatableCollections } from "./source-state";
 import { extraCopy, splitIdentical, unmanagedIn } from "./unmanaged";
@@ -344,4 +344,11 @@ export function pageSkills(s: Snapshot, page: Page): Set<SkillID> {
   if (page.kind === "graph") return new Set(graphMembers(s, page.set) ?? []);
   if (page.kind !== "project") return new Set(s.skills.map((x) => x.id));
   return new Set(projectAgents(s, page.project, "").flatMap((a) => a.skills.map((x) => x.id)));
+}
+
+// pageInstallTarget 是在这一页上"安装到…"默认选的地方与 Agent:作用域页是这个作用域，项目页是这个项目，其余不预选。
+export function pageInstallTarget(page: Page): { place?: Place; agent?: AgentCode } {
+  if (page.kind === "scope") return { place: placeOf(parseScope(page.scope)), agent: parseScope(page.scope).agent };
+  if (page.kind === "project") return { place: page.project };
+  return {};
 }

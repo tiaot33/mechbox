@@ -5,17 +5,17 @@
 // 第一条就是行上画的那一条，点图标做的也是它的事;components/ui/badge 的 AlertIcon 照这个先后画。
 // 来源那边的情况取 lib/source-state 的结论，和节标题的计数、更新页、左栏的更新数说的是同一回事。
 import { SkillScopeStatus, type MissingMention, type Skill, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
-import { messages } from "@/lib/i18n";
-import { installedWhere, needsReinstall, reinstallAlerts, skillScopeIn, placesAt, skillScopeStatus } from "@/lib/installs";
-import { byLevel, byUrgency, type Mark } from "@/lib/level";
-import type { Snapshot } from "@/lib/library";
-import { missingAt, missingNames } from "@/lib/mentions";
-import { shortPath } from "@/lib/paths";
-import { eachPlace, globalScopesSeenFrom, placeLabel } from "@/lib/places";
-import { sameNameInLibrary, sameNameNote, skillSameNameNote } from "@/lib/same-name";
-import { groupName, scopeKey, type ScopeKey } from "@/lib/scope";
-import { sourceState } from "@/lib/source-state";
-import { extraCopyNote, folderNotes, identicalIn, identicalState, notTakenOver, skillFileProblemText, unmanagedIn } from "@/lib/unmanaged";
+import { messages } from "./i18n";
+import { installedWhere, needsReinstall, reinstallAlerts, skillScopeIn, placesAt, skillScopeStatus } from "./installs";
+import { byLevel, byUrgency, type Mark } from "./level";
+import type { Snapshot } from "./library";
+import { missingAt, missingNames } from "./mentions";
+import { shortPath } from "./paths";
+import { eachPlace, globalScopesSeenFrom, placeLabel } from "./places";
+import { sameNameInLibrary, sameNameNote, skillSameNameNote } from "./same-name";
+import { groupName, scopeKey, type ScopeKey } from "./scope";
+import { sourceState } from "./source-state";
+import { extraCopyNote, folderNotes, identicalIn, identicalState, notTakenOver, skillFileProblemText, unmanagedIn } from "./unmanaged";
 
 // RowAlert 是一行状态里的一条：级别、一句话(label)、悬停的说明(tip);className 是测试钩子。
 // plan 表示点它打开这个技能所在集合的更新计划;twins 是库里同名的另外几个技能，点它弹出菜单选一个打开。这两样由行组件接上。

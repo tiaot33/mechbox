@@ -34,7 +34,7 @@ import { DropdownMenuEntries } from "@/components/app/menus";
 import { Icon } from "@/components/ui/icon";
 import { Truncated } from "@/components/app/parts";
 import { PickBox } from "./pick";
-import { rowInstall, skillRowState, unmanagedRowState, updateAlerts, type Plain, type RowAt } from "./row-state";
+import { rowInstall, skillRowState, unmanagedRowState, updateAlerts, type Plain, type RowAt } from "@/lib/row-state";
 import { useSameNameCopies } from "./same-name";
 import { flash } from "./flash";
 
