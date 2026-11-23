@@ -120,6 +120,9 @@ func TestInvalidScopeIsInvalidArgumentOnEveryScopeMethod(t *testing.T) {
 		"UninstallGroup": func(scope library.Scope) error {
 			return lib.UninstallGroup(ctx, 1, scope, library.UninstallOptions{})
 		},
+		"UninstallGroupFrom": func(scope library.Scope) error {
+			return lib.UninstallGroupFrom(ctx, 1, []library.Scope{scope}, library.UninstallOptions{})
+		},
 	}
 	for method, call := range methods {
 		for name, c := range scopes {

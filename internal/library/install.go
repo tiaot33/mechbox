@@ -496,6 +496,12 @@ func (l *Library) uninstallGroup(ctx context.Context, operation string, groupID 
 	if len(scopes) == 0 {
 		return nil
 	}
+	targets := make([]resolvedScope, len(scopes))
+	for i, scope := range scopes {
+		if targets[i], err = l.resolveScope(ctx, operation, scope); err != nil {
+			return err
+		}
+	}
 	if err := l.requireGroup(ctx, groupID); err != nil {
 		return err
 	}
@@ -505,11 +511,7 @@ func (l *Library) uninstallGroup(ctx context.Context, operation string, groupID 
 	}
 	var all []pending
 	seen := map[Scope]bool{}
-	for _, scope := range scopes {
-		target, err := l.resolveScope(ctx, operation, scope)
-		if err != nil {
-			return err
-		}
+	for _, target := range targets {
 		if seen[target.scope()] {
 			continue
 		}
