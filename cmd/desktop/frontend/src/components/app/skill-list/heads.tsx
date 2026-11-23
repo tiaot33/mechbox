@@ -2,8 +2,8 @@
 import type { RegisteredProject } from "@bindings/internal/library";
 import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
-import { agentName, parseScope, placeOf, projectName, type ScopeKey } from "@/lib/scope";
-import { agentNameIn, directoriesAt, scopeLabel } from "@/lib/places";
+import { agentName, parseScope, placeOf, projectName, scopeOf, type ScopeKey } from "@/lib/scope";
+import { agentNameIn, directoriesAt, scopeLabel, scopeReaders } from "@/lib/places";
 import { groupInstallIn, groupStateIn, editedHere, needsRepair, reinstallLevel, skillScopeIn, skillScopesIn } from "@/lib/installs";
 import { joinUnder, shortPath, wslTitle } from "@/lib/paths";
 import { extraCopy, splitIdentical, unmanagedIn, fetchable } from "@/lib/unmanaged";
@@ -65,7 +65,7 @@ export function ScopeSummary({ scope, directory, here, global }: { scope: ScopeK
         </b>
         {/* 要重新安装的，和被手动改过的(确认里默认不覆盖，勾上才覆盖)都从这里一次处理;只有在 app 外更新到作者新版的不给(该做的是更新)。 */}
         {(issues > 0 || edited > 0) && (
-          <Button className="shrink-0" onClick={() => reinstall({ scope: sc }, scopeLabel(s, sc))}>
+          <Button className="shrink-0" onClick={() => reinstall(scopeReaders(s, sc).map((agent) => ({ scope: scopeOf(agent, placeOf(sc)) })), scopeLabel(s, sc))}>
             <Icon name="refresh" />
             {t.reinstallAll}
           </Button>

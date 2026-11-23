@@ -15,7 +15,21 @@ import {
   type SkillScopeInspection,
 } from "@bindings/internal/library";
 import type { Snapshot } from "./library";
-import { editedHere, errorOccupier, folderPresent, groupInstallsIn, groupStateIn, installedSummary, needsReinstall, needsRepair, occupierOf, reinstallAlerts, reinstallLevel } from "./installs";
+import {
+  editedHere,
+  errorOccupier,
+  folderPresent,
+  groupInstallsIn,
+  groupStateIn,
+  installedSummary,
+  needsReinstall,
+  needsRepair,
+  occupierOf,
+  reinstallAlerts,
+  reinstallLevel,
+  skillScopesIn,
+} from "./installs";
+import { scopeKey } from "./scope";
 
 const snapshot = (s: Partial<Snapshot>) =>
   ({ collections: [], groups: [], skills: [], skillScopes: [], unmanaged: [], agents: [], projects: [], info: { home_dir: "/home" }, ...s }) as unknown as Snapshot;
@@ -23,6 +37,24 @@ const skill = (id: number, name: string, label: string) => ({ id, name, source: 
 const where = (agent: string, project_id?: number) =>
   project_id ? { kind: ScopeKind.ScopeProject, agent, project_id } : { kind: ScopeKind.ScopeGlobal, agent };
 const installed = (skill_id: number, agent: string, project_id?: number) => ({ skill_id, scope: where(agent, project_id) }) as SkillScopeInspection;
+
+describe("skillScopesIn", () => {
+  it("合成一处的几个 Agent 各自装在不同目录时，每一处都算(右栏、作用域页的提醒按它);共用的同一个文件夹只算一处", () => {
+    const agents = [
+      { code: AgentCode.AgentClaudeCode, name: "Claude Code", global_directories: ["/home/.dir1", "/home/.dir2"], project_directories: [".claude/skills"] },
+      { code: AgentCode.AgentCodex, name: "Codex", global_directories: ["/home/.dir1", "/home/.dir2"], project_directories: [".codex/skills"] },
+    ] as Agent[];
+    const p = (skill_id: number, agent: string, folder: string, status = SkillScopeStatus.SkillScopeCurrent) =>
+      ({ skill_id, scope: where(agent, undefined), folder, direct: true, status }) as SkillScopeInspection;
+    const mine = p(1, AgentCode.AgentClaudeCode, "/home/.dir1/s1");
+    const theirs = p(1, AgentCode.AgentCodex, "/home/.dir2/s1", SkillScopeStatus.SkillScopeMissing);
+    const shared = p(2, AgentCode.AgentClaudeCode, "/home/.dir1/s2");
+    const s = snapshot({ agents, skillScopes: [mine, shared, theirs, p(2, AgentCode.AgentCodex, "/home/.dir1/s2")] });
+    const key = scopeKey(where(AgentCode.AgentClaudeCode) as Scope);
+    expect(skillScopesIn(s, key)).toEqual([mine, shared, theirs]);
+    expect(reinstallLevel(skillScopesIn(s, key))).toBe("critical");
+  });
+});
 
 describe("folderPresent", () => {
   it("文件夹不在了、项目不在这台机器上的不算在磁盘上，其余都算", () => {

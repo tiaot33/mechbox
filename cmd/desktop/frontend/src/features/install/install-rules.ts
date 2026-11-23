@@ -20,9 +20,9 @@ import { describeError, occupiedReason } from "@/lib/errors";
 import { messages } from "@/lib/i18n";
 import type { Attempt, LibraryError, Snapshot } from "@/lib/library";
 import { installable, missingNames } from "@/lib/mentions";
-import { errorOccupier, folderKey, folderPlaces, occupierOf, skillScopeIn } from "@/lib/installs";
+import { errorOccupier, folderKey, folderPlaces, occupierOf, skillScopeIn, skillScopesAt } from "@/lib/installs";
 import { placeOf, scopeKey, skillName } from "@/lib/scope";
-import { agentNameIn, scopeLabel, sharedWithNote } from "@/lib/places";
+import { agentNameIn, eachPlace, scopeLabel, sharedWithNote } from "@/lib/places";
 import { shortPath } from "@/lib/paths";
 import { placedBy, type ResultRow } from "@/components/app/result-rows";
 
@@ -170,14 +170,19 @@ export function groupInstalled(results: GroupMemberResult[], blocked: InstallPla
 
 // ---------- 卸载 ----------
 
-// uninstallPlace 是从 scope 卸载一个技能会动到的:place 是这一处;shared 是全局共用目录里还读着它的别的 Agent(卸载会撤销它们的直接安装，
-// 文件夹随之删除;目录列表相同、合成一处的几个 Agent 在界面上本来就是一处，不算);deleted 是会删掉文件夹的各处：直接安装、没有组安装留着时才删。
+// uninstallPlace 是从 scope 卸载一个技能会动到的:place 是这一处(合成一处的几个 Agent 各自装在不同目录时是其中有直接安装的第一处);
+// direct 是要撤销直接安装的各处(合成一处的几个 Agent 各自的都撤，不然关掉后又认到另一个 Agent 的那一份);
+// shared 是全局共用目录里还读着它的别的 Agent(卸载会撤销它们的直接安装，文件夹随之删除;目录列表相同、合成一处的几个 Agent
+// 在界面上本来就是一处，不算);deleted 是会删掉文件夹的各处：直接安装、没有组安装留着时才删。
 export function uninstallPlace(s: Snapshot, id: SkillID, scope: Scope) {
-  const place = skillScopeIn(s, id, scopeKey(scope));
+  const places = skillScopesAt(s, id, scopeKey(scope));
+  const direct = places.filter((p) => p.direct);
+  const place = direct[0] ?? skillScopeIn(s, id, scopeKey(scope)) ?? places[0];
   return {
     place,
-    shared: place ? sharedWithNote(s, place) : [],
-    deleted: place?.direct && !place.groups?.length ? folderPlaces(s, [place]) : [],
+    direct,
+    shared: [...new Set(direct.flatMap((p) => sharedWithNote(s, p)))],
+    deleted: folderPlaces(s, direct.filter((p) => !p.groups?.length)),
   };
 }
 
@@ -199,7 +204,10 @@ export function asksBeforeUninstall(p: ReturnType<typeof uninstallPlace>, unfoun
 // deleted 是会删掉文件夹的各处(还有组安装留着的只撤直接安装，文件夹不删),folders 是其中的文件夹数;
 // shared 是会删掉的全局共用文件夹(还有组安装留着的不删，各 Agent 照样算已装,不说);skills 是要卸载的技能数。
 export function uninstallPicked(s: Snapshot, ids: SkillID[], scopes: Scope[]) {
-  const places = scopes.flatMap((sc) => ids.map((id) => skillScopeIn(s, id, scopeKey(sc))).filter((p): p is SkillScopeInspection => !!p));
+  const places = eachPlace(
+    s,
+    scopes.flatMap((sc) => ids.flatMap((id) => skillScopesAt(s, id, scopeKey(sc)))),
+  );
   const direct = places.filter((p) => p.direct);
   const deleted = folderPlaces(s, direct.filter((p) => !p.groups?.length));
   return {

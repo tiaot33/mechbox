@@ -19,7 +19,7 @@ import {
   type Scope,
   type SkillID,
 } from "@bindings/internal/library";
-import { deleteConsent } from "@/lib/consent";
+import { deleteConsent, type DeleteConsent } from "@/lib/consent";
 import { messages, useT } from "@/lib/i18n";
 import { currentSnapshot, toLibraryError, useSnapshot, type Snapshot } from "@/lib/library";
 import { mergeMissing, missingAt } from "@/lib/mentions";
@@ -338,7 +338,11 @@ export async function uninstallSkill(id: SkillID, scope: Scope) {
     });
     if (!ok) return;
   }
-  await runDeleting(deleteConsent(deleted), (consent) => LibraryService.Uninstall(id, scope, consent), {
+  // 合成一处的几个 Agent 各自装在不同目录、各有直接安装时一次都撤掉(全成或全不成);只有一处时照常卸载这一处。
+  const places = plan.direct.map((p): SkillInScope => ({ skill_id: p.skill_id, scope: p.scope }));
+  const call = (consent: DeleteConsent) =>
+    places.length > 1 ? LibraryService.UninstallSkills(places, consent) : LibraryService.Uninstall(id, places[0]?.scope ?? scope, consent);
+  await runDeleting(deleteConsent(deleted), call, {
     success: t.uninstalled(skillName(s, id), scopeLabel(s, scope)),
     onError: (err) => {
       if (err.code !== ErrorCode.FailedPrecondition) return false;

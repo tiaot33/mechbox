@@ -28,13 +28,15 @@ import { confirmLinkWrites } from "@/components/app/link-notes";
 // reinstall 把 filter 范围内不是当前版本的各处换成当前版本。先现查状态：快照可能已落后于磁盘，
 // 而重新安装只换列出的几处。被改过的几处逐处让用户勾选是否覆盖，没勾选的保持原样。
 // 文件夹不在了的几处可能是用户有意删掉的：只点了这一处时直接装回去;批量时逐处让用户选不动、装回去还是卸载，默认不动。
-// what 是重新安装的是什么：技能名(经 reinstallSkill 加上引号)或作用域。
-export async function reinstall(filter: SkillScopeFilter, what: string) {
+// what 是重新安装的是什么：技能名(经 reinstallSkill 加上引号)或作用域。filter 给几个时(合成一处的几个 Agent 各自的作用域)合起来看，
+// 共用一个文件夹的几处只算一处。
+export async function reinstall(filter: SkillScopeFilter | SkillScopeFilter[], what: string) {
   const s = currentSnapshot();
   const t = messages().actions;
-  const inspected = await ui.read(() => LibraryService.InspectSkillScopes(filter));
+  const filters = Array.isArray(filter) ? filter : [filter];
+  const inspected = await ui.read(async () => eachPlace(s, (await Promise.all(filters.map((f) => LibraryService.InspectSkillScopes(f)))).flatMap((x) => x ?? [])));
   if (inspected === undefined) return;
-  const single = !!filter.skill_id && !!filter.scope;
+  const single = filters.length === 1 && !!filters[0].skill_id && !!filters[0].scope;
   const { targets, modified, missing } = reinstallTargets(inspected ?? [], single);
   if (!targets.length) {
     // 项目不在这台机器上的几处没核对过，不说成「都是当前版本」。

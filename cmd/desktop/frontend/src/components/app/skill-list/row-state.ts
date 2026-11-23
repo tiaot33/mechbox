@@ -6,12 +6,12 @@
 // 来源那边的情况取 lib/source-state 的结论，和节标题的计数、更新页、左栏的更新数说的是同一回事。
 import { SkillScopeStatus, type MissingMention, type Skill, type SkillScopeInspection, type UnmanagedSkill } from "@bindings/internal/library";
 import { messages } from "@/lib/i18n";
-import { installedWhere, needsReinstall, reinstallAlerts, skillScopeIn, skillScopeStatus } from "@/lib/installs";
+import { installedWhere, needsReinstall, reinstallAlerts, skillScopeIn, skillScopesAt, skillScopeStatus } from "@/lib/installs";
 import { byLevel, byUrgency, type Mark } from "@/lib/level";
 import type { Snapshot } from "@/lib/library";
 import { missingAt, missingNames } from "@/lib/mentions";
 import { shortPath } from "@/lib/paths";
-import { globalScopesSeenFrom } from "@/lib/places";
+import { globalScopesSeenFrom, placeLabel } from "@/lib/places";
 import { sameNameInLibrary, sameNameNote, skillSameNameNote } from "@/lib/same-name";
 import { groupName, parseScope, scopeKey, type ScopeKey } from "@/lib/scope";
 import { sourceState } from "@/lib/source-state";
@@ -48,15 +48,20 @@ export interface RowAt {
 }
 
 // RowInstall 是一个技能在这一行所在作用域(at;技能库页的行没有)的安装情况，技能库页的行都为空:
-// - here:装在这里的那一处(来自全局的行没有);
+// - here:装在这里的那一处(来自全局的行没有);合成一处的几个 Agent 各自装在不同目录时是这一行的 Agent 自己认的那一处;
+// - places:这一行说的各处：装在这里的(合成一处的几个 Agent 各自的都算，见 lib/installs 的 skillScopesAt),来自全局的是全局那一处;
+//   状态、开关和重新安装都覆盖其中每一处;
+// - direct:places 里有直接安装(开关能卸载);
 // - identical:这里有一份和它一模一样、不是库装的文件夹(就是这个技能，行首是"入库");
 // - place:最后一列说的那一处，来自全局的是全局那一处，否则是 here;
-// - via:那一处随哪几个组安装;
+// - via:places 随哪几个组安装;
 // - foreign:identical 那一份提交在项目仓库里或链到 Agent 目录以外，归团队、归作者自己管，只是内容和库里的一样:
 //   行上不带库里这个技能的组和提醒，免得看上去像是库装过来的那一份，只留这个文件夹自己的同名提醒。
 export interface RowInstall {
   at?: RowAt;
   here?: SkillScopeInspection;
+  places: SkillScopeInspection[];
+  direct: boolean;
   identical?: UnmanagedSkill;
   place?: SkillScopeInspection;
   via: string[];
@@ -71,11 +76,23 @@ function inOrder(alerts: RowAlert[], labeled: boolean): RowAlert[] {
 }
 
 export function rowInstall(s: Snapshot, skill: Skill, at?: RowAt): RowInstall {
-  if (!at) return { via: [], foreign: false };
-  const here = at.fromGlobal ? undefined : skillScopeIn(s, skill.id, at.scope);
+  if (!at) return { places: [], direct: false, via: [], foreign: false };
+  const hereAll = at.fromGlobal ? [] : skillScopesAt(s, skill.id, at.scope);
+  const here = at.fromGlobal ? undefined : (skillScopeIn(s, skill.id, at.scope) ?? hereAll[0]);
   const identical = !here && !at.fromGlobal ? identicalIn(s, at.scope, skill.id) : undefined;
   const place = at.fromGlobal ? globalScopesSeenFrom(s, at.scope).map((key) => skillScopeIn(s, skill.id, key)).find(Boolean) : here;
-  return { at, here, identical, place, via: (place?.groups ?? []).map((id) => groupName(s, id)), foreign: !!identical && !notTakenOver(identical) };
+  const places = at.fromGlobal ? (place ? [place] : []) : hereAll;
+  const groups = [...new Set(places.flatMap((p) => p.groups ?? []))];
+  return {
+    at,
+    here,
+    places,
+    direct: places.some((p) => p.direct),
+    identical,
+    place,
+    via: groups.map((id) => groupName(s, id)),
+    foreign: !!identical && !notTakenOver(identical),
+  };
 }
 
 // skillRowState 是库里一个技能一行的状态;install 是 rowInstall 算出的这一行的安装情况。技能库页的行(没有 at)说它装出去的各处，
@@ -102,13 +119,9 @@ export function skillRowState(s: Snapshot, skill: Skill, install: RowInstall, el
 
 // skillAlerts 是库里这个技能自己的提醒与更新(不算同名):装出去的几处(技能库页)或这一处(作用域页)和当前版本不一样、来源那边的情况、
 // 有你的修改、库里有同名的、目录里改过、提到的技能在这里找不到。
-function skillAlerts(s: Snapshot, skill: Skill, { at, here, place }: RowInstall): (RowAlert | false | undefined)[] {
+function skillAlerts(s: Snapshot, skill: Skill, { at, here, places: covered }: RowInstall): (RowAlert | false | undefined)[] {
   const t = messages().list;
-  const places: RowAlert[] = at
-    ? place && needsReinstall(place)
-      ? [skillScopeStatus(place.status, place.source_latest) as RowAlert]
-      : []
-    : reinstallAlerts(s, skill.id);
+  const places: RowAlert[] = at ? placeAlerts(s, covered) : reinstallAlerts(s, skill.id);
   const twins = sameNameInLibrary(s, skill);
   // 装在这里的技能提到的、在这里找不到的技能(按规则和已存下的 AI 判断结论)。
   // 目录列表相同、合成一处的几个 Agent 是一行，它们各自找不到的都算(见 lib/mentions 的 missingAt)。
@@ -137,6 +150,19 @@ function skillAlerts(s: Snapshot, skill: Skill, { at, here, place }: RowInstall)
   ];
 }
 
+// placeAlerts 是作用域页一行说的各处里和当前版本不一样的，按原因各一条;合成一处的几个 Agent 各自装在不同目录、不止一处时，
+// 悬停写出是哪几处。
+function placeAlerts(s: Snapshot, places: SkillScopeInspection[]): RowAlert[] {
+  const by = new Map<string, RowAlert>();
+  for (const p of places.filter(needsReinstall)) {
+    const st = skillScopeStatus(p.status, p.source_latest);
+    const had = by.get(st.label);
+    const at = places.length > 1 ? placeLabel(s, p) : undefined;
+    by.set(st.label, had ? { ...had, tip: [had.tip, at].filter(Boolean).join("\n") } : ({ ...st, tip: at } as RowAlert));
+  }
+  return [...by.values()];
+}
+
 // updateAlerts 是一个技能和更新有关的要处理的事，技能库页一行的状态和更新页「要处理的技能」共用一份:
 // 有新版本或可能改名(只标计入角标的;两种图标不同，点它打开所在集合的更新计划)、有新版本但更新会换掉用户的修改
 // (更新计划里它默认不勾)、作者从来源里删掉了它(不是新版本，是一条提示)。
@@ -155,11 +181,11 @@ export function updateAlerts(skill: Skill): RowAlert[] {
 }
 
 // scopePlain 是作用域页一行没有提醒时最后一列写的：直接安装是常态，不写;随组安装写随哪几个组，来自全局写来自全局。
-function scopePlain({ place, via }: RowInstall, fromGlobal: boolean): Plain | undefined {
+function scopePlain({ place, direct, via }: RowInstall, fromGlobal: boolean): Plain | undefined {
   const t = messages().list;
   if (fromGlobal) return { text: t.fromGlobal, title: t.sectionGlobalTitle };
   if (!place || !via.length) return undefined;
-  return { text: t.hereState(!!place.direct, via) };
+  return { text: t.hereState(direct, via) };
 }
 
 // unfoundAlert 是装在这里的技能提到的技能在这里找不到：提示一级，悬停写出是哪几个。
