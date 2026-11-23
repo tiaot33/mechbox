@@ -176,6 +176,12 @@ export function currentSnapshot(): Snapshot {
   return s;
 }
 
+// latestSnapshot 是最新的快照：写操作之后、窗口切回前台时的重读还没读完，缓存里还是旧的，等它读完再取;
+// 没有在重读时直接取缓存里的。读失败时用缓存里的。给要按最新状态先问一句的流程用(如设置页换全局目录前数有几处全局安装)。
+export async function latestSnapshot(): Promise<Snapshot> {
+  return queryClient.fetchQuery(snapshotQuery).catch(() => currentSnapshot());
+}
+
 // ---------- 其他只读数据 ----------
 
 // configQuery 是 GitHub 令牌与同步设置有没有配置;设置页保存后经 reloadLibrary 或 invalidateConfig 重读。

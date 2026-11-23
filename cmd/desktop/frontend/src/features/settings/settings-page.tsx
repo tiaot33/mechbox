@@ -7,16 +7,16 @@
 // 目录大致按保存方式分组：通用与管理分区在上，GitHub、AI、同步三个凭据表单在下，再下面是关于。
 // Agent 分区见 agent-settings;项目分区复用主界面右栏的登记 / 改位置 / 注销;卸载 Mechbox 在关于分区的最后一行，不进目录，见 uninstall-dialog。
 import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Events } from "@wailsio/runtime";
 import { AppService, type Settings } from "@bindings/cmd/desktop";
 import { ErrorCode } from "@bindings/internal/library";
 import { toLanguage, useLanguage, useT } from "@/lib/i18n";
-import { currentSnapshot, useSnapshot, type LibraryError } from "@/lib/library";
+import { latestSnapshot, useSnapshot, wslDistroErrorQuery, type LibraryError } from "@/lib/library";
 import { useUI } from "@/lib/ui";
 import { cn } from "@/lib/utils";
 import { useView } from "@/lib/view";
 import { AddAgentDialog, AgentSection, offerDistroAgents } from "@/features/scope/agent-settings";
-import { switchedToDistro } from "@/features/scope/agents-rules";
 import { resetAgents } from "@/features/scope/agents";
 import { ProjectPathDialog } from "@/features/scope/project-path-dialog";
 import { Button } from "@/components/ui/button";
@@ -30,7 +30,7 @@ import { AISection, GitHubSection, SyncSection } from "./credentials-form";
 import { AboutSection, ChecksSection, GeneralSection, ProjectsSection, TranslateSection } from "./settings-sections";
 import { UninstallDialog } from "./uninstall-dialog";
 import { foldSaved } from "./fold";
-import { globalDirName, globalInstallsToConfirm } from "./global-dir-rules";
+import { globalDirInUse, globalDirName, globalInstallsToConfirm, switchedToDistro } from "./global-dir-rules";
 
 // 分区按文案里的键排，标题取当前语言的文案;目录里一组一段。
 const groups = [["general", "agents", "projects", "checks"], ["github", "ai", "sync"], ["about"]] as const;
@@ -79,7 +79,21 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
     [],
   );
 
-  const retryDistro = () => ui.run(() => AppService.RetryWSLDistro(), { onError: (err) => distroFailed(err) });
+  // switching 是正在换全局目录或再试打开发行版(从选了位置到确认、保存完):这期间「全局目录」下拉框和「再试一次」都不能点，
+  // 免得两次 WSL 操作交错，或者下一次确认把还没换成的位置当作原来的位置。
+  const [switching, setSwitching] = useState(false);
+  // 选的发行版启动时没能打开时，技能库用的是 Windows 本机的全局目录(见 global-dir-rules 的 globalDirInUse)。
+  const distroError = useQuery(wslDistroErrorQuery).data ?? "";
+  const busyWhile = async (task: () => Promise<unknown>) => {
+    setSwitching(true);
+    try {
+      await task();
+    } finally {
+      setSwitching(false);
+    }
+  };
+
+  const retryDistro = () => busyWhile(() => ui.run(() => AppService.RetryWSLDistro(), { onError: (err) => distroFailed(err) }));
   // 发行版打不开(FailedPrecondition)时说明是哪个发行版、全局目录没有换。
   const distroFailed = (err: LibraryError, distro = latest.current?.wsl_distro ?? "") => {
     if (err.code !== ErrorCode.FailedPrecondition) return false;
@@ -109,26 +123,29 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
   };
 
   // 换全局目录：库里记着全局安装时先确认，写明换过去以后这些安装按新位置的目录检查、原来位置的文件夹留在原处;
+  // 按现在实际用的位置和最新的快照算(写操作之后的重读还没读完时等它读完)。
   // 点「换过去」才保存，之后和直接换一样(换到发行版时补弹添加 Agent)。取消或关掉时什么都不保存，下拉框留在原来的选择。
-  const switchDistro = async (distro: string) => {
-    const before = latest.current?.wsl_distro ?? "";
-    const n = globalInstallsToConfirm(currentSnapshot(), before, distro);
-    if (n) {
-      const to = globalDirName(distro);
-      const ok = await ui.confirm({
-        title: t.switchGlobalDirTitle(to),
-        body: (
-          <>
-            <p>{t.switchGlobalDirBody(n, to)}</p>
-            <p>{t.switchGlobalDirKeep(globalDirName(before))}</p>
-          </>
-        ),
-        confirm: t.switchGlobalDir,
-      });
-      if (!ok) return;
-    }
-    save({ wsl_distro: distro });
-  };
+  const switchDistro = (distro: string) =>
+    busyWhile(async () => {
+      const before = globalDirInUse(latest.current?.wsl_distro ?? "", distroError);
+      const n = globalInstallsToConfirm(await latestSnapshot(), before, distro);
+      if (n) {
+        const to = globalDirName(distro);
+        const ok = await ui.confirm({
+          title: t.switchGlobalDirTitle(to),
+          body: (
+            <>
+              <p>{t.switchGlobalDirBody(n, to)}</p>
+              <p>{t.switchGlobalDirKeep(n, globalDirName(before))}</p>
+            </>
+          ),
+          confirm: t.switchGlobalDir,
+        });
+        if (!ok) return;
+      }
+      save({ wsl_distro: distro });
+      await saving.current;
+    });
 
   // 左栏高亮跟着滚动走：顶上已经滚过的最后一个分区，滚到底时是最后一个分区。
   // 点左栏跳转时高亮点的那个，平滑滚动途中不跟;用户自己再滚(滚轮、触控、按键、拖滚动条)后恢复跟随。
@@ -224,6 +241,7 @@ export function SettingsPage({ onClose }: { onClose: () => void }) {
                   <GeneralSection
                     settings={settings}
                     save={save}
+                    switching={switching}
                     onSwitchDistro={(distro) => void switchDistro(distro)}
                     onRetryDistro={() => void retryDistro()}
                   />

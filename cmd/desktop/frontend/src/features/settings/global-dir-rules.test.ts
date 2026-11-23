@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { AgentCode, ScopeKind, SkillScopeStatus, type Agent, type Scope, type SkillScopeInspection } from "@bindings/internal/library";
 import type { Snapshot } from "@/lib/library";
-import { globalDirName, globalInstallsToConfirm } from "./global-dir-rules";
+import { globalDirInUse, globalDirName, globalInstallsToConfirm, switchedToDistro } from "./global-dir-rules";
 
 const claude = AgentCode.AgentClaudeCode;
 const codex = AgentCode.AgentCodex;
@@ -42,7 +42,7 @@ describe("换全局目录之前要不要先确认", () => {
     expect(globalInstallsToConfirm(snapshot([place(1, project(claude, 7)), place(2, project(codex, 7))]), "", "Ubuntu")).toBe(0);
   });
 
-  it("选回同一个位置不算换，不问", () => {
+  it("实际用的位置没变时不算换，不问", () => {
     const s = snapshot([place(1, global(claude))]);
     expect(globalInstallsToConfirm(s, "", "")).toBe(0);
     expect(globalInstallsToConfirm(s, "Ubuntu", "Ubuntu")).toBe(0);
@@ -71,6 +71,34 @@ describe("换全局目录之前要不要先确认", () => {
   it("随组安装到全局的技能也算", () => {
     const s = snapshot([place(1, global(claude), { direct: false, groups: [3] })]);
     expect(globalInstallsToConfirm(s, "", "Ubuntu")).toBe(1);
+  });
+});
+
+describe("全局目录现在实际在哪", () => {
+  it("没出错时就是设置里选的", () => {
+    expect(globalDirInUse("", "")).toBe("");
+    expect(globalDirInUse("Ubuntu", "")).toBe("Ubuntu");
+  });
+
+  it("选的发行版启动时没能打开时，实际用的是 Windows 本机", () => {
+    expect(globalDirInUse("Ubuntu", "wsl distribution unavailable")).toBe("");
+  });
+
+  it("这时选回 Windows 本机，实际用的目录不变，不问;换到另一个发行版时问，原来位置是 Windows 本机", () => {
+    const s = snapshot([place(1, global(claude))]);
+    const before = globalDirInUse("Ubuntu", "wsl distribution unavailable");
+    expect(globalInstallsToConfirm(s, before, "")).toBe(0);
+    expect(globalInstallsToConfirm(s, before, "Debian")).toBe(1);
+    expect(globalDirName(before)).toBe("Windows 本机");
+  });
+});
+
+describe("换过去以后补弹添加 Agent", () => {
+  it("换到另一个发行版时补弹一次候选池;换回 Windows 本机、没换时不弹", () => {
+    expect(switchedToDistro("", "Ubuntu")).toBe(true);
+    expect(switchedToDistro("Ubuntu", "Debian")).toBe(true);
+    expect(switchedToDistro("Ubuntu", "")).toBe(false);
+    expect(switchedToDistro("Ubuntu", "Ubuntu")).toBe(false);
   });
 });
 

@@ -15,7 +15,7 @@ import {
 } from "@bindings/internal/library";
 import { messages } from "@/lib/i18n";
 import type { LibraryError, Snapshot } from "@/lib/library";
-import { agentDelete, agentEdit, agentFieldError, agentReset, alreadyRead, asksWhere, directoryKey, enterSubmits, switchedToDistro, detectedPicks, directoryOptions, filterDirectoryOptions, migrationReport, opensWhileTyping, overlappingDirectories, poolMatches, sortPool, undetected } from "./agents-rules";
+import { agentDelete, agentEdit, agentFieldError, agentReset, alreadyRead, asksWhere, directoryKey, enterSubmits, detectedPicks, directoryOptions, filterDirectoryOptions, migrationReport, opensWhileTyping, overlappingDirectories, poolMatches, sortPool, undetected } from "./agents-rules";
 
 const mine = "my-agent" as AgentCode;
 const claude = AgentCode.AgentClaudeCode;
@@ -321,12 +321,6 @@ describe("Agent 装在 Windows 本机还是 WSL 发行版", () => {
     expect(asksWhere(["Ubuntu"], "")).toBe(true);
     expect(asksWhere([], "")).toBe(false);
     expect(asksWhere(["Ubuntu"], "Ubuntu")).toBe(false);
-  });
-  it("设置里换到另一个发行版时补弹一次候选池;换回 Windows 本机、没换时不弹", () => {
-    expect(switchedToDistro("", "Ubuntu")).toBe(true);
-    expect(switchedToDistro("Ubuntu", "Debian")).toBe(true);
-    expect(switchedToDistro("Ubuntu", "")).toBe(false);
-    expect(switchedToDistro("Ubuntu", "Ubuntu")).toBe(false);
   });
 });
 

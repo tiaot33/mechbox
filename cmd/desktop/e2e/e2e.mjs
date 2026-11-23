@@ -171,23 +171,39 @@ async function sectionMenu(head, item) {
 const unmanagedHead = () => page.locator('.a-list .list-section[data-section="scope-unmanaged"] .section-head');
 // section 是设置页里标题为 name 的分区。
 const section = (name) => page.locator('.settings [data-slot="card"]', { has: page.locator('[data-slot="card-title"]', { hasText: new RegExp(`^${name}$`) }) });
-// fakeWSL 让设置页以为这台机器装了 WSL 发行版 Ubuntu(e2e 在 macOS、Linux 上跑，没有 WSL,设置里不出现「全局目录」):
-// 列出发行版时回 Ubuntu;保存设置时换到发行版的那次 Go 端打不开发行版，不交给它，记进 saves 并照原样回成功;
-// 列候选池时把第一个标成检测到，换过去以后补弹的「添加 Agent」一定出现。stop 撤掉拦截。
-async function fakeWSL() {
+// fakeWSL 让设置页以为这台机器装了这几个 WSL 发行版(e2e 在 macOS、Linux 上跑，没有 WSL,设置里不出现「全局目录」):
+// 列出发行版时回 distros;保存设置时换全局目录的每一次都记进 saves,换到发行版的那次 Go 端打不开发行版，不交给它，照原样回成功;
+// 列候选池时把第一个标成检测到，换过去以后补弹的「添加 Agent」一定出现。
+// 给了 fallback 时模拟启动时打不开设置里选的这个发行版、技能库退回了 Windows 本机：设置里记着它，并给出打不开的原因。
+// hold 拦住下一次换到发行版的保存，返回放行的函数。stop 撤掉拦截。
+async function fakeWSL({ distros = ["Ubuntu"], fallback = "" } = {}) {
   const list = Number(methodID("ListWSLDistros"));
   const save = Number(appMethodID("SaveSettings"));
+  const settings = Number(appMethodID("Settings"));
+  const distroError = Number(appMethodID("WSLDistroError"));
   const pool = Number(methodID("ListAgentPool"));
   const saves = [];
+  let gate = null;
   const handler = async (route) => {
     const body = JSON.parse(route.request().postData() ?? "{}");
     const json = (value) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(value) });
     switch (body.args?.methodID) {
       case list:
-        return json(["Ubuntu"]);
+        return json(distros);
+      case settings:
+        if (!fallback) break;
+        return json({ ...(await (await route.fetch()).json()), wsl_distro: fallback });
+      case distroError:
+        if (!fallback) break;
+        return json(`wsl distribution unavailable: ${fallback}`);
       case save:
-        if (!body.args.args[0].wsl_distro) break;
         saves.push(body.args.args[0]);
+        if (!body.args.args[0].wsl_distro) break;
+        if (gate) {
+          const held = gate;
+          gate = null;
+          await held.promise;
+        }
         return json(body.args.args[0]);
       case pool: {
         const agents = await (await route.fetch()).json();
@@ -197,7 +213,14 @@ async function fakeWSL() {
     return route.continue();
   };
   await page.route("**/wails/runtime*", handler);
-  return { saves, stop: () => page.unroute("**/wails/runtime*", handler) };
+  return {
+    saves,
+    hold: () => {
+      gate = Promise.withResolvers();
+      return gate.resolve;
+    },
+    stop: () => page.unroute("**/wails/runtime*", handler),
+  };
 }
 // openGlobalDir 打开设置页，等「全局目录」那一行出现，返回它的下拉框。
 async function openGlobalDir() {
@@ -3409,7 +3432,7 @@ await step("设置页换全局目录：库里记着全局安装时先确认，�
     await confirmBox();
     const text = await modal().textContent();
     assert.match(text, /库里记着 [1-9]\d* 处全局安装。换到「WSL · Ubuntu」后按那里的目录检查，那里没有的显示「文件夹不在了」，可以到各 Agent 的作用域页重新安装过去。/, `写明有几处、换过去会怎样:${text}`);
-    assert(text.includes("「Windows 本机」全局目录里的文件夹留在原处，不再管；换回来时，这些安装又按「Windows 本机」的目录检查。"), `写明原来位置的文件夹留在原处:${text}`);
+    assert.match(text, /「Windows 本机」全局目录里的文件夹留在原处，不再管；换回来时，这 [1-9]\d* 处安装又按「Windows 本机」的目录检查。/, `写明原来位置的文件夹留在原处:${text}`);
     // 等弹窗放大的动画播完再截图。
     await modal().evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
     await page.screenshot({ path: path.join(SHOTS, "switch-global-dir.png") });
@@ -3424,10 +3447,16 @@ await step("设置页换全局目录：库里记着全局安装时先确认，�
     assert.equal(await select.inputValue(), "", "关掉后仍是 Windows 本机");
     assert.equal(wsl.saves.length, 0, "取消、关掉都不保存");
 
-    // 换过去：保存选的发行版，之后照常补弹添加那里的 Agent。
+    // 换过去：保存选的发行版，保存完之前下拉框不能再选;之后照常补弹添加那里的 Agent。
     await confirmBox();
+    const release = wsl.hold();
     await btn(modal(), "换过去").click();
+    await modal().waitFor({ state: "detached" });
+    await until(async () => wsl.saves.length === 1, "发出换到发行版的保存");
+    assert(await select.isDisabled(), "保存完之前下拉框不能再选");
+    release();
     await modal().locator('[data-slot="dialog-title"]', { hasText: "添加 WSL · Ubuntu 里的 Agent" }).waitFor({ timeout: 15000 });
+    assert(!(await select.isDisabled()), "保存完以后下拉框又能选了");
     assert.equal(wsl.saves.length, 1, "点「换过去」才保存");
     assert.equal(wsl.saves[0].wsl_distro, "Ubuntu", "保存的是选的发行版");
     await page.keyboard.press("Escape");
@@ -3437,6 +3466,33 @@ await step("设置页换全局目录：库里记着全局安装时先确认，�
     await leaveGlobalDir(wsl);
   }
   assert.equal(config().wsl_distro, undefined, "Go 端的全局目录没有换");
+});
+
+await step("设置页换全局目录：启动时打不开选的发行版、已退回 Windows 本机时，选回 Windows 本机直接换，换到别的发行版时原来位置写 Windows 本机", async () => {
+  const wsl = await fakeWSL({ distros: ["Ubuntu", "Debian"], fallback: "Ubuntu" });
+  try {
+    const select = await openGlobalDir();
+    await section("通用").getByText("现在用的是 Windows 本机的全局目录").waitFor();
+    assert.equal(await select.inputValue(), "Ubuntu", "设置里仍记着打不开的发行版");
+
+    // 换到别的发行版：先确认，原来位置是实际在用的 Windows 本机;取消。
+    await select.selectOption("Debian");
+    await modal().locator('[data-slot="dialog-title"]', { hasText: "把全局目录换到「WSL · Debian」？" }).waitFor({ timeout: 15000 });
+    const text = await modal().textContent();
+    assert(text.includes("「Windows 本机」全局目录里的文件夹留在原处") && !text.includes("WSL · Ubuntu"), `原来位置应写 Windows 本机:${text}`);
+    await btn(modal(), "取消").click();
+    await modal().waitFor({ state: "detached" });
+    assert.equal(await select.inputValue(), "Ubuntu", "取消后仍是原来的选择");
+
+    // 选回 Windows 本机：实际用的目录不变，不弹确认框，直接保存，也不弹添加 Agent。
+    await select.selectOption("");
+    await until(async () => wsl.saves.length === 1, "选回 Windows 本机直接保存");
+    await settle();
+    assert.equal(wsl.saves[0].wsl_distro ?? "", "", "保存的是 Windows 本机");
+    assert.equal(await modal().count(), 0, "不弹确认框，也不弹添加 Agent");
+  } finally {
+    await leaveGlobalDir(wsl);
+  }
 });
 
 await step("设置页:GitHub 令牌与同步设置都存在数据库里，只认这里填的", async () => {

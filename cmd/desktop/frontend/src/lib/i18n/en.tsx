@@ -1235,9 +1235,11 @@ export const en = {
       `Couldn't open WSL distribution "${distro}"; the global directories weren't changed: ${reason}`,
     switchGlobalDirTitle: (to: string) => `Switch global directories to "${to}"?`,
     switchGlobalDirBody: (n: number, to: string) =>
-      `The Library has ${count(n, "global install")}. After switching to "${to}", ${n === 1 ? "it is" : "they are"} checked against the directories there; any that aren't there show "Folder missing", and you can reinstall them there from each agent's scope page.`,
-    switchGlobalDirKeep: (from: string) =>
-      `Folders in the global directories on "${from}" stay where they are and are no longer managed. If you switch back, these installs are checked against the directories on "${from}" again.`,
+      n === 1
+        ? `The Library has 1 global install. After switching to "${to}", it is checked against the directories there; if it isn't there, it shows "Folder missing", and you can reinstall it there from the agent's scope page.`
+        : `The Library has ${count(n, "global install")}. After switching to "${to}", they are checked against the directories there; any that aren't there show "Folder missing", and you can reinstall them there from each agent's scope page.`,
+    switchGlobalDirKeep: (n: number, from: string) =>
+      `Folders in the global directories of "${from}" stay where they are and are no longer managed. If you switch back, ${n === 1 ? "this install is" : `these ${n} installs are`} checked against the directories of "${from}" again.`,
     switchGlobalDir: "Switch",
     // 语言选项写各自的名字，两份文案里一样。
     chinese: "简体中文",
