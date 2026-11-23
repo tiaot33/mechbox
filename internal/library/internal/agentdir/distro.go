@@ -160,7 +160,7 @@ while [ "$n" -gt 0 ]; do
 done
 [ $# -eq 0 ] || tar -chf - "$@" 2>/dev/null || :`
 	committedScript  = `GIT_OPTIONAL_LOCKS=0 GIT_TERMINAL_PROMPT=0 exec git -c core.fsmonitor=false -C "$1" ls-tree -r -z --name-only HEAD -- "$2"`
-	mkdirStageScript = `mkdir -p -- "$1" && mkdir -- "$2"`
+	mkdirStageScript = `mkdir -p -- "$1" && mkdir -m "$3" -- "$2"`
 	copyScript       = `cp -RPp -- "$1/." "$2"`
 	renameScript     = `[ -e "$1" ] || [ -L "$1" ] || exit 3
 if [ -e "$2" ] || [ -L "$2" ]; then echo "target exists" >&2; exit 4; fi
@@ -619,8 +619,8 @@ func (d distro) committed(ctx context.Context, root, directory string) (map[stri
 	return committedNames(output, directory), nil
 }
 
-func (d distro) mkdirStage(directory, stage string) error {
-	if _, err := d.query(context.Background(), "stage", directory, mkdirStageScript, d.linux(directory), d.linux(stage)); err != nil {
+func (d distro) mkdirStage(directory, stage string, mode fs.FileMode) error {
+	if _, err := d.query(context.Background(), "stage", directory, mkdirStageScript, d.linux(directory), d.linux(stage), strconv.FormatUint(uint64(mode.Perm()), 8)); err != nil {
 		return fmt.Errorf("stage skill folder: %w", err)
 	}
 	return nil

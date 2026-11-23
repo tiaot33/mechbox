@@ -341,11 +341,11 @@ func (native) committed(ctx context.Context, root, directory string) (map[string
 	return committedNames(output, directory), nil
 }
 
-func (native) mkdirStage(directory, stage string) error {
+func (native) mkdirStage(directory, stage string, mode fs.FileMode) error {
 	if err := os.MkdirAll(directory, 0o755); err != nil {
 		return fmt.Errorf("create scope: %w", err)
 	}
-	if err := os.Mkdir(stage, 0o755); err != nil {
+	if err := os.Mkdir(stage, mode); err != nil {
 		return fmt.Errorf("stage skill folder: %w", err)
 	}
 	return nil

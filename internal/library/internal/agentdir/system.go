@@ -2,6 +2,7 @@ package agentdir
 
 import (
 	"context"
+	"io/fs"
 	"strings"
 
 	"github.com/tiaot33/mechbox/internal/library/internal/skillfile"
@@ -34,7 +35,7 @@ type fileSystem interface {
 	listAll(ctx context.Context, directories []string) ([]Listing, error)
 	committed(ctx context.Context, root, directory string) (map[string]bool, error)
 
-	mkdirStage(directory, stage string) error
+	mkdirStage(directory, stage string, mode fs.FileMode) error
 	writeFiles(stage string, files []skillfile.File) error
 	copyTree(ctx context.Context, from, stage string) error
 	rename(from, to string) error

@@ -3,6 +3,8 @@
 package agentdir
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,9 +21,18 @@ func perm(t *testing.T, path string) os.FileMode {
 	return info.Mode().Perm()
 }
 
-func forEachSystem(t *testing.T, test func(t *testing.T, at func(string) string)) {
-	t.Run("native", func(t *testing.T) { test(t, func(path string) string { return path }) })
-	t.Run("distro", func(t *testing.T) { test(t, unc) })
+func umaskedMode(t *testing.T, mode os.FileMode) os.FileMode {
+	t.Helper()
+	probe := filepath.Join(t.TempDir(), "probe")
+	if err := os.Mkdir(probe, mode); err != nil {
+		t.Fatal(err)
+	}
+	return perm(t, probe)
+}
+
+func forEachSystem(t *testing.T, test func(t *testing.T, at func(string) string, open os.FileMode)) {
+	t.Run("native", func(t *testing.T) { test(t, func(path string) string { return path }, umaskedMode(t, 0o755)) })
+	t.Run("distro", func(t *testing.T) { test(t, unc, 0o755) })
 }
 
 func TestStagedFoldersAreAsOpenAsTheirSubfolders(t *testing.T) {
@@ -29,14 +40,14 @@ func TestStagedFoldersAreAsOpenAsTheirSubfolders(t *testing.T) {
 		{Path: "SKILL.md", Content: []byte("v1"), Mode: skillfile.ModeRegular},
 		{Path: "scripts/run.sh", Content: []byte("#!/bin/sh\n"), Mode: skillfile.ModeExecutable},
 	}
-	forEachSystem(t, func(t *testing.T, at func(string) string) {
+	forEachSystem(t, func(t *testing.T, at func(string) string, open os.FileMode) {
 		ctx := t.Context()
 		skills := filepath.Join(tempDir(t), ".claude/skills")
 		folder := filepath.Join(skills, "alpha")
 		requireOpen := func(step string) {
 			t.Helper()
-			if outer, inner := perm(t, folder), perm(t, filepath.Join(folder, "scripts")); outer != inner || outer&0o055 != 0o055 {
-				t.Fatalf("%s: folder mode = %v, scripts = %v; want the folder as open as its subfolders (0755 under umask 022)", step, outer, inner)
+			if outer, inner := perm(t, folder), perm(t, filepath.Join(folder, "scripts")); outer != inner || outer != open {
+				t.Fatalf("%s: folder mode = %v, scripts = %v; want both %v", step, outer, inner, open)
 			}
 		}
 
@@ -88,7 +99,7 @@ func TestStagedFoldersAreAsOpenAsTheirSubfolders(t *testing.T) {
 func TestCopiedFoldersKeepTheirModes(t *testing.T) {
 	for _, mode := range []os.FileMode{0o700, 0o750, 0o755} {
 		t.Run(mode.String(), func(t *testing.T) {
-			forEachSystem(t, func(t *testing.T, at func(string) string) {
+			forEachSystem(t, func(t *testing.T, at func(string) string, _ os.FileMode) {
 				ctx := t.Context()
 				home := tempDir(t)
 				source := filepath.Join(home, ".agents/skills/shared")
@@ -127,4 +138,67 @@ func TestCopiedFoldersKeepTheirModes(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestStageDirectoriesStartWithTheRequestedMode(t *testing.T) {
+	forEachSystem(t, func(t *testing.T, at func(string) string, open os.FileMode) {
+		directory := filepath.Join(tempDir(t), ".claude/skills")
+		for mode, want := range map[fs.FileMode]fs.FileMode{0o700: 0o700, 0o755: open} {
+			stage := filepath.Join(directory, ".alpha-"+mode.String())
+			if err := on(at(directory)).mkdirStage(at(directory), at(stage), mode); err != nil {
+				t.Fatal(err)
+			}
+			if got := perm(t, stage); got != want {
+				t.Fatalf("stage for %v = %v; want %v", mode, got, want)
+			}
+		}
+	})
+}
+
+func TestCopyKeepsItsStagePrivateUntilTheCopyFinishes(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads unreadable files")
+	}
+	ctx := t.Context()
+	home := tempDir(t)
+	source := filepath.Join(home, ".agents/skills/private")
+	write(t, filepath.Join(source, "SKILL.md"), "x", 0o644)
+	write(t, filepath.Join(source, "unreadable"), "x", 0o000)
+	if err := os.Chmod(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	skills := filepath.Join(home, ".claude/skills")
+
+	change := Change{}
+	if err := change.Copy(ctx, source, skills, "private"); err == nil {
+		t.Fatal("copy of an unreadable file succeeded")
+	}
+	if got := perm(t, change.placements[0].stage); got != 0o700 {
+		t.Fatalf("half-copied stage mode = %v; want 0700 so the copied files stay private", got)
+	}
+	if err := change.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if entries, _ := os.ReadDir(skills); len(entries) != 0 {
+		t.Fatalf("leftovers: %v", entries)
+	}
+}
+
+func TestStageRejectsFolderNamesOutsideTheDirectory(t *testing.T) {
+	forEachSystem(t, func(t *testing.T, at func(string) string, _ os.FileMode) {
+		root := tempDir(t)
+		skills := filepath.Join(root, ".claude/skills")
+		for _, name := range []string{"", ".", "..", "../escape", "a/b", `a\b`} {
+			change := Change{}
+			if err := change.Stage(t.Context(), at(skills), name, nil); err == nil {
+				t.Fatalf("Stage(%q) succeeded", name)
+			}
+		}
+		if _, err := os.Stat(skills); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("rejected names still created %s: %v", skills, err)
+		}
+		if entries, _ := os.ReadDir(filepath.Join(root, ".claude")); len(entries) != 0 {
+			t.Fatalf("rejected names left %v", entries)
+		}
+	})
 }

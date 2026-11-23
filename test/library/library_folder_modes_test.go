@@ -14,7 +14,21 @@ import (
 // 和用 npx skills、git clone 或手动拷贝放进 Agent 目录的一致，同一台机器上的其他用户也读得到。
 // 改 Agent 目录时迁移过去的文件夹保留原来的权限。
 
-func requireFolderModeLikeSubfolder(t *testing.T, folder string) {
+// openMode 返回这个进程按 0755 建目录时实际得到的权限，即受 umask 约束后的结果。
+func openMode(t *testing.T) os.FileMode {
+	t.Helper()
+	probe := filepath.Join(t.TempDir(), "probe")
+	if err := os.Mkdir(probe, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(probe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.Mode().Perm()
+}
+
+func requireFolderModeLikeSubfolder(t *testing.T, folder string, want os.FileMode) {
 	t.Helper()
 	outer, err := os.Stat(folder)
 	if err != nil {
@@ -24,8 +38,8 @@ func requireFolderModeLikeSubfolder(t *testing.T, folder string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if outer.Mode().Perm() != inner.Mode().Perm() || outer.Mode().Perm()&0o055 != 0o055 {
-		t.Fatalf("%s mode = %v, scripts = %v; want the folder as open as its subfolders (755 under umask 022)", folder, outer.Mode().Perm(), inner.Mode().Perm())
+	if outer.Mode().Perm() != want || inner.Mode().Perm() != want {
+		t.Fatalf("%s mode = %v, scripts = %v; want both %v", folder, outer.Mode().Perm(), inner.Mode().Perm(), want)
 	}
 }
 
@@ -38,8 +52,8 @@ func requireFolderMode(t *testing.T, folder string, want os.FileMode) {
 }
 
 // installUpdateRollback 从 source 入库一个带 scripts/ 的技能，装到 Claude Code 全局，改来源后更新并连带重新安装那一处，
-// 再回滚那次更新;每一步都核对 folder 的最外层权限。
-func installUpdateRollback(t *testing.T, lib *library.Library, source, sourceInput, folder string) {
+// 再回滚那次更新;每一步都核对 folder 的最外层和 scripts/ 都是 want。
+func installUpdateRollback(t *testing.T, lib *library.Library, source, sourceInput, folder string, want os.FileMode) {
 	t.Helper()
 	ctx := t.Context()
 	writeLocalSkill(t, source, "v1")
@@ -52,7 +66,7 @@ func installUpdateRollback(t *testing.T, lib *library.Library, source, sourceInp
 	if err := lib.Install(ctx, skill.ID, claude, library.InstallOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	requireFolderModeLikeSubfolder(t, folder)
+	requireFolderModeLikeSubfolder(t, folder, want)
 
 	writeLocalSkill(t, source, "v2")
 	request := mustPlanUpdate(t, lib, skill.ID)
@@ -61,13 +75,13 @@ func installUpdateRollback(t *testing.T, lib *library.Library, source, sourceInp
 	if err != nil || len(result.Installs) != 1 || result.Installs[0].Outcome != library.Reinstalled {
 		t.Fatalf("Update = %#v, %v", result, err)
 	}
-	requireFolderModeLikeSubfolder(t, folder)
+	requireFolderModeLikeSubfolder(t, folder, want)
 
 	rollback, err := lib.Rollback(ctx, result.Record)
 	if err != nil || len(rollback.Installs) != 1 || rollback.Installs[0].Outcome != library.RollbackReinstalled {
 		t.Fatalf("Rollback = %#v, %v", rollback, err)
 	}
-	requireFolderModeLikeSubfolder(t, folder)
+	requireFolderModeLikeSubfolder(t, folder, want)
 	requireNoStagedEntries(t, filepath.Dir(folder))
 }
 
@@ -77,15 +91,7 @@ func TestInstallUpdateRollbackWriteFoldersAsOpenAsTheirSubfolders(t *testing.T) 
 	setTestHome(t, home)
 	lib := openTestLibrary(t)
 	source := filepath.Join(t.TempDir(), "runner")
-	installUpdateRollback(t, lib, source, source, filepath.Join(scopeDirectory(t, lib, library.GlobalScope(library.AgentClaudeCode)), "runner"))
-}
-
-func TestInstallUpdateRollbackWithoutFileModesWriteFoldersAsOpenAsTheirSubfolders(t *testing.T) {
-	setTestHome(t, t.TempDir())
-	lib := openTestLibrary(t)
-	withoutFileModes(t)
-	source := filepath.Join(t.TempDir(), "runner")
-	installUpdateRollback(t, lib, source, source, filepath.Join(scopeDirectory(t, lib, library.GlobalScope(library.AgentClaudeCode)), "runner"))
+	installUpdateRollback(t, lib, source, source, filepath.Join(scopeDirectory(t, lib, library.GlobalScope(library.AgentClaudeCode)), "runner"), openMode(t))
 }
 
 func TestWSLDistroInstallUpdateRollbackWriteFoldersAsOpenAsTheirSubfolders(t *testing.T) {
@@ -98,7 +104,8 @@ func TestWSLDistroInstallUpdateRollbackWriteFoldersAsOpenAsTheirSubfolders(t *te
 		t.Fatal(err)
 	}
 	source = filepath.Join(source, "runner")
-	installUpdateRollback(t, lib, source, wslPath(t, source), filepath.Join(home, ".claude/skills/runner"))
+	// 发行版里的常驻 shell 固定 umask 022。
+	installUpdateRollback(t, lib, source, wslPath(t, source), filepath.Join(home, ".claude/skills/runner"), 0o755)
 }
 
 // 旧版装出的 700 文件夹和用户自己设成 750 的文件夹，迁移到新目录后都还是原来的权限。
