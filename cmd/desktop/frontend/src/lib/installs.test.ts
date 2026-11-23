@@ -28,6 +28,7 @@ import {
   reinstallAlerts,
   reinstallLevel,
   placesIn,
+  skillCount,
 } from "./installs";
 import { scopeKey } from "./scope";
 
@@ -53,6 +54,7 @@ describe("placesIn", () => {
     const key = scopeKey(where(AgentCode.AgentClaudeCode) as Scope);
     expect(placesIn(s, key)).toEqual([mine, shared, theirs]);
     expect(reinstallLevel(placesIn(s, key))).toBe("critical");
+    expect(skillCount(placesIn(s, key))).toBe(2);
   });
 });
 

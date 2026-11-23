@@ -4,7 +4,7 @@ import { useT } from "@/lib/i18n";
 import { useSnapshot } from "@/lib/library";
 import { agentName, parseScope, placeOf, projectName, scopeOf, type ScopeKey } from "@/lib/scope";
 import { agentNameIn, directoriesAt, scopeLabel, scopeReaders } from "@/lib/places";
-import { groupInstallIn, groupStateIn, editedHere, needsRepair, reinstallLevel, skillScopeIn, placesIn } from "@/lib/installs";
+import { groupInstallIn, groupStateIn, editedHere, needsRepair, reinstallLevel, skillCount, skillScopeIn, placesIn } from "@/lib/installs";
 import { joinUnder, shortPath, wslTitle } from "@/lib/paths";
 import { extraCopy, splitIdentical, unmanagedIn, fetchable } from "@/lib/unmanaged";
 import type { Level } from "@/lib/level";
@@ -86,7 +86,7 @@ export function ScopeSummary({ scope, directory, here, global }: { scope: ScopeK
             {directory ? directories.map((d) => shortPath(s, d)).join(t.directorySeparator) : "…"}
           </span>
         </span>
-        <Stat value={installed.length} label={t.statInstalled} />
+        <Stat value={skillCount(installed)} label={t.statInstalled} />
         {identical > 0 && <Stat value={identical} label={t.statIdentical} />}
         {unmanaged > 0 && <Stat value={unmanaged} label={t.statNotInLibrary} />}
         {global > 0 && <Stat value={global} label={t.statGlobal} />}

@@ -25,6 +25,11 @@ export function placesIn(s: Snapshot, key: ScopeKey): SkillScopeInspection[] {
   );
 }
 
+// skillCount 是这几处装着几个技能：合成一处的几个 Agent 把同一个技能各自装在不同目录时只算一个(作用域摘要的「已安装」,和标题的技能数一致)。
+export function skillCount(places: readonly { skill_id: number }[]): number {
+  return new Set(places.map((p) => p.skill_id)).size;
+}
+
 // placesAt 是一个技能在这个作用域的各处(见 placesIn):合成一处的几个 Agent 各自装在不同目录时有几处。
 export function placesAt(s: Snapshot, skillID: number, key: ScopeKey): SkillScopeInspection[] {
   return placesIn(s, key).filter((p) => p.skill_id === skillID);
