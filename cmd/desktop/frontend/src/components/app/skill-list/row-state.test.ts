@@ -179,6 +179,28 @@ describe("作用域页一行的状态", () => {
     expect(scopeRow(s, x, where).plain).toEqual({ text: "直接安装 + 随「文档」安装" });
   });
 
+  it("合成一处的几个 Agent 各自装在不同目录时，任何一个 Agent 那一份提到的技能找不到都提醒", () => {
+    // 项目里 Claude Code、Codex 的目录都是 [d1, d2],合成一处;entry 装在 Claude Code 的 d1 和 Codex 的 d2,只有 Codex 那边找不到 ship。
+    const merged = agents.map((a) => ({ ...a, project_directories: ["d1", "d2"] }));
+    const x = skill(1, "entry");
+    const mine = installed(1, at(claude, 1), { folder: "/p/d1/entry" });
+    const theirs = installed(1, at(codex, 1), { folder: "/p/d2/entry" });
+    const missingMentions = [{ skill_id: 1, scope: at(codex, 1), name: "ship" }] as MissingMention[];
+    const s = snapshot({ agents: merged, skills: [x], skillScopes: [mine, theirs], missingMentions });
+    expect(scopeRow(s, x, here).alerts.map((a) => a.className)).toContain("mentions-missing");
+  });
+
+  it("项目里合成一处、全局目录不同时，来自全局的一行看几个 Agent 各自全局的那一份", () => {
+    const merged = agents.map((a) => ({ ...a, project_directories: [".agents/skills"] }));
+    const x = skill(1, "pdf");
+    const s = snapshot({
+      agents: merged,
+      skills: [x],
+      skillScopes: [installed(1, at(claude)), installed(1, at(codex), { status: SkillScopeStatus.SkillScopeMissing })],
+    });
+    expect(labels(scopeRow(s, x, { ...here, fromGlobal: true }))).toEqual(["文件夹不在了"]);
+  });
+
   it("来自全局的写来自全局，说的是全局那一处", () => {
     const x = skill(1, "pdf");
     const global = installed(1, at(claude), { status: SkillScopeStatus.SkillScopeStale });

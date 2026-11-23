@@ -11,9 +11,9 @@ import { byLevel, byUrgency, type Mark } from "@/lib/level";
 import type { Snapshot } from "@/lib/library";
 import { missingAt, missingNames } from "@/lib/mentions";
 import { shortPath } from "@/lib/paths";
-import { globalScopesSeenFrom, placeLabel } from "@/lib/places";
+import { eachPlace, globalScopesSeenFrom, placeLabel } from "@/lib/places";
 import { sameNameInLibrary, sameNameNote, skillSameNameNote } from "@/lib/same-name";
-import { groupName, parseScope, scopeKey, type ScopeKey } from "@/lib/scope";
+import { groupName, scopeKey, type ScopeKey } from "@/lib/scope";
 import { sourceState } from "@/lib/source-state";
 import { extraCopyNote, folderNotes, identicalIn, identicalState, notTakenOver, skillFileProblemText, unmanagedIn } from "@/lib/unmanaged";
 
@@ -80,8 +80,15 @@ export function rowInstall(s: Snapshot, skill: Skill, at?: RowAt): RowInstall {
   const hereAll = at.fromGlobal ? [] : skillScopesAt(s, skill.id, at.scope);
   const here = at.fromGlobal ? undefined : (skillScopeIn(s, skill.id, at.scope) ?? hereAll[0]);
   const identical = !here && !at.fromGlobal ? identicalIn(s, at.scope, skill.id) : undefined;
-  const place = at.fromGlobal ? globalScopesSeenFrom(s, at.scope).map((key) => skillScopeIn(s, skill.id, key)).find(Boolean) : here;
-  const places = at.fromGlobal ? (place ? [place] : []) : hereAll;
+  // 来自全局的：合成一处的几个 Agent 各自的全局都算(它们的全局目录可以不同),同一个文件夹只算一处。
+  const globals = at.fromGlobal
+    ? eachPlace(
+        s,
+        globalScopesSeenFrom(s, at.scope).flatMap((key) => skillScopeIn(s, skill.id, key) ?? []),
+      )
+    : [];
+  const place = at.fromGlobal ? globals[0] : here;
+  const places = at.fromGlobal ? globals : hereAll;
   const groups = [...new Set(places.flatMap((p) => p.groups ?? []))];
   return {
     at,
@@ -102,8 +109,9 @@ export function skillRowState(s: Snapshot, skill: Skill, install: RowInstall, el
   const t = messages().list;
   const { at, here, identical, foreign } = install;
   // 作用域页说这一处的同名后果;技能库页说它装出去的各处。
-  const folder = here?.folder ?? identical?.folder;
-  const same = at ? (folder ? sameNameNote(s, at.scope, folder) : undefined) : skillSameNameNote(s, skill.id);
+  // 合成一处的几个 Agent 各自装在不同目录时，每个文件夹的同名都说。
+  const folders = install.places.length && !at?.fromGlobal ? install.places.map((p) => p.folder) : here ? [here.folder] : identical ? [identical.folder] : [];
+  const same = at ? joinNotes(folders.map((folder) => sameNameNote(s, at.scope, folder))) : skillSameNameNote(s, skill.id);
   const own = [same && sameNameAlert(same), sameNameCopiesAlert(skill.name, elsewhere)];
   const alerts = [...own, ...(foreign ? [] : skillAlerts(s, skill, install))].filter((x): x is RowAlert => !!x);
   if (!at) return { alerts: inOrder(alerts, true), plain: sourceState(skill).kept ? { text: t.keptDeleted, title: t.keptDeletedTitle } : undefined };
@@ -125,7 +133,7 @@ function skillAlerts(s: Snapshot, skill: Skill, { at, here, places: covered }: R
   const twins = sameNameInLibrary(s, skill);
   // 装在这里的技能提到的、在这里找不到的技能(按规则和已存下的 AI 判断结论)。
   // 目录列表相同、合成一处的几个 Agent 是一行，它们各自找不到的都算(见 lib/mentions 的 missingAt)。
-  const unfound = at && here ? missingAt(s, s.missingMentions, [{ skill_id: skill.id, scope: parseScope(at.scope) }]) : [];
+  const unfound = at && here ? missingAt(s, s.missingMentions, covered.map((p) => ({ skill_id: skill.id, scope: p.scope }))) : [];
   // 装在这里的技能，这里还有和它一样的文件夹(多出来的几份，见 lib/unmanaged 的 extraCopy):提示一下，悬停写出它们在哪里。
   const extras = at && here ? unmanagedIn(s, at.scope).filter((u) => u.skill_id === skill.id) : [];
   const extra = here && extras.length > 0 ? extraCopyNote(skill, here) : undefined;
@@ -161,6 +169,14 @@ function placeAlerts(s: Snapshot, places: SkillScopeInspection[]): RowAlert[] {
     by.set(st.label, had ? { ...had, tip: [had.tip, at].filter(Boolean).join("\n") } : ({ ...st, tip: at } as RowAlert));
   }
   return [...by.values()];
+}
+
+// joinNotes 把几个文件夹的同名说明合成一条(相同的只写一次);都没有时为 undefined。
+function joinNotes(notes: ({ text: string; title: string } | undefined)[]): { text: string; title: string } | undefined {
+  const found = notes.filter((n): n is { text: string; title: string } => !!n);
+  if (!found.length) return undefined;
+  const join = (xs: string[]) => [...new Set(xs)].join("\n");
+  return { text: join(found.map((n) => n.text)), title: join(found.map((n) => n.title)) };
 }
 
 // updateAlerts 是一个技能和更新有关的要处理的事，技能库页一行的状态和更新页「要处理的技能」共用一份:
