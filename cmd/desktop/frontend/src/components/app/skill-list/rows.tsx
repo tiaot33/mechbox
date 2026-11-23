@@ -122,7 +122,7 @@ export function SkillRow(props: {
     const sc = parseScope(scope);
     // 只随组安装的：开关不改安装，说明随哪个组装、怎样在这里不用它。合成一处的几个 Agent 各自装在不同目录时，关掉卸载其中每一处的直接安装。
     if (here && !direct) return ui.toast(t.list.groupOnly(skill.name, via));
-    void (here ? uninstallSkill(skill.id, sc) : installSkill(skill.id, sc));
+    void (here ? uninstallSkill(skill.id, sc, true) : installSkill(skill.id, sc));
   };
 
   const layout = layouts[scope ? "scope" : "library"];

@@ -284,18 +284,24 @@ describe("合成一处的几个 Agent 各自装在不同目录时卸载", () => 
   const mine = place(1, global(claude), { folder: "/home/.dir1/s1" });
   const theirs = place(1, global(codex), { folder: "/home/.dir2/s1" });
 
-  it("开关关掉一处时两处的直接安装都撤，两个文件夹都删", () => {
+  it("作用域页一行的开关关掉时两处的直接安装都撤，两个文件夹都删", () => {
     const s = snapshot({ agents: merged, skills: [skill(1)], skillScopes: [mine, theirs] });
-    const r = uninstallPlace(s, 1, global(claude));
+    const r = uninstallPlace(s, 1, global(claude), true);
     expect(r.direct).toEqual([mine, theirs]);
     expect(r.deleted).toEqual([mine, theirs]);
     expect(r.shared).toEqual([]);
   });
 
+  it("技能详情里按文件夹分开的一行只撤这一处，另一个 Agent 的文件夹留着", () => {
+    const s = snapshot({ agents: merged, skills: [skill(1)], skillScopes: [mine, theirs] });
+    expect(uninstallPlace(s, 1, global(claude))).toMatchObject({ direct: [mine], deleted: [mine] });
+    expect(uninstallPlace(s, 1, global(codex))).toMatchObject({ direct: [theirs], deleted: [theirs] });
+  });
+
   it("另一处只随组安装时只撤有直接安装的那一处，它的文件夹留着", () => {
     const viaGroup = { ...theirs, direct: false, groups: [5] };
     const s = snapshot({ agents: merged, skills: [skill(1)], skillScopes: [mine, viaGroup] });
-    expect(uninstallPlace(s, 1, global(claude))).toMatchObject({ direct: [mine], deleted: [mine] });
+    expect(uninstallPlace(s, 1, global(claude), true)).toMatchObject({ direct: [mine], deleted: [mine] });
   });
 
   it("勾选卸载时两处都算", () => {

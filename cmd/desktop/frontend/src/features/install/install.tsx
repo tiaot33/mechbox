@@ -305,14 +305,16 @@ async function installEach(items: InstallItem[], title: string, done: string): P
   return installed > 0;
 }
 
-export async function uninstallSkill(id: SkillID, scope: Scope) {
+// uninstallSkill 撤销技能在 scope 的直接安装。merged 是作用域页一行的开关：合成一处里各 Agent 各自装在不同目录的每一处都撤;
+// 技能详情里按文件夹分开的一行只撤这一处(见 uninstallPlace)。
+export async function uninstallSkill(id: SkillID, scope: Scope, merged = false) {
   const s = currentSnapshot();
   const t = messages().actions;
   // 全局共用目录：从其中一个卸载会撤销共用的各个 Agent 的直接安装，文件夹随之删除，先说明还有哪些 Agent 在用。
   // 目录列表相同、合成一处的几个 Agent 在界面上本来就是一处、名字里写着它们，不再另说。
   // 别处的符号链接指着这个文件夹时，删之前库先给那几处换上独立的一份，也先说明。
   // 文件夹被手动改过时，卸载会把修改一起删掉，先列出是哪几处。没有组安装留着时文件夹才删。
-  const plan = uninstallPlace(s, id, scope);
+  const plan = uninstallPlace(s, id, scope, merged);
   const { place, shared, deleted } = plan;
   const unfound = await lostMentions(deleted);
   if (place && asksBeforeUninstall(plan, unfound)) {
