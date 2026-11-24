@@ -658,9 +658,6 @@ func (l *Library) DeleteAgent(ctx context.Context, code AgentCode, opts DeleteAg
 	return l.deleteAgents(ctx, operation, []AgentCode{code}, opts, nil)
 }
 
-// agentRemoval 是一次移除的几个 Agent 会怎样:它们当一批算,还在读的 Agent 只算这一批以外的已添加 Agent。
-// kept 是还有这一批以外的 Agent 在读、总是保留的(SharedWith 为那些 Agent),handOver 是其中要把记录转交出去的;
-// owned 是只有这一批在读、为它们装的,按选项删除或保留;heirs 是各 Agent 每个层级的组安装转给谁。
 type agentRemoval struct {
 	heirs    map[AgentCode]map[bool]AgentCode
 	handOver []agentInstall

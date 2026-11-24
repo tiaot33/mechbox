@@ -297,6 +297,9 @@ export enum AuditStatus {
      */
     $zero = "",
 
+    /**
+     * AuditStatus 的已知取值。
+     */
     AuditPass = "pass",
     AuditWarn = "warn",
     AuditFail = "fail",

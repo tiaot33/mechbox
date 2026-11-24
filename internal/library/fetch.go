@@ -59,6 +59,7 @@ const (
 // AuditStatus 是 skills.sh 归一化后的合作方结论;文档三值以常量暴露,未知值原样透传。
 type AuditStatus string
 
+// AuditStatus 的已知取值。
 const (
 	AuditPass AuditStatus = "pass"
 	AuditWarn AuditStatus = "warn"
