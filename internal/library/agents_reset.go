@@ -195,8 +195,6 @@ func (l *Library) ResetAgents(ctx context.Context, opts ResetAgentsOptions) (res
 	return result, nil
 }
 
-// resetBatch 是恢复默认要动的 Agent:removed 是已添加的手填 Agent(当一批移除),edited 是和内置值不一样的已添加收录 Agent,
-// pooled 是和内置值不一样的候选池里的收录 Agent,defaults 是各收录 Agent 的内置值。
 type resetBatch struct {
 	removed  []AgentCode
 	edited   []AgentCode
@@ -226,7 +224,6 @@ func (l *Library) resetBatch(rows []store.Agent) resetBatch {
 	return batch
 }
 
-// final 是恢复默认之后已添加的 Agent:手填的移除了,收录的换成内置值。
 func (b resetBatch) final(rows []store.Agent) []store.Agent {
 	var final []store.Agent
 	for _, row := range rows {
